@@ -571,12 +571,19 @@
     // ═══════════════════════════════════════════════════════════════
     // MENSAJES UI
     // ═══════════════════════════════════════════════════════════════
+    const shownMessages = new Set(); // evitar duplicados del historial + realtime
+
     function addMessage(payload) {
       const div = document.createElement('div');
       if (typeof payload === 'object' && payload.author) {
+        // Deduplicar: si viene con ts (de DB) usarlo como key
+        if (payload.ts) {
+          if (shownMessages.has(payload.ts)) return;
+          shownMessages.add(payload.ts);
+        }
         div.className = 'message';
-        const now  = new Date();
-        const time = now.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+        const ts   = payload.ts ? new Date(payload.ts) : new Date();
+        const time = ts.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
         const header = document.createElement('div');
         header.className = 'message-header';
         const authorEl = document.createElement('span');
@@ -667,11 +674,14 @@
         renderVoiceUsers();
       });
 
-      // ── Broadcast: chat + señalización WebRTC ──
-      realtimeChannel.on('broadcast', { event: 'chat' }, ({ payload }) => {
-        if (payload.from === myId) return; // ignorar los propios
-        addMessage({ author: payload.author, text: payload.text });
-      });
+      // ── Chat via DB Realtime (persistente) ──
+      sb.channel('db-messages')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, ({ new: row }) => {
+          addMessage({ author: row.author, text: row.text, ts: row.created_at });
+        })
+        .subscribe();
+
+      // ── Broadcast: señalización WebRTC ──
 
       realtimeChannel.on('broadcast', { event: 'voice-joined' }, ({ payload }) => {
         if (payload.id === myId) return;
@@ -726,6 +736,7 @@
       realtimeChannel.subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           showToast('Conectado', true);
+          await loadHistory();
           // Anunciar presencia
           await broadcastPresence();
           // Pedir estado actual de voz a los demás
@@ -759,19 +770,26 @@
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // CHAT
+    // CHAT — persistente en Supabase
     // ═══════════════════════════════════════════════════════════════
+    async function loadHistory() {
+      const { data, error } = await sb
+        .from('messages')
+        .select('author, text, created_at')
+        .order('created_at', { ascending: true })
+        .limit(100);
+      if (error) { console.warn('Error cargando historial:', error.message); return; }
+      data.forEach(row => addMessage({ author: row.author, text: row.text, ts: row.created_at }));
+    }
+
     form.addEventListener('submit', async e => {
       e.preventDefault();
       const text = input.value.trim().slice(0, 1000);
-      if (!text || !realtimeChannel) return;
-      // Mostrar localmente de inmediato
-      addMessage({ author: username, text });
+      if (!text) return;
       input.value = '';
-      await realtimeChannel.send({
-        type: 'broadcast', event: 'chat',
-        payload: { from: myId, author: username, text }
-      });
+      // Guardar en DB — el Realtime lo distribuye automáticamente a todos
+      const { error } = await sb.from('messages').insert({ author: username, text });
+      if (error) console.warn('Error enviando mensaje:', error.message);
     });
 
     // ═══════════════════════════════════════════════════════════════
@@ -844,6 +862,10 @@
         rtcpMuxPolicy: 'require',
       });
 
+      // Añadir transceiver de vídeo recvonly desde el inicio
+      // Esto garantiza que el receptor pueda recibir vídeo aunque no lo envíe
+      pc.addTransceiver('video', { direction: 'recvonly' });
+
       pc.onnegotiationneeded = async () => {
         if (pc.signalingState !== 'stable') return;
         try {
@@ -899,14 +921,30 @@
 
     async function ensureLocalStreamsForPeer(peerId) {
       const pc = createPeerConnection(peerId);
+      // Audio del micrófono
       if (localStream) {
-        localStream.getTracks().forEach(track => {
+        localStream.getAudioTracks().forEach(track => {
           const already = pc.getSenders().some(s => s.track && s.track.id === track.id);
           if (!already) pc.addTrack(track, localStream);
         });
       }
+      // Vídeo de pantalla: usar el transceiver recvonly existente y cambiarlo a sendrecv
       if (screenStream) {
-        screenStream.getTracks().forEach(track => {
+        const videoTrack = screenStream.getVideoTracks()[0];
+        if (videoTrack) {
+          const transceiver = pc.getTransceivers().find(t =>
+            t.receiver.track.kind === 'video' && t.direction === 'recvonly'
+          );
+          if (transceiver) {
+            await transceiver.sender.replaceTrack(videoTrack);
+            transceiver.direction = 'sendrecv';
+          } else {
+            const alreadySending = pc.getSenders().some(s => s.track && s.track.id === videoTrack.id);
+            if (!alreadySending) pc.addTrack(videoTrack, screenStream);
+          }
+        }
+        // Audio del sistema si lo hay
+        screenStream.getAudioTracks().forEach(track => {
           const already = pc.getSenders().some(s => s.track && s.track.id === track.id);
           if (!already) pc.addTrack(track, screenStream);
         });
