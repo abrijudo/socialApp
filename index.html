@@ -194,47 +194,71 @@
     .topbar-separator { width: 1px; height: 24px; background: var(--border); margin: 0 4px; }
     .topbar-topic { font-size: 13px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-    /* screen share */
-    #screen-container { display: none; flex-direction: column; background: #000; position: relative; }
-    .screen-header {
-      position: absolute; top: 0; left: 0; right: 0;
-      padding: 8px 12px; background: linear-gradient(to bottom,rgba(0,0,0,.8),transparent);
-      display: flex; align-items: center; gap: 8px; z-index: 2;
-      opacity: 0; transition: opacity .2s;
+    /* streams grid */
+    #streams-container {
+      display: flex; flex-direction: column; gap: 0;
+      max-height: 45vh; overflow-y: auto;
     }
-    #screen-container:hover .screen-header { opacity: 1; }
+    #streams-container:empty { display: none; }
+
+    .stream-card {
+      position: relative; background: #000;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .stream-card-header {
+      position: absolute; top: 0; left: 0; right: 0;
+      padding: 6px 10px;
+      background: linear-gradient(to bottom, rgba(0,0,0,.75), transparent);
+      display: flex; align-items: center; gap: 6px;
+      z-index: 2; opacity: 0; transition: opacity .2s;
+    }
+    .stream-card:hover .stream-card-header { opacity: 1; }
+    .stream-card-footer {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      padding: 6px 10px;
+      background: linear-gradient(to top, rgba(0,0,0,.75), transparent);
+      display: flex; align-items: center; gap: 6px;
+      z-index: 2; opacity: 0; transition: opacity .2s;
+    }
+    .stream-card:hover .stream-card-footer { opacity: 1; }
+
     .screen-live-badge {
       display: inline-flex; align-items: center; gap: 4px;
       background: var(--red); color: white;
       font-size: 10px; font-weight: 700; letter-spacing: .05em;
-      padding: 2px 7px; border-radius: 3px;
+      padding: 2px 6px; border-radius: 3px;
     }
     .screen-live-dot {
       width: 5px; height: 5px; border-radius: 50%; background: white;
       animation: livePulse 1.2s ease infinite;
     }
     @keyframes livePulse { 0%,100%{opacity:1} 50%{opacity:.25} }
-    .screen-stats { font-size: 11px; color: rgba(255,255,255,.7); font-family: monospace; }
-    .screen-header-actions { margin-left: auto; display: flex; gap: 6px; }
-    .screen-ctrl-btn {
-      height: 28px; padding: 0 10px; border-radius: var(--radius); border: none;
+
+    .stream-author {
+      font-size: 12px; font-weight: 600; color: white;
+    }
+    .stream-stats {
+      font-size: 10px; color: rgba(255,255,255,.6); font-family: monospace; margin-left: auto;
+    }
+    .stream-ctrl-btn {
+      height: 26px; padding: 0 8px; border-radius: var(--radius); border: none;
       background: rgba(255,255,255,.15); color: white;
-      font-size: 12px; font-weight: 500; cursor: pointer; transition: background .1s;
+      font-size: 11px; font-weight: 500; cursor: pointer; transition: background .1s;
+      font-family: inherit;
     }
-    .screen-ctrl-btn:hover { background: rgba(255,255,255,.25); }
-    .screen-ctrl-btn.danger { background: rgba(237,66,69,.5); }
-    .screen-ctrl-btn.danger:hover { background: rgba(237,66,69,.8); }
-    .screen-video-wrapper {
-      position: relative; min-height: 200px; max-height: 45vh;
-      background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden;
+    .stream-ctrl-btn:hover { background: rgba(255,255,255,.3); }
+    .stream-ctrl-btn.danger { background: rgba(237,66,69,.5); }
+    .stream-ctrl-btn.danger:hover { background: rgba(237,66,69,.8); }
+    .stream-ctrl-btn.muted { background: rgba(255,255,255,.08); color: rgba(255,255,255,.45); }
+
+    .stream-video {
+      width: 100%; display: block; object-fit: contain;
+      background: #000; max-height: 40vh; min-height: 160px;
     }
-    #screen-video {
-      width: 100%; height: 100%; max-height: 45vh;
-      display: block; object-fit: contain; background: #000;
-    }
-    #screen-video:fullscreen, #screen-video:-webkit-full-screen, #screen-video:-moz-full-screen {
+    .stream-video:fullscreen, .stream-video:-webkit-full-screen {
       width: 100vw !important; height: 100vh !important;
-      max-height: none !important; object-fit: fill !important; background: #000;
+      max-height: none !important; object-fit: fill !important;
     }
 
     /* messages */
@@ -392,20 +416,8 @@
       <span class="topbar-topic">Chat de texto del servidor</span>
     </div>
 
-    <!-- Screen share -->
-    <div id="screen-container" class="screen-container">
-      <div class="screen-header">
-        <span class="screen-live-badge"><span class="screen-live-dot"></span>EN VIVO</span>
-        <span id="screen-stats" class="screen-stats"></span>
-        <div class="screen-header-actions">
-          <button class="screen-ctrl-btn" id="screen-size-toggle">⤢ Pantalla completa</button>
-          <button class="screen-ctrl-btn danger" id="screen-stop-btn">✕ Detener</button>
-        </div>
-      </div>
-      <div class="screen-video-wrapper" id="screen-video-wrapper">
-        <video id="screen-video" autoplay playsinline muted></video>
-      </div>
-    </div>
+    <!-- Streams activos (multi-stream) -->
+    <div id="streams-container"></div>
 
     <div id="messages" class="messages"></div>
 
@@ -506,15 +518,11 @@
     const voiceToggle        = document.getElementById('voice-toggle');
     const voiceStatusEl      = document.getElementById('voice-status');
     const voiceUsersList     = document.getElementById('voice-users-list');
-    const screenToggle       = document.getElementById('screen-toggle');
-    const screenContainer    = document.getElementById('screen-container');
-    const screenVideo        = document.getElementById('screen-video');
-    const screenSizeToggle   = document.getElementById('screen-size-toggle');
+    const screenToggle           = document.getElementById('screen-toggle');
     const screenResolutionSelect = document.getElementById('screen-resolution');
-    const screenBitrateInput = document.getElementById('screen-bitrate');
-    const screenApplyButton  = document.getElementById('screen-apply');
-    const screenStatsEl      = document.getElementById('screen-stats');
-    const screenBitratePreset = document.getElementById('screen-bitrate-preset');
+    const screenBitrateInput     = document.getElementById('screen-bitrate');
+    const screenApplyButton      = document.getElementById('screen-apply');
+    const screenBitratePreset    = document.getElementById('screen-bitrate-preset');
     const voiceDot           = document.getElementById('voice-dot');
     const chanVoice          = document.getElementById('chan-voice');
     const connToast          = document.getElementById('conn-toast');
@@ -865,33 +873,32 @@
         }
       };
 
+      // Guardar tracks remotos por tipo para armar la card
+      const remoteTracks = { audio: null, video: null };
+
       pc.ontrack = (event) => {
-        if (event.track.kind === 'audio') {
-          const audioId = `audio-${peerId}-${event.track.id.slice(0, 8)}`;
-          let audio = document.getElementById(audioId);
-          if (!audio) {
-            audio = document.createElement('audio');
-            audio.id = audioId;
-            audio.autoplay = true;
-            audio.playsInline = true;
-            document.body.appendChild(audio);
+        const track = event.track;
+        if (track.kind === 'audio') {
+          remoteTracks.audio = track;
+          // Si ya hay vídeo, actualizar la card con el audio
+          if (remoteStreams[peerId]) {
+            remoteStreams[peerId].audioTrack = track;
+            const video = remoteStreams[peerId].card?.querySelector('.stream-video');
+            if (video) {
+              const tracks = [remoteStreams[peerId].videoTrack, track].filter(Boolean);
+              video.srcObject = new MediaStream(tracks);
+            }
           }
-          audio.srcObject = new MediaStream([event.track]);
-        } else if (event.track.kind === 'video') {
-          // Usar MediaStream con el track directamente — event.streams[0] puede estar vacío
-          // si el transceiver se negoció antes de que haya stream activo
-          if (event.track.readyState === 'live') {
-            screenVideo.srcObject = new MediaStream([event.track]);
-            screenContainer.style.display = 'flex';
-          }
-          event.track.onunmute = () => {
-            screenVideo.srcObject = new MediaStream([event.track]);
-            screenContainer.style.display = 'flex';
+        } else if (track.kind === 'video') {
+          remoteTracks.video = track;
+          // Mostrar cuando el track tenga datos reales
+          const show = () => {
+            if (track.readyState === 'ended') return;
+            upsertStreamCard(peerId, false, track, remoteTracks.audio);
           };
-          event.track.onended = () => {
-            screenVideo.srcObject = null;
-            screenContainer.style.display = 'none';
-          };
+          if (track.readyState === 'live') show();
+          track.onunmute = show;
+          track.onended = () => removeStreamCard(peerId);
         }
       };
 
@@ -1044,22 +1051,115 @@
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // PANTALLA COMPARTIDA
+    // STREAMS — múltiples transmisiones simultáneas
+    // Cada peer que transmite tiene su propia stream-card en el DOM
     // ═══════════════════════════════════════════════════════════════
-    function startStatsMonitor() {
-      if (statsInterval) return;
-      statsInterval = setInterval(() => {
-        if (!screenStream) return;
-        const track = screenStream.getVideoTracks()[0];
+    const streamsContainer = document.getElementById('streams-container');
+
+    // Mapa de streams remotos: peerId -> { videoTrack, audioTrack, card, audioMuted, statsInterval }
+    const remoteStreams = {};
+
+    // ── Stream propio (emisor) ──
+    function startStatsMonitor(peerId) {
+      if (remoteStreams[peerId]?.statsInterval) return;
+      const entry = remoteStreams[peerId];
+      if (!entry) return;
+      entry.statsInterval = setInterval(() => {
+        const track = entry.videoTrack;
         if (!track) return;
         const s = track.getSettings();
-        const txt = `${s.width||'?'}x${s.height||'?'}  ${s.frameRate ? Math.round(s.frameRate) : '?'}fps`;
-        screenStatsEl.textContent = txt;
+        const txt = `${s.width||'?'}x${s.height||'?'} ${s.frameRate ? Math.round(s.frameRate) : '?'}fps`;
+        const statsEl = entry.card?.querySelector('.stream-stats');
+        if (statsEl) statsEl.textContent = txt;
       }, 800);
     }
 
-    function stopStatsMonitor() {
-      clearInterval(statsInterval); statsInterval = null; screenStatsEl.textContent = '';
+    function stopStatsMonitor(peerId) {
+      const entry = remoteStreams[peerId];
+      if (!entry?.statsInterval) return;
+      clearInterval(entry.statsInterval);
+      entry.statsInterval = null;
+    }
+
+    // Crear o actualizar la card de un stream
+    function upsertStreamCard(peerId, isLocal, videoTrack, audioTrack) {
+      // Reutilizar si ya existe
+      if (remoteStreams[peerId]?.card) {
+        // Actualizar tracks si cambiaron
+        const entry = remoteStreams[peerId];
+        if (videoTrack) entry.videoTrack = videoTrack;
+        if (audioTrack) entry.audioTrack = audioTrack;
+        const video = entry.card.querySelector('.stream-video');
+        if (video && videoTrack) video.srcObject = new MediaStream([videoTrack]);
+        return;
+      }
+
+      const authorName = isLocal ? username : (allVoiceUsers.get(peerId)?.name || 'Alguien');
+      const entry = { videoTrack, audioTrack, card: null, audioMuted: false, statsInterval: null };
+      remoteStreams[peerId] = entry;
+
+      const card = document.createElement('div');
+      card.className = 'stream-card';
+      card.id = `stream-${peerId}`;
+
+      // Header (aparece al hover)
+      card.innerHTML = `
+        <div class="stream-card-header">
+          <span class="screen-live-badge"><span class="screen-live-dot"></span>EN VIVO</span>
+          <span class="stream-author">${authorName}</span>
+          <span class="stream-stats"></span>
+        </div>
+        <video class="stream-video" autoplay playsinline ${isLocal ? 'muted' : ''}></video>
+        <div class="stream-card-footer">
+          ${!isLocal ? `<button class="stream-ctrl-btn" data-mute>🔊 Audio</button>` : ''}
+          <button class="stream-ctrl-btn" data-fs>⤢ Pantalla completa</button>
+          ${isLocal ? `<button class="stream-ctrl-btn danger" data-stop>✕ Dejar de transmitir</button>` : `<button class="stream-ctrl-btn danger" data-leave>↩ Salir</button>`}
+        </div>
+      `;
+
+      const video = card.querySelector('.stream-video');
+      video.srcObject = new MediaStream([videoTrack, ...(audioTrack ? [audioTrack] : [])]);
+
+      // Botón mute/unmute audio (solo espectador)
+      const muteBtn = card.querySelector('[data-mute]');
+      if (muteBtn) {
+        muteBtn.addEventListener('click', () => {
+          entry.audioMuted = !entry.audioMuted;
+          video.muted = entry.audioMuted;
+          muteBtn.textContent = entry.audioMuted ? '🔇 Audio' : '🔊 Audio';
+          muteBtn.classList.toggle('muted', entry.audioMuted);
+        });
+      }
+
+      // Fullscreen
+      card.querySelector('[data-fs]').addEventListener('click', async () => {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen().catch(() => {});
+        } else {
+          await video.requestFullscreen().catch(() => {});
+        }
+      });
+      video.addEventListener('dblclick', async () => {
+        if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
+        else await video.requestFullscreen().catch(() => {});
+      });
+
+      // Dejar de transmitir (emisor) / Salir de la vista (espectador)
+      const stopBtn = card.querySelector('[data-stop]');
+      const leaveBtn = card.querySelector('[data-leave]');
+      if (stopBtn) stopBtn.addEventListener('click', stopScreenShare);
+      if (leaveBtn) leaveBtn.addEventListener('click', () => removeStreamCard(peerId));
+
+      entry.card = card;
+      streamsContainer.appendChild(card);
+      startStatsMonitor(peerId);
+    }
+
+    function removeStreamCard(peerId) {
+      stopStatsMonitor(peerId);
+      const entry = remoteStreams[peerId];
+      if (entry?.card) { entry.card.remove(); }
+      delete remoteStreams[peerId];
     }
 
     async function startScreenShare() {
@@ -1076,12 +1176,13 @@
         });
 
         const videoTrack = screenStream.getVideoTracks()[0];
+        const audioTrack = screenStream.getAudioTracks()[0] || null;
         if (videoTrack) videoTrack.addEventListener('ended', () => stopScreenShare());
 
-        screenVideo.srcObject = screenStream;
-        screenContainer.style.display = 'flex';
-        startStatsMonitor();
+        // Mostrar preview local
+        upsertStreamCard('local', true, videoTrack, audioTrack);
 
+        // Enviar a todos los peers
         for (const peerId of Object.keys(peers)) await ensureLocalStreamsForPeer(peerId);
         screenToggle.textContent = '🖥 Detener';
       } catch (err) {
@@ -1094,11 +1195,8 @@
       if (!screenStream) return;
       screenStream.getTracks().forEach(t => t.stop());
       screenStream = null;
-      screenVideo.srcObject = null;
-      screenContainer.style.display = 'none';
-      screenSizeToggle.textContent = '⤢ Pantalla completa';
+      removeStreamCard('local');
       screenToggle.textContent = '🖥 Pantalla';
-      stopStatsMonitor();
       Object.values(peers).forEach(pc => {
         pc.getSenders().filter(s => s.track && s.track.kind === 'video')
           .forEach(sender => sender.replaceTrack(null).catch(() => {}));
@@ -1109,8 +1207,6 @@
       if (!inVoice) { alert('Primero conéctate al canal de voz.'); return; }
       if (screenStream) stopScreenShare(); else await startScreenShare();
     });
-
-    document.getElementById('screen-stop-btn').addEventListener('click', stopScreenShare);
 
     screenBitratePreset.addEventListener('change', () => {
       screenBitrateInput.value = screenBitratePreset.value;
@@ -1136,7 +1232,13 @@
         for (const pc of Object.values(peers)) await applyBitratesToPeer(pc);
         screenStream.getTracks().forEach(t => t.stop());
         screenStream = newStream;
-        screenVideo.srcObject = screenStream;
+        // Actualizar preview local
+        const localEntry = remoteStreams['local'];
+        if (localEntry?.card) {
+          const video = localEntry.card.querySelector('.stream-video');
+          if (video) video.srcObject = new MediaStream(newStream.getTracks());
+          localEntry.videoTrack = newTrack;
+        }
         newTrack.addEventListener('ended', () => stopScreenShare());
         addMessage('[Sistema] Configuración aplicada.');
       } catch (err) {
@@ -1144,31 +1246,7 @@
       }
     });
 
-    // ── Fullscreen ──
-    function isFullscreen() {
-      return !!(document.fullscreenElement || document.webkitFullscreenElement);
-    }
-    async function enterFullscreen() {
-      const el = screenVideo;
-      try {
-        if (el.requestFullscreen) await el.requestFullscreen();
-        else if (el.webkitRequestFullscreen) await el.webkitRequestFullscreen();
-        else if (el.webkitEnterFullscreen) el.webkitEnterFullscreen();
-      } catch (e) {}
-    }
-    async function exitFullscreen() {
-      try {
-        if (document.exitFullscreen) await document.exitFullscreen();
-        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-      } catch (e) {}
-    }
-    function updateFsBtn() {
-      screenSizeToggle.textContent = isFullscreen() ? '✕ Reducir' : '⤢ Pantalla completa';
-    }
-    screenSizeToggle.addEventListener('click', () => isFullscreen() ? exitFullscreen() : enterFullscreen());
-    screenVideo.addEventListener('dblclick', () => isFullscreen() ? exitFullscreen() : enterFullscreen());
-    document.addEventListener('fullscreenchange', updateFsBtn);
-    document.addEventListener('webkitfullscreenchange', updateFsBtn);
+    // Fullscreen gestionado dentro de cada stream-card individualmente
 
     // ═══════════════════════════════════════════════════════════════
     // INIT
