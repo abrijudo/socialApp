@@ -685,10 +685,12 @@
 
       realtimeChannel.on('broadcast', { event: 'voice-joined' }, ({ payload }) => {
         if (payload.id === myId) return;
+        // Actualizar nombre (puede que ya esté con placeholder '...')
         allVoiceUsers.set(payload.id, { name: payload.name });
         if (inVoice) {
           voiceMembers.set(payload.id, { name: payload.name, speaking: false });
-          callPeer(payload.id);
+          // Solo llamar si aún no tenemos conexión con él
+          if (!peers[payload.id]) callPeer(payload.id);
         }
         renderVoiceUsers();
       });
@@ -862,10 +864,6 @@
         rtcpMuxPolicy: 'require',
       });
 
-      // Añadir transceiver de vídeo recvonly desde el inicio
-      // Esto garantiza que el receptor pueda recibir vídeo aunque no lo envíe
-      pc.addTransceiver('video', { direction: 'recvonly' });
-
       pc.onnegotiationneeded = async () => {
         if (pc.signalingState !== 'stable') return;
         try {
@@ -910,8 +908,20 @@
           }
           audio.srcObject = new MediaStream([event.track]);
         } else if (event.track.kind === 'video') {
-          screenVideo.srcObject = event.streams[0];
-          screenContainer.style.display = 'flex';
+          // Usar MediaStream con el track directamente — event.streams[0] puede estar vacío
+          // si el transceiver se negoció antes de que haya stream activo
+          if (event.track.readyState === 'live') {
+            screenVideo.srcObject = new MediaStream([event.track]);
+            screenContainer.style.display = 'flex';
+          }
+          event.track.onunmute = () => {
+            screenVideo.srcObject = new MediaStream([event.track]);
+            screenContainer.style.display = 'flex';
+          };
+          event.track.onended = () => {
+            screenVideo.srcObject = null;
+            screenContainer.style.display = 'none';
+          };
         }
       };
 
@@ -928,23 +938,9 @@
           if (!already) pc.addTrack(track, localStream);
         });
       }
-      // Vídeo de pantalla: usar el transceiver recvonly existente y cambiarlo a sendrecv
+      // Vídeo y audio del sistema (screenStream)
       if (screenStream) {
-        const videoTrack = screenStream.getVideoTracks()[0];
-        if (videoTrack) {
-          const transceiver = pc.getTransceivers().find(t =>
-            t.receiver.track.kind === 'video' && t.direction === 'recvonly'
-          );
-          if (transceiver) {
-            await transceiver.sender.replaceTrack(videoTrack);
-            transceiver.direction = 'sendrecv';
-          } else {
-            const alreadySending = pc.getSenders().some(s => s.track && s.track.id === videoTrack.id);
-            if (!alreadySending) pc.addTrack(videoTrack, screenStream);
-          }
-        }
-        // Audio del sistema si lo hay
-        screenStream.getAudioTracks().forEach(track => {
+        screenStream.getTracks().forEach(track => {
           const already = pc.getSenders().some(s => s.track && s.track.id === track.id);
           if (!already) pc.addTrack(track, screenStream);
         });
@@ -971,6 +967,11 @@
     }
 
     async function handleOffer({ from, sdp }) {
+      // Si recibimos un offer de alguien que no conocemos, añadirlo temporalmente
+      if (!allVoiceUsers.has(from)) {
+        allVoiceUsers.set(from, { name: voiceMembers.get(from)?.name || '...' });
+        renderVoiceUsers();
+      }
       await startLocalAudio();
       const pc = await ensureLocalStreamsForPeer(from);
       await pc.setRemoteDescription(new RTCSessionDescription(sdp));
@@ -1029,6 +1030,8 @@
         leaveVoice();
       } else {
         try {
+          // Asegurarse de tener nombre antes de entrar
+          if (!username) { alert('Pon un nombre de usuario primero.'); return; }
           await startLocalAudio();
           inVoice = true;
           allVoiceUsers.set(myId, { name: username });
