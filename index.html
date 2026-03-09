@@ -347,10 +347,100 @@
       background: #18191c; border: 1px solid var(--border); border-radius: 8px;
       padding: 10px 20px; font-size: 13px; color: var(--text-muted);
       display: none; z-index: 200; gap: 8px; align-items: center;
+      white-space: nowrap; max-width: calc(100vw - 32px);
     }
     #conn-toast.show { display: flex; }
     .toast-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); animation: livePulse 1s infinite; }
     .toast-dot.green { background: var(--green); animation: none; }
+
+    /* ── Botones de menú móvil ── */
+    .topbar-menu-btn {
+      display: none; background: transparent; border: none;
+      color: var(--interactive-normal); font-size: 20px;
+      cursor: pointer; padding: 4px; border-radius: var(--radius);
+      line-height: 1; flex-shrink: 0;
+    }
+    .topbar-menu-btn:hover { color: var(--interactive-hover); background: var(--channelbg-hover); }
+
+    /* Overlay oscuro para cerrar sidebar en móvil */
+    #sidebar-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.7); z-index: 49;
+    }
+    #sidebar-overlay.show { display: block; }
+
+    /* ══════════════════════════════════════
+       RESPONSIVE — Tablet (< 1100px)
+    ══════════════════════════════════════ */
+    @media (max-width: 1100px) {
+      .right-panel { display: none; }
+      /* Panel derecho como drawer desde la derecha */
+      .right-panel.open {
+        display: flex; position: fixed; right: 0; top: 0; bottom: 0;
+        z-index: 50; box-shadow: -4px 0 20px rgba(0,0,0,.5);
+      }
+      .topbar-menu-btn.settings-btn { display: flex; align-items: center; justify-content: center; }
+    }
+
+    /* ══════════════════════════════════════
+       RESPONSIVE — Móvil (< 720px)
+    ══════════════════════════════════════ */
+    @media (max-width: 720px) {
+      /* Ocultar rail de servidores (poco espacio) */
+      .server-rail { display: none; }
+
+      /* Sidebar izquierdo como drawer desde la izquierda */
+      .channels-sidebar {
+        display: none; position: fixed; left: 0; top: 0; bottom: 0;
+        z-index: 50; width: min(280px, 85vw);
+        box-shadow: 4px 0 20px rgba(0,0,0,.5);
+      }
+      .channels-sidebar.open { display: flex; }
+
+      /* Mostrar botón hamburguesa */
+      .topbar-menu-btn.sidebar-btn { display: flex; align-items: center; justify-content: center; }
+
+      /* Topbar más compacta */
+      .topbar { padding: 0 10px; gap: 8px; }
+      .topbar-separator, .topbar-topic { display: none; }
+
+      /* Chat input más cómodo */
+      .input-area { padding: 0 8px 16px; }
+
+      /* Mensajes con menos padding lateral */
+      .message { padding: 2px 10px; }
+
+      /* Stream video más alto en móvil */
+      .stream-video { max-height: 55vw; min-height: 120px; }
+      #streams-container { max-height: 60vw; }
+
+      /* Username card */
+      .username-card { padding: 24px 16px; margin: 0 12px; }
+      .username-card h2 { font-size: 20px; }
+
+      /* Font base más pequeña */
+      body { font-size: 13px; }
+      .message-author, .message-text { font-size: 14px; }
+      .input-box input { font-size: 14px; }
+    }
+
+    /* ══════════════════════════════════════
+       RESPONSIVE — Pantallas muy pequeñas (< 400px)
+    ══════════════════════════════════════ */
+    @media (max-width: 400px) {
+      .channels-sidebar { width: 92vw; }
+      .stream-video { max-height: 50vw; }
+      .action-btn { font-size: 12px; padding: 6px 0; }
+    }
+
+    /* ══════════════════════════════════════
+       RESPONSIVE — Pantallas grandes (>= 1440px)
+    ══════════════════════════════════════ */
+    @media (min-width: 1440px) {
+      .channels-sidebar { width: 260px; min-width: 260px; }
+      .right-panel { width: 260px; min-width: 260px; }
+      .stream-video { max-height: 35vh; }
+    }
   </style>
 </head>
 <body>
@@ -407,13 +497,18 @@
     </div>
   </div>
 
+  <!-- Overlay para cerrar sidebars en móvil -->
+  <div id="sidebar-overlay"></div>
+
   <!-- Main chat area -->
   <div class="main">
     <div class="topbar">
+      <button class="topbar-menu-btn sidebar-btn" id="btn-sidebar-toggle" title="Canales">☰</button>
       <span class="topbar-icon">#</span>
       <span class="topbar-channel-name">general</span>
       <div class="topbar-separator"></div>
       <span class="topbar-topic">Chat de texto del servidor</span>
+      <button class="topbar-menu-btn settings-btn" id="btn-settings-toggle" title="Ajustes de transmisión" style="margin-left:auto;">⚙</button>
     </div>
 
     <!-- Streams activos (multi-stream) -->
@@ -448,11 +543,13 @@
         <div class="ctrl-row">
           <span class="ctrl-label">Bitrate</span>
           <select class="ctrl-select" id="screen-bitrate-preset">
+            <option value="3000">3 Mbps</option>
             <option value="5000">5 Mbps</option>
             <option value="10000">10 Mbps</option>
             <option value="20000" selected>20 Mbps</option>
             <option value="30000">30 Mbps</option>
             <option value="50000">50 Mbps</option>
+            <option value="100000">100 Mbps</option>
           </select>
           <input class="ctrl-input" id="screen-bitrate" type="number" min="1000" max="100000" step="1000" value="20000" style="width:70px;" />
         </div>
@@ -1059,19 +1156,75 @@
     // Mapa de streams remotos: peerId -> { videoTrack, audioTrack, card, audioMuted, statsInterval }
     const remoteStreams = {};
 
-    // ── Stream propio (emisor) ──
+    // ── Stats en tiempo real usando RTCPeerConnection.getStats() ──
     function startStatsMonitor(peerId) {
       if (remoteStreams[peerId]?.statsInterval) return;
       const entry = remoteStreams[peerId];
       if (!entry) return;
-      entry.statsInterval = setInterval(() => {
-        const track = entry.videoTrack;
-        if (!track) return;
-        const s = track.getSettings();
-        const txt = `${s.width||'?'}x${s.height||'?'} ${s.frameRate ? Math.round(s.frameRate) : '?'}fps`;
+
+      let prevBytes = 0;
+      let prevTs = 0;
+
+      entry.statsInterval = setInterval(async () => {
         const statsEl = entry.card?.querySelector('.stream-stats');
-        if (statsEl) statsEl.textContent = txt;
-      }, 800);
+        if (!statsEl) return;
+
+        // Para el stream local: obtener settings del propio track
+        if (peerId === 'local') {
+          const track = entry.videoTrack;
+          if (!track) return;
+          const s = track.getSettings();
+          const w = s.width || '?';
+          const h = s.height || '?';
+          const fps = s.frameRate ? Math.round(s.frameRate) : '?';
+          // Calcular bitrate de subida desde el peer más cercano
+          let bitrateStr = '';
+          const pc = Object.values(peers)[0];
+          if (pc) {
+            try {
+              const stats = await pc.getStats();
+              stats.forEach(report => {
+                if (report.type === 'outbound-rtp' && report.kind === 'video') {
+                  const now = report.timestamp;
+                  const bytes = report.bytesSent;
+                  if (prevTs && prevBytes) {
+                    const kbps = Math.round(((bytes - prevBytes) * 8) / (now - prevTs));
+                    bitrateStr = ` · ${kbps} kbps`;
+                  }
+                  prevBytes = bytes;
+                  prevTs = now;
+                }
+              });
+            } catch (_) {}
+          }
+          statsEl.textContent = `${w}x${h} ${fps}fps${bitrateStr}`;
+          return;
+        }
+
+        // Para streams remotos: getStats() del peer correspondiente
+        const pc = peers[peerId];
+        if (!pc) return;
+        try {
+          const stats = await pc.getStats();
+          let w = '?', h = '?', fps = '?', kbpsStr = '';
+          stats.forEach(report => {
+            if (report.type === 'inbound-rtp' && report.kind === 'video') {
+              if (report.frameWidth)  w   = report.frameWidth;
+              if (report.frameHeight) h   = report.frameHeight;
+              if (report.framesPerSecond) fps = Math.round(report.framesPerSecond);
+              const now   = report.timestamp;
+              const bytes = report.bytesReceived;
+              if (prevTs && prevBytes) {
+                const kbps = Math.round(((bytes - prevBytes) * 8) / (now - prevTs));
+                kbpsStr = ` · ${kbps} kbps`;
+              }
+              prevBytes = bytes;
+              prevTs    = now;
+            }
+          });
+          statsEl.textContent = `${w}x${h} ${fps}fps${kbpsStr}`;
+        } catch (_) {}
+      }, 1000);
     }
 
     function stopStatsMonitor(peerId) {
@@ -1193,19 +1346,44 @@
 
     function stopScreenShare() {
       if (!screenStream) return;
+      // Parar todos los tracks de pantalla — el evento 'ended' del track
+      // hará que el receptor detecte automáticamente que el stream terminó
       screenStream.getTracks().forEach(t => t.stop());
       screenStream = null;
       removeStreamCard('local');
       screenToggle.textContent = '🖥 Pantalla';
+      // Eliminar los senders de vídeo para no dejar tracks "muertos" en la conexión
       Object.values(peers).forEach(pc => {
-        pc.getSenders().filter(s => s.track && s.track.kind === 'video')
-          .forEach(sender => sender.replaceTrack(null).catch(() => {}));
+        pc.getSenders()
+          .filter(s => s.track && s.track.kind === 'video')
+          .forEach(sender => {
+            try { pc.removeTrack(sender); } catch (_) {}
+          });
       });
     }
 
     screenToggle.addEventListener('click', async () => {
       if (!inVoice) { alert('Primero conéctate al canal de voz.'); return; }
       if (screenStream) stopScreenShare(); else await startScreenShare();
+    });
+
+    // Presets de bitrate por resolución
+    const RESOLUTION_BITRATE = {
+      '854x480':   3000,
+      '1280x720':  8000,
+      '1920x1080': 20000,
+      '3840x2160': 100000,
+    };
+
+    screenResolutionSelect.addEventListener('change', () => {
+      const preset = RESOLUTION_BITRATE[screenResolutionSelect.value];
+      if (preset) {
+        screenBitrateInput.value = preset;
+        // Sincronizar el select de preset con el valor más cercano o "personalizado"
+        const option = screenBitratePreset.querySelector(`option[value="${preset}"]`);
+        if (option) screenBitratePreset.value = preset;
+        else screenBitratePreset.value = '20000';
+      }
     });
 
     screenBitratePreset.addEventListener('change', () => {
@@ -1217,36 +1395,73 @@
       screenBitrateKbps = Math.max(1000, Math.min(kbps, 100000));
       const resValue = screenResolutionSelect.value || '1920x1080';
       const [w, h] = resValue.split('x').map(v => parseInt(v, 10));
-      if (!screenStream) { addMessage('[Sistema] Configuración guardada.'); return; }
-      try {
-        const newStream = await navigator.mediaDevices.getDisplayMedia({
-          video: { width: { ideal: w, max: w }, height: { ideal: h, max: h }, frameRate: { ideal: 60, max: 60 } },
-          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, sampleRate: 48000, channelCount: 2 },
-        });
-        const newTrack = newStream.getVideoTracks()[0];
-        if (!newTrack) { newStream.getTracks().forEach(t => t.stop()); return; }
-        await Promise.all(Object.values(peers).flatMap(pc =>
-          pc.getSenders().filter(s => s.track && s.track.kind === 'video')
-            .map(sender => sender.replaceTrack(newTrack))
-        ));
-        for (const pc of Object.values(peers)) await applyBitratesToPeer(pc);
-        screenStream.getTracks().forEach(t => t.stop());
-        screenStream = newStream;
-        // Actualizar preview local
-        const localEntry = remoteStreams['local'];
-        if (localEntry?.card) {
-          const video = localEntry.card.querySelector('.stream-video');
-          if (video) video.srcObject = new MediaStream(newStream.getTracks());
-          localEntry.videoTrack = newTrack;
-        }
-        newTrack.addEventListener('ended', () => stopScreenShare());
-        addMessage('[Sistema] Configuración aplicada.');
-      } catch (err) {
-        if (err.name !== 'NotAllowedError') console.error(err);
+
+      if (!screenStream) {
+        addMessage('[Sistema] Configuración guardada. Se aplicará al iniciar la pantalla compartida.');
+        return;
       }
+
+      // Intentar cambiar resolución/constraints del track activo sin abrir nuevo diálogo
+      const currentTrack = screenStream.getVideoTracks()[0];
+      if (currentTrack) {
+        try {
+          await currentTrack.applyConstraints({
+            width: { ideal: w, max: w },
+            height: { ideal: h, max: h },
+            frameRate: { ideal: 60, max: 60 },
+          });
+        } catch (_) { /* algunos navegadores no soportan applyConstraints en getDisplayMedia */ }
+      }
+
+      // Actualizar bitrate en todos los peers activos
+      for (const pc of Object.values(peers)) await applyBitratesToPeer(pc);
+
+      addMessage('[Sistema] Bitrate actualizado. La resolución se aplicará si el navegador lo permite.');
     });
 
     // Fullscreen gestionado dentro de cada stream-card individualmente
+
+    // ═══════════════════════════════════════════════════════════════
+    // MENÚ RESPONSIVO — sidebars en móvil / tablet
+    // ═══════════════════════════════════════════════════════════════
+    const sidebarEl       = document.querySelector('.channels-sidebar');
+    const rightPanelEl    = document.querySelector('.right-panel');
+    const overlayEl       = document.getElementById('sidebar-overlay');
+    const btnSidebarToggle  = document.getElementById('btn-sidebar-toggle');
+    const btnSettingsToggle = document.getElementById('btn-settings-toggle');
+
+    function closeAllDrawers() {
+      sidebarEl.classList.remove('open');
+      rightPanelEl.classList.remove('open');
+      overlayEl.classList.remove('show');
+    }
+
+    btnSidebarToggle?.addEventListener('click', () => {
+      const opening = !sidebarEl.classList.contains('open');
+      closeAllDrawers();
+      if (opening) {
+        sidebarEl.classList.add('open');
+        overlayEl.classList.add('show');
+      }
+    });
+
+    btnSettingsToggle?.addEventListener('click', () => {
+      const opening = !rightPanelEl.classList.contains('open');
+      closeAllDrawers();
+      if (opening) {
+        rightPanelEl.classList.add('open');
+        overlayEl.classList.add('show');
+      }
+    });
+
+    overlayEl?.addEventListener('click', closeAllDrawers);
+
+    // Cerrar drawer al seleccionar un canal (móvil)
+    document.querySelectorAll('.channel-item').forEach(el => {
+      el.addEventListener('click', () => {
+        if (window.innerWidth <= 720) closeAllDrawers();
+      });
+    });
 
     // ═══════════════════════════════════════════════════════════════
     // INIT
