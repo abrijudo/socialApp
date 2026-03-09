@@ -642,35 +642,56 @@
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // SUPABASE REALTIME — canal único "server-amigos"
-    // Usamos Broadcast para señalización WebRTC (sin persistencia)
-    // y Presence para lista de usuarios en voz
+    // SUPABASE REALTIME
+    // - Presence: lista de usuarios en voz (fuente de verdad)
+    // - Broadcast: señalización WebRTC y chat en tiempo real
+    // - postgres_changes: chat persistente
     // ═══════════════════════════════════════════════════════════════
     function initRealtime() {
       showToast('Conectando al servidor...');
 
       realtimeChannel = sb.channel('server-amigos', {
-        config: { broadcast: { self: false }, presence: { key: myId } }
-      });
-
-      // ── Presence: quién está conectado ──
-      realtimeChannel.on('presence', { event: 'sync' }, () => {
-        // No hacemos nada aquí, usamos join/leave para mayor control
-      });
-
-      realtimeChannel.on('presence', { event: 'join' }, ({ key, newPresences }) => {
-        const p = newPresences[0];
-        if (!p) return;
-        if (p.inVoice) {
-          allVoiceUsers.set(key, { name: p.name });
-          renderVoiceUsers();
+        config: {
+          broadcast: { self: false, ack: false },
+          presence: { key: myId }
         }
       });
 
-      realtimeChannel.on('presence', { event: 'leave' }, ({ key }) => {
-        allVoiceUsers.delete(key);
-        voiceMembers.delete(key);
-        cleanupPeer(key);
+      // ── Presence: fuente de verdad para quién está en voz ──
+      // sync se dispara cada vez que cambia cualquier presencia
+      realtimeChannel.on('presence', { event: 'sync' }, () => {
+        const state = realtimeChannel.presenceState();
+        // Reconstruir allVoiceUsers desde el estado completo de presencia
+        const newVoiceUsers = new Map();
+        Object.entries(state).forEach(([key, presences]) => {
+          const p = presences[0];
+          if (p && p.inVoice) {
+            newVoiceUsers.set(key, { name: p.name || 'Invitado' });
+          }
+        });
+
+        // Detectar quién salió de voz para limpiar peers
+        allVoiceUsers.forEach((_, id) => {
+          if (!newVoiceUsers.has(id) && id !== myId) {
+            voiceMembers.delete(id);
+            cleanupPeer(id);
+          }
+        });
+
+        // Detectar quién entró en voz para conectar
+        newVoiceUsers.forEach((info, id) => {
+          if (!allVoiceUsers.has(id) && id !== myId && inVoice) {
+            voiceMembers.set(id, { name: info.name, speaking: false });
+            callPeer(id);
+          }
+        });
+
+        // Actualizar el mapa global
+        allVoiceUsers.clear();
+        newVoiceUsers.forEach((v, k) => allVoiceUsers.set(k, v));
+        // Incluir siempre al usuario actual si está en voz
+        if (inVoice) allVoiceUsers.set(myId, { name: username });
+
         renderVoiceUsers();
       });
 
@@ -681,45 +702,7 @@
         })
         .subscribe();
 
-      // ── Broadcast: señalización WebRTC ──
-
-      realtimeChannel.on('broadcast', { event: 'voice-joined' }, ({ payload }) => {
-        if (payload.id === myId) return;
-        // Actualizar nombre (puede que ya esté con placeholder '...')
-        allVoiceUsers.set(payload.id, { name: payload.name });
-        if (inVoice) {
-          voiceMembers.set(payload.id, { name: payload.name, speaking: false });
-          // Solo llamar si aún no tenemos conexión con él
-          if (!peers[payload.id]) callPeer(payload.id);
-        }
-        renderVoiceUsers();
-      });
-
-      realtimeChannel.on('broadcast', { event: 'voice-left' }, ({ payload }) => {
-        if (payload.id === myId) return;
-        allVoiceUsers.delete(payload.id);
-        voiceMembers.delete(payload.id);
-        cleanupPeer(payload.id);
-        renderVoiceUsers();
-      });
-
-      realtimeChannel.on('broadcast', { event: 'voice-state' }, ({ payload }) => {
-        // Respuesta a nuestra solicitud del estado actual de voz
-        if (payload.to !== myId) return;
-        payload.users.forEach(u => {
-          allVoiceUsers.set(u.id, { name: u.name });
-        });
-        renderVoiceUsers();
-        // Si ya estamos en voz, conectar con ellos
-        if (inVoice) {
-          payload.users.forEach(u => {
-            voiceMembers.set(u.id, { name: u.name, speaking: false });
-            callPeer(u.id);
-          });
-        }
-      });
-
-      // Señalización WebRTC
+      // ── Señalización WebRTC via Broadcast ──
       realtimeChannel.on('broadcast', { event: 'webrtc-offer' }, ({ payload }) => {
         if (payload.to !== myId) return;
         handleOffer({ from: payload.from, sdp: payload.sdp });
@@ -739,35 +722,18 @@
         if (status === 'SUBSCRIBED') {
           showToast('Conectado', true);
           await loadHistory();
-          // Anunciar presencia
+          // Anunciar presencia inicial (no en voz)
           await broadcastPresence();
-          // Pedir estado actual de voz a los demás
-          await realtimeChannel.send({
-            type: 'broadcast', event: 'request-voice-state',
-            payload: { from: myId }
-          });
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           showToast('Error de conexión. Recargando...');
           setTimeout(() => location.reload(), 3000);
         }
       });
-
-      // Responder a peticiones de estado de voz
-      realtimeChannel.on('broadcast', { event: 'request-voice-state' }, ({ payload }) => {
-        if (payload.from === myId) return;
-        if (!inVoice) return; // solo respondo si estoy en voz
-        realtimeChannel.send({
-          type: 'broadcast', event: 'voice-state',
-          payload: {
-            to: payload.from,
-            users: Array.from(allVoiceUsers.entries()).map(([id, u]) => ({ id, name: u.name }))
-          }
-        });
-      });
     }
 
     async function broadcastPresence() {
       if (!realtimeChannel) return;
+      // track() actualiza nuestra presencia — Presence sync se dispara en todos
       await realtimeChannel.track({ name: username, inVoice });
     }
 
@@ -889,6 +855,10 @@
       };
 
       pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'connected') {
+          // Aplicar bitrates cuando la conexión está realmente establecida
+          applyBitratesToPeer(pc);
+        }
         if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
           delete peers[peerId];
           delete pendingCandidates[peerId];
@@ -1030,23 +1000,20 @@
         leaveVoice();
       } else {
         try {
-          // Asegurarse de tener nombre antes de entrar
           if (!username) { alert('Pon un nombre de usuario primero.'); return; }
           await startLocalAudio();
           inVoice = true;
+          // Añadirse localmente de inmediato para que aparezca en el sidebar
           allVoiceUsers.set(myId, { name: username });
           voiceMembers.set(myId, { name: username, speaking: false });
           voiceStatusEl.textContent = 'Conectado al canal de voz';
           voiceToggle.textContent = 'Salir de voz';
           voiceToggle.className = 'action-btn danger';
           renderVoiceUsers();
+          // Actualizar Presence — esto dispara 'sync' en todos los demás
+          // y ellos nos verán automáticamente en la lista
           await broadcastPresence();
-          // Anunciar a todos que entramos
-          await realtimeChannel.send({
-            type: 'broadcast', event: 'voice-joined',
-            payload: { id: myId, name: username }
-          });
-          // Conectar con quienes ya están en voz
+          // Conectar con quienes ya estaban en voz
           allVoiceUsers.forEach((info, id) => {
             if (id === myId) return;
             voiceMembers.set(id, { name: info.name, speaking: false });
@@ -1072,11 +1039,8 @@
       voiceToggle.textContent = 'Conectar';
       voiceToggle.className = 'action-btn primary';
       renderVoiceUsers();
+      // Actualizar Presence — los demás nos verán desaparecer del canal de voz
       await broadcastPresence();
-      await realtimeChannel.send({
-        type: 'broadcast', event: 'voice-left',
-        payload: { id: myId }
-      });
     }
 
     // ═══════════════════════════════════════════════════════════════
