@@ -1,0 +1,1613 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Discord — Servidor amigos</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=gg+Sans:wght@400;500;600&family=Noto+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-tertiary:   #1e2124;
+      --bg-secondary:  #2f3136;
+      --bg-primary:    #36393f;
+      --bg-floating:   #18191c;
+      --channelbg-hover: #34373c;
+      --channelbg-active: #3a3c42;
+      --text-normal:   #dcddde;
+      --text-muted:    #72767d;
+      --text-link:     #00b0f4;
+      --header-primary: #ffffff;
+      --header-secondary: #b9bbbe;
+      --interactive-normal: #b9bbbe;
+      --interactive-hover: #dcddde;
+      --interactive-active: #ffffff;
+      --brand:         #5865f2;
+      --brand-hover:   #4752c4;
+      --green:         #3ba55c;
+      --green-glow:    #3ba55c55;
+      --red:           #ed4245;
+      --border:        #202225;
+      --scrollbar:     #202225;
+      --input-bg:      #40444b;
+      --input-border:  transparent;
+      --msg-hover:     rgba(4,4,5,0.07);
+      --radius:        4px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'gg Sans', 'Noto Sans', system-ui, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-normal);
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+      font-size: 14px;
+    }
+
+    /* ═══════════════════════════════════════════
+       SCROLLBARS
+    ═══════════════════════════════════════════ */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 3px; }
+
+    /* ═══════════════════════════════════════════
+       SIDEBAR DE SERVIDOR (izquierda, iconos)
+    ═══════════════════════════════════════════ */
+    .server-rail {
+      width: 72px;
+      min-width: 72px;
+      background: var(--bg-tertiary);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 12px 0;
+      gap: 8px;
+      overflow-y: auto;
+    }
+
+    .server-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: var(--brand);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 18px;
+      color: white;
+      cursor: pointer;
+      transition: border-radius .15s, background .15s;
+      position: relative;
+      flex-shrink: 0;
+    }
+    .server-icon:hover { border-radius: 16px; background: var(--brand-hover); }
+    .server-icon.active { border-radius: 16px; }
+    .server-icon.active::before {
+      content: '';
+      position: absolute;
+      left: -16px;
+      width: 4px;
+      height: 40px;
+      background: white;
+      border-radius: 0 4px 4px 0;
+    }
+
+    .server-separator {
+      width: 32px;
+      height: 2px;
+      background: var(--bg-secondary);
+      border-radius: 1px;
+    }
+
+    /* ═══════════════════════════════════════════
+       SIDEBAR DE CANALES
+    ═══════════════════════════════════════════ */
+    .channels-sidebar {
+      width: 240px;
+      min-width: 240px;
+      background: var(--bg-secondary);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .server-header {
+      height: 48px;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 15px;
+      color: var(--header-primary);
+      flex-shrink: 0;
+      box-shadow: 0 1px 0 rgba(0,0,0,.2);
+    }
+    .server-header:hover { background: var(--channelbg-hover); }
+    .server-header-arrow { color: var(--interactive-normal); font-size: 11px; }
+
+    .channels-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+
+    .channel-category {
+      padding: 16px 8px 4px 8px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+    }
+    .channel-category-arrow {
+      font-size: 9px;
+      color: var(--text-muted);
+      transition: transform .1s;
+    }
+    .channel-category-name {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .02em;
+      color: var(--text-muted);
+    }
+    .channel-category:hover .channel-category-name,
+    .channel-category:hover .channel-category-arrow { color: var(--interactive-hover); }
+
+    .channel-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 1px 8px;
+      margin: 0 8px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      color: var(--text-muted);
+      font-size: 15px;
+      font-weight: 500;
+      height: 34px;
+      transition: background .05s, color .05s;
+    }
+    .channel-item:hover {
+      background: var(--channelbg-hover);
+      color: var(--interactive-hover);
+    }
+    .channel-item.active {
+      background: var(--channelbg-active);
+      color: var(--interactive-active);
+    }
+    .channel-item-icon {
+      font-size: 18px;
+      width: 20px;
+      text-align: center;
+      flex-shrink: 0;
+      color: var(--text-muted);
+    }
+    .channel-item.active .channel-item-icon,
+    .channel-item:hover .channel-item-icon { color: var(--interactive-hover); }
+
+    /* Usuarios en voz */
+    .voice-members-section { padding: 4px 0 8px; }
+
+    .voice-user {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 1px 8px 1px 28px;
+      margin: 0 8px;
+      border-radius: var(--radius);
+      height: 32px;
+    }
+    .voice-user:hover { background: var(--channelbg-hover); }
+
+    .voice-avatar {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--brand);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: white;
+      flex-shrink: 0;
+      position: relative;
+    }
+    .voice-avatar.speaking::after {
+      content: '';
+      position: absolute;
+      inset: -2px;
+      border-radius: 50%;
+      border: 2px solid var(--green);
+      animation: speakPulse .8s ease infinite;
+    }
+    @keyframes speakPulse {
+      0%,100% { opacity: 1; }
+      50% { opacity: .4; }
+    }
+
+    .voice-user-name {
+      font-size: 13px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+    .voice-user-name.speaking { color: var(--green); }
+
+    .voice-mic-icon {
+      margin-left: auto;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* Panel de usuario abajo */
+    .user-panel {
+      height: 52px;
+      background: var(--bg-floating);
+      display: flex;
+      align-items: center;
+      padding: 0 8px;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .user-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--brand);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+      color: white;
+      flex-shrink: 0;
+    }
+    .user-info { flex: 1; min-width: 0; }
+    .user-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--header-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .user-tag {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .user-actions { display: flex; gap: 2px; }
+    .user-action-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius);
+      border: none;
+      background: transparent;
+      color: var(--interactive-normal);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      padding: 0;
+      transition: background .1s, color .1s;
+    }
+    .user-action-btn:hover { background: var(--channelbg-hover); color: var(--interactive-hover); }
+    .user-action-btn.active { color: var(--red); }
+    .user-action-btn.active:hover { background: rgba(237,66,69,.1); }
+
+    /* ═══════════════════════════════════════════
+       ÁREA PRINCIPAL
+    ═══════════════════════════════════════════ */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      background: var(--bg-primary);
+    }
+
+    /* Topbar */
+    .topbar {
+      height: 48px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 12px;
+      flex-shrink: 0;
+      box-shadow: 0 1px 0 rgba(0,0,0,.2);
+    }
+    .topbar-icon { font-size: 20px; color: var(--text-muted); }
+    .topbar-channel-name {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--header-primary);
+    }
+    .topbar-separator {
+      width: 1px;
+      height: 24px;
+      background: var(--border);
+      margin: 0 4px;
+    }
+    .topbar-topic {
+      font-size: 13px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .topbar-actions { margin-left: auto; display: flex; gap: 4px; }
+    .topbar-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: var(--radius);
+      border: none;
+      background: transparent;
+      color: var(--interactive-normal);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      padding: 0;
+      transition: background .1s, color .1s;
+    }
+    .topbar-btn:hover { background: var(--channelbg-hover); color: var(--interactive-hover); }
+
+    /* Screen share */
+    #screen-container {
+      display: none;
+      flex-direction: column;
+      background: #000;
+      position: relative;
+    }
+    .screen-header {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      padding: 8px 12px;
+      background: linear-gradient(to bottom, rgba(0,0,0,.8), transparent);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      z-index: 2;
+      opacity: 0;
+      transition: opacity .2s;
+    }
+    #screen-container:hover .screen-header { opacity: 1; }
+
+    .screen-live-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: var(--red);
+      color: white;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .05em;
+      padding: 2px 7px;
+      border-radius: 3px;
+    }
+    .screen-live-dot {
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: white;
+      animation: livePulse 1.2s ease infinite;
+    }
+    @keyframes livePulse {
+      0%,100% { opacity: 1; }
+      50% { opacity: .25; }
+    }
+    .screen-stats {
+      font-size: 11px;
+      color: rgba(255,255,255,.7);
+      font-family: monospace;
+    }
+    .screen-header-actions { margin-left: auto; display: flex; gap: 6px; }
+    .screen-ctrl-btn {
+      height: 28px;
+      padding: 0 10px;
+      border-radius: var(--radius);
+      border: none;
+      background: rgba(255,255,255,.15);
+      color: white;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background .1s;
+    }
+    .screen-ctrl-btn:hover { background: rgba(255,255,255,.25); }
+    .screen-ctrl-btn.danger { background: rgba(237,66,69,.5); }
+    .screen-ctrl-btn.danger:hover { background: rgba(237,66,69,.8); }
+
+    .screen-video-wrapper {
+      position: relative;
+      min-height: 200px;
+      max-height: 45vh;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    #screen-video {
+      width: 100%;
+      height: 100%;
+      max-height: 45vh;
+      display: block;
+      object-fit: contain;
+      background: #000;
+    }
+    #screen-video:fullscreen,
+    #screen-video:-webkit-full-screen,
+    #screen-video:-moz-full-screen {
+      width: 100vw !important;
+      height: 100vh !important;
+      max-height: none !important;
+      object-fit: fill !important;
+      background: #000;
+    }
+
+    /* Mensajes */
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 0 8px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .message {
+      padding: 2px 16px;
+      display: flex;
+      flex-direction: column;
+      transition: background .05s;
+      position: relative;
+    }
+    .message:hover { background: var(--msg-hover); }
+
+    .message-header {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 2px;
+    }
+    .message-author {
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--header-primary);
+      cursor: pointer;
+    }
+    .message-author:hover { text-decoration: underline; }
+    .message-timestamp {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .message-text {
+      font-size: 15px;
+      line-height: 1.375;
+      color: var(--text-normal);
+      word-wrap: break-word;
+    }
+    .message.system {
+      justify-content: center;
+    }
+    .message.system .message-text {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-style: italic;
+      padding: 4px 0;
+    }
+
+    /* Input area */
+    .input-area {
+      padding: 0 16px 24px;
+      flex-shrink: 0;
+    }
+    .input-box {
+      background: var(--input-bg);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 12px;
+    }
+    .input-box input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text-normal);
+      font-size: 15px;
+      font-family: inherit;
+      padding: 11px 0;
+      line-height: 1.375;
+    }
+    .input-box input::placeholder { color: var(--text-muted); }
+    .input-send-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 20px;
+      padding: 0;
+      line-height: 1;
+      transition: color .1s;
+    }
+    .input-send-btn:hover { color: var(--interactive-hover); background: transparent; }
+
+    /* ═══════════════════════════════════════════
+       BARRA DE VOZ (abajo del sidebar de canales)
+    ═══════════════════════════════════════════ */
+    .voice-status-bar {
+      background: #36393f;
+      border-top: 1px solid var(--border);
+      padding: 8px 12px;
+      flex-shrink: 0;
+    }
+    .voice-connected-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+    .voice-connected-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      flex-shrink: 0;
+    }
+    .voice-connected-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--green);
+      flex: 1;
+    }
+    .voice-connected-label.disconnected { color: var(--text-muted); }
+    .voice-connected-dot.disconnected { background: var(--text-muted); }
+
+    /* ═══════════════════════════════════════════
+       PANEL DERECHO (miembros + controles)
+    ═══════════════════════════════════════════ */
+    .right-panel {
+      width: 240px;
+      min-width: 240px;
+      background: var(--bg-secondary);
+      display: flex;
+      flex-direction: column;
+    }
+    .right-panel-section { padding: 16px 8px 8px; }
+    .right-panel-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .02em;
+      color: var(--text-muted);
+      padding: 0 8px 6px;
+    }
+
+    /* Controles de pantalla en panel derecho */
+    .screen-controls-panel {
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .ctrl-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .ctrl-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      min-width: 50px;
+    }
+    .ctrl-select {
+      flex: 1;
+      background: var(--bg-floating);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text-normal);
+      padding: 4px 8px;
+      font-size: 12px;
+      outline: none;
+      cursor: pointer;
+    }
+    .ctrl-select:hover { border-color: var(--brand); }
+    .ctrl-input {
+      width: 80px;
+      background: var(--bg-floating);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text-normal);
+      padding: 4px 8px;
+      font-size: 12px;
+      outline: none;
+    }
+    .ctrl-input:hover, .ctrl-input:focus { border-color: var(--brand); }
+
+    .action-btn {
+      width: 100%;
+      padding: 8px 0;
+      border-radius: var(--radius);
+      border: none;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background .1s, filter .1s;
+      font-family: inherit;
+    }
+    .action-btn.primary {
+      background: var(--brand);
+      color: white;
+    }
+    .action-btn.primary:hover { background: var(--brand-hover); }
+    .action-btn.danger {
+      background: var(--red);
+      color: white;
+    }
+    .action-btn.danger:hover { filter: brightness(1.1); }
+    .action-btn.secondary {
+      background: var(--bg-floating);
+      color: var(--text-normal);
+      border: 1px solid var(--border);
+    }
+    .action-btn.secondary:hover { background: var(--channelbg-hover); }
+
+    .action-btn-row { display: flex; gap: 6px; }
+    .action-btn-row .action-btn { flex: 1; }
+
+    /* ═══════════════════════════════════════════
+       OVERLAY USERNAME
+    ═══════════════════════════════════════════ */
+    .username-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      backdrop-filter: blur(4px);
+    }
+    .username-card {
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      padding: 32px;
+      width: 100%;
+      max-width: 440px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.6);
+    }
+    .username-card h2 {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--header-primary);
+      text-align: center;
+      margin-bottom: 8px;
+    }
+    .username-card p {
+      font-size: 14px;
+      color: var(--text-muted);
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    .username-card label {
+      display: block;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .02em;
+      color: var(--header-secondary);
+      margin-bottom: 8px;
+    }
+    .username-card input {
+      width: 100%;
+      padding: 10px 12px;
+      background: var(--bg-floating);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text-normal);
+      font-size: 16px;
+      font-family: inherit;
+      outline: none;
+      margin-bottom: 20px;
+    }
+    .username-card input:focus { border-color: var(--brand); }
+    .username-card input::placeholder { color: var(--text-muted); }
+    .username-card button {
+      width: 100%;
+      padding: 12px;
+      background: var(--brand);
+      color: white;
+      border: none;
+      border-radius: var(--radius);
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      border-radius: 4px;
+    }
+    .username-card button:hover { background: var(--brand-hover); }
+  </style>
+</head>
+<body>
+
+  <!-- Rail de servidores -->
+  <div class="server-rail">
+    <div class="server-icon active" title="Servidor amigos">A</div>
+    <div class="server-separator"></div>
+  </div>
+
+  <!-- Sidebar de canales -->
+  <div class="channels-sidebar">
+    <div class="server-header">
+      Servidor amigos
+      <span class="server-header-arrow">▼</span>
+    </div>
+
+    <div class="channels-list">
+      <!-- Categoría texto -->
+      <div class="channel-category">
+        <span class="channel-category-arrow">▶</span>
+        <span class="channel-category-name">Canales de texto</span>
+      </div>
+      <div class="channel-item active" id="chan-general">
+        <span class="channel-item-icon">#</span>
+        general
+      </div>
+
+      <!-- Categoría voz -->
+      <div class="channel-category" style="margin-top:8px;">
+        <span class="channel-category-arrow">▶</span>
+        <span class="channel-category-name">Canales de voz</span>
+      </div>
+      <div class="channel-item" id="chan-voice">
+        <span class="channel-item-icon">🔊</span>
+        general
+      </div>
+
+      <!-- Usuarios en voz -->
+      <div class="voice-members-section">
+        <div id="voice-users-list"></div>
+      </div>
+    </div>
+
+    <!-- Barra de estado de voz -->
+    <div class="voice-status-bar">
+      <div class="voice-connected-header">
+        <div class="voice-connected-dot disconnected" id="voice-dot"></div>
+        <span class="voice-connected-label disconnected" id="voice-status">Desconectado</span>
+      </div>
+      <div class="action-btn-row">
+        <button class="action-btn primary" id="voice-toggle">Conectar</button>
+        <button class="action-btn secondary" id="screen-toggle">🖥 Pantalla</button>
+      </div>
+    </div>
+
+    <!-- Panel de usuario -->
+    <div class="user-panel">
+      <div class="user-avatar" id="user-avatar-icon">?</div>
+      <div class="user-info">
+        <div class="user-name" id="user-name-display">—</div>
+        <div class="user-tag">#0001</div>
+      </div>
+      <div class="user-actions">
+        <button class="user-action-btn" title="Cambiar nombre" id="btn-rename">✏️</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Área principal de chat -->
+  <div class="main">
+    <div class="topbar">
+      <span class="topbar-icon">#</span>
+      <span class="topbar-channel-name">general</span>
+      <div class="topbar-separator"></div>
+      <span class="topbar-topic">Chat de texto del servidor</span>
+      <div class="topbar-actions">
+        <button class="topbar-btn" title="Buscar">🔍</button>
+        <button class="topbar-btn" title="Menciones">@</button>
+      </div>
+    </div>
+
+    <!-- Pantalla compartida -->
+    <div id="screen-container" class="screen-container">
+      <div class="screen-header">
+        <span class="screen-live-badge"><span class="screen-live-dot"></span>EN VIVO</span>
+        <span id="screen-stats" class="screen-stats"></span>
+        <div class="screen-header-actions">
+          <button class="screen-ctrl-btn" id="screen-size-toggle">⤢ Pantalla completa</button>
+          <button class="screen-ctrl-btn danger" id="screen-stop-btn">✕ Detener</button>
+        </div>
+      </div>
+      <div class="screen-video-wrapper" id="screen-video-wrapper">
+        <video id="screen-video" autoplay playsinline muted></video>
+      </div>
+    </div>
+
+    <!-- Mensajes -->
+    <div id="messages" class="messages"></div>
+
+    <!-- Input -->
+    <div class="input-area">
+      <form id="form">
+        <div class="input-box">
+          <input id="input" type="text" autocomplete="off" placeholder="Enviar mensaje a #general" />
+          <button type="submit" class="input-send-btn" title="Enviar">➤</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Panel derecho: miembros y controles -->
+  <div class="right-panel">
+    <div class="right-panel-section">
+      <div class="right-panel-title">Calidad de transmisión</div>
+      <div class="screen-controls-panel">
+        <div class="ctrl-row">
+          <span class="ctrl-label">Resolución</span>
+          <select class="ctrl-select" id="screen-resolution">
+            <option value="854x480">480p</option>
+            <option value="1280x720">720p</option>
+            <option value="1920x1080" selected>1080p</option>
+            <option value="3840x2160">4K</option>
+          </select>
+        </div>
+        <div class="ctrl-row">
+          <span class="ctrl-label">Bitrate</span>
+          <select class="ctrl-select" id="screen-bitrate-preset">
+            <option value="5000">5 Mbps</option>
+            <option value="10000">10 Mbps</option>
+            <option value="20000" selected>20 Mbps</option>
+            <option value="30000">30 Mbps</option>
+            <option value="50000">50 Mbps</option>
+          </select>
+          <input class="ctrl-input" id="screen-bitrate" type="number" min="1000" max="100000" step="1000" value="20000" style="width:70px;" />
+        </div>
+        <button class="action-btn primary" id="screen-apply">Aplicar cambios</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Overlay de nombre de usuario -->
+  <div id="username-overlay" class="username-overlay" style="display:none;">
+    <div class="username-card">
+      <h2>Bienvenido</h2>
+      <p>Elige un nombre de usuario para unirte al servidor.</p>
+      <form id="username-form">
+        <label>Nombre de usuario</label>
+        <input id="username-input" type="text" autocomplete="off" maxlength="20" placeholder="Tu nombre..." required />
+        <button type="submit">Continuar</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+
+      const socket = io();
+      const form = document.getElementById('form');
+      const input = document.getElementById('input');
+      const messages = document.getElementById('messages');
+      const voiceToggle = document.getElementById('voice-toggle');
+      const voiceStatus = document.getElementById('voice-status');
+      const voiceUsersList = document.getElementById('voice-users-list');
+      const screenToggle = document.getElementById('screen-toggle');
+      const screenContainer = document.getElementById('screen-container');
+      const screenVideo = document.getElementById('screen-video');
+      const screenSizeToggle = document.getElementById('screen-size-toggle');
+      const screenResolutionSelect = document.getElementById('screen-resolution');
+      const screenBitrateInput = document.getElementById('screen-bitrate');
+      const screenApplyButton = document.getElementById('screen-apply');
+      const screenStats = document.getElementById('screen-stats');
+      const screenBitratePreset = document.getElementById('screen-bitrate-preset');
+
+      // Sincronizar preset → input numérico
+      screenBitratePreset.addEventListener('change', () => {
+        screenBitrateInput.value = screenBitratePreset.value;
+      });
+      const usernameOverlay = document.getElementById('username-overlay');
+      const usernameForm = document.getElementById('username-form');
+      const usernameInput = document.getElementById('username-input');
+
+      // --- Nombre de usuario sencillo con overlay (sin prompt en bucle) ---
+      let username = localStorage.getItem('username') || '';
+
+      function setUsername(name) {
+        username = name.trim() || 'Invitado';
+        localStorage.setItem('username', username);
+        socket.emit('set-username', username);
+      }
+
+      if (!username) {
+        usernameOverlay.style.display = 'flex';
+      } else {
+        setUsername(username);
+      }
+
+      usernameForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const value = usernameInput.value.trim();
+        if (!value) return;
+        setUsername(value);
+        usernameOverlay.style.display = 'none';
+      });
+
+      function addMessage(payload) {
+        const div = document.createElement('div');
+        div.className = 'message';
+        if (typeof payload === 'object' && payload.author) {
+          const authorEl = document.createElement('span');
+          authorEl.className = 'message-author';
+          authorEl.textContent = payload.author + ': ';
+          const textEl = document.createElement('span');
+          textEl.className = 'message-text';
+          textEl.textContent = payload.text;
+          div.appendChild(authorEl);
+          div.appendChild(textEl);
+        } else {
+          div.textContent = typeof payload === 'string' ? payload : '';
+        }
+        messages.appendChild(div);
+        messages.scrollTop = messages.scrollHeight;
+      }
+
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const text = input.value.trim();
+        if (!text) return;
+        socket.emit('chat message', text);
+        input.value = '';
+      });
+
+      socket.on('chat message', (msg) => {
+        addMessage(msg);
+      });
+
+      // --- Voz (WebRTC muy básico en malla) ---
+      const peers = {};
+      const pendingCandidates = {}; // candidatos ICE que llegan antes del remoteDescription
+      let localStream = null;
+      let screenStream = null;
+      let inVoice = false;
+      let screenBitrateKbps = 20000;
+      const voiceMembers = new Map();    // id -> { name, speaking } — solo cuando estamos en voz
+      const allVoiceUsers = new Map();   // id -> { name } — siempre actualizado, visible sin estar en voz
+
+      let audioContext = null;
+      let analyser = null;
+      let micSource = null;
+
+      function startSpeakingMonitor(stream) {
+        if (audioContext) return;
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        micSource = audioContext.createMediaStreamSource(stream);
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 2048;
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        micSource.connect(analyser);
+
+        function tick() {
+          if (!analyser) return;
+          analyser.getByteTimeDomainData(dataArray);
+          let maxDeviation = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            const deviation = Math.abs(dataArray[i] - 128);
+            if (deviation > maxDeviation) maxDeviation = deviation;
+          }
+          const speaking = maxDeviation > 20;
+          const me = voiceMembers.get(socket.id);
+          if (me && me.speaking !== speaking) {
+            voiceMembers.set(socket.id, { ...me, speaking });
+            renderVoiceUsers();
+          }
+          requestAnimationFrame(tick);
+        }
+
+        requestAnimationFrame(tick);
+      }
+
+      function renderVoiceUsers() {
+        voiceUsersList.innerHTML = '';
+        // Mostrar todos los usuarios en voz, estemos conectados o no
+        allVoiceUsers.forEach((info, id) => {
+          const name = info?.name || 'Invitado';
+          const voiceInfo = voiceMembers.get(id);
+          const speaking = voiceInfo?.speaking || false;
+
+          const row = document.createElement('div');
+          row.className = 'voice-user';
+
+          // Avatar con inicial
+          const avatar = document.createElement('div');
+          avatar.className = 'voice-avatar' + (speaking ? ' speaking' : '');
+          avatar.textContent = name.charAt(0).toUpperCase();
+
+          const nameSpan = document.createElement('span');
+          nameSpan.className = 'voice-user-name' + (speaking ? ' speaking' : '');
+          nameSpan.textContent = name;
+
+          // Icono de mic
+          const mic = document.createElement('span');
+          mic.className = 'voice-mic-icon';
+          mic.textContent = speaking ? '🎙️' : '🎤';
+
+          row.appendChild(avatar);
+          row.appendChild(nameSpan);
+          row.appendChild(mic);
+          voiceUsersList.appendChild(row);
+        });
+      }
+
+      // Aplica los bitrates DESPUÉS de que el SDP esté negociado.
+      // setParameters() falla silenciosamente si se llama antes de setLocalDescription.
+      async function applyBitratesToPeer(pc) {
+        for (const sender of pc.getSenders()) {
+          if (!sender.track) continue;
+          const params = sender.getParameters();
+          if (!params.encodings || !params.encodings.length) continue;
+          if (sender.track.kind === 'audio') {
+            params.encodings[0].maxBitrate   = 510000;  // 510 kbps opus estéreo
+            params.encodings[0].priority     = 'high';
+            params.encodings[0].networkPriority = 'high';
+          } else if (sender.track.kind === 'video') {
+            const kbps = Number(screenBitrateKbps) || 15000;
+            params.encodings[0].maxBitrate          = kbps * 1000;
+            params.encodings[0].maxFramerate        = 60;
+            params.degradationPreference            = 'maintain-resolution';
+            params.encodings[0].priority            = 'high';
+            params.encodings[0].networkPriority     = 'high';
+          }
+          await sender.setParameters(params).catch(() => {});
+        }
+      }
+
+      // Inyecta parámetros Opus de alta calidad directamente en el SDP
+      function patchSdpAudioQuality(sdp) {
+        // maxaveragebitrate=510000: ~510kbps opus
+        // stereo=1: estéreo
+        // sprop-stereo=1: indicar al receptor que enviamos estéreo
+        // useinbandfec=1: corrección de errores en banda (menos glitches en pérdida de paquetes)
+        return sdp.replace(
+          /a=fmtp:(\d+) useinbandfec=1/g,
+          'a=fmtp:$1 useinbandfec=1;stereo=1;sprop-stereo=1;maxaveragebitrate=510000'
+        );
+      }
+
+      async function ensureLocalStreamsForPeer(peerId) {
+        const pc = createPeerConnection(peerId);
+        if (localStream) {
+          localStream.getTracks().forEach((track) => {
+            const already = pc.getSenders().some(s => s.track && s.track.id === track.id);
+            if (!already) pc.addTrack(track, localStream);
+          });
+        }
+        if (screenStream) {
+          screenStream.getTracks().forEach((track) => {
+            // Añadir cada track del screenStream (vídeo y audio del sistema)
+            const already = pc.getSenders().some(s => s.track && s.track.id === track.id);
+            if (!already) pc.addTrack(track, screenStream);
+          });
+        }
+        return pc;
+      }
+
+      async function startLocalAudio() {
+        if (localStream) return localStream;
+        // Máxima calidad de audio: estéreo, 48kHz, sin procesado que degrade la señal
+        localStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,   // desactivar: añade artefactos en música/sistemas
+            noiseSuppression: false,   // ídem
+            autoGainControl: false,    // ídem — queremos el audio crudo
+            sampleRate: 48000,
+            sampleSize: 16,
+            channelCount: 2,           // estéreo
+          },
+        });
+        startSpeakingMonitor(localStream);
+        return localStream;
+      }
+
+      function createPeerConnection(peerId) {
+        if (peers[peerId]) return peers[peerId];
+
+        const pc = new RTCPeerConnection({
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+          ],
+          bundlePolicy: 'max-bundle',
+          rtcpMuxPolicy: 'require',
+        });
+
+        // Renegociación automática cuando se añaden/quitan tracks
+        pc.onnegotiationneeded = async () => {
+          // Solo el lado que tiene signalingState 'stable' inicia la oferta
+          if (pc.signalingState !== 'stable') return;
+          try {
+            const offerRaw = await pc.createOffer();
+            if (pc.signalingState !== 'stable') return; // check de nuevo por si cambió
+            const patchedSdp = patchSdpAudioQuality(offerRaw.sdp);
+            const offer = new RTCSessionDescription({ type: offerRaw.type, sdp: patchedSdp });
+            await pc.setLocalDescription(offer);
+            socket.emit('webrtc-offer', { to: peerId, from: socket.id, sdp: offer });
+          } catch (e) {
+            console.warn('onnegotiationneeded error:', e.message);
+          }
+        };
+
+        pc.onicecandidate = (event) => {
+          if (event.candidate) {
+            socket.emit('webrtc-ice-candidate', {
+              to: peerId,
+              from: socket.id,
+              candidate: event.candidate,
+            });
+          }
+        };
+
+        pc.onconnectionstatechange = () => {
+          if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+            delete peers[peerId];
+            delete pendingCandidates[peerId];
+          }
+        };
+
+        pc.ontrack = (event) => {
+          if (event.track.kind === 'audio') {
+            // Cada track de audio tiene su propio elemento para no mezclar streams
+            const audioId = `audio-${peerId}-${event.track.id.slice(0,8)}`;
+            let audio = document.getElementById(audioId);
+            if (!audio) {
+              audio = document.createElement('audio');
+              audio.id = audioId;
+              audio.autoplay = true;
+              audio.playsInline = true;
+              document.body.appendChild(audio);
+            }
+            // Usar MediaStream con solo este track para máxima compatibilidad
+            audio.srcObject = new MediaStream([event.track]);
+          } else if (event.track.kind === 'video') {
+            screenVideo.srcObject = event.streams[0];
+            screenContainer.style.display = 'flex';
+          }
+        };
+
+        peers[peerId] = pc;
+        return pc;
+      }
+
+      // callPeer: la oferta inicial la dispara onnegotiationneeded al añadir tracks
+      async function callPeer(peerId) {
+        await startLocalAudio();
+        await ensureLocalStreamsForPeer(peerId);
+        // onnegotiationneeded se disparará automáticamente al añadir los tracks
+      }
+
+
+      async function handleOffer({ from, sdp }) {
+        await startLocalAudio();
+        const pc = await ensureLocalStreamsForPeer(from);
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        // Candidatos ICE que llegaron antes del remoteDescription
+        if (pendingCandidates[from]) {
+          for (const c of pendingCandidates[from]) {
+            await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+          }
+          delete pendingCandidates[from];
+        }
+        const answerRaw = await pc.createAnswer();
+        const patchedSdp = patchSdpAudioQuality(answerRaw.sdp);
+        const answer = new RTCSessionDescription({ type: answerRaw.type, sdp: patchedSdp });
+        await pc.setLocalDescription(answer);
+        await applyBitratesToPeer(pc);
+        socket.emit('webrtc-answer', { to: from, from: socket.id, sdp: answer });
+      }
+
+      async function handleAnswer({ from, sdp }) {
+        const pc = peers[from];
+        if (!pc) return;
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        // Aplicar candidatos pendientes
+        if (pendingCandidates[from]) {
+          for (const c of pendingCandidates[from]) {
+            await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+          }
+          delete pendingCandidates[from];
+        }
+        await applyBitratesToPeer(pc);
+      }
+
+      async function handleIceCandidate({ from, candidate }) {
+        const pc = peers[from];
+        if (!pc || !pc.remoteDescription) {
+          pendingCandidates[from] = pendingCandidates[from] || [];
+          pendingCandidates[from].push(candidate);
+          return;
+        }
+        await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((e) => {
+          console.warn('ICE candidate descartado:', e.message);
+        });
+      }
+
+
+      function leaveVoice() {
+        Object.values(peers).forEach((pc) => pc.close());
+        Object.keys(peers).forEach((id) => delete peers[id]);
+        if (localStream) {
+          localStream.getTracks().forEach((t) => t.stop());
+          localStream = null;
+        }
+        if (screenStream) {
+          screenStream.getTracks().forEach((t) => t.stop());
+          screenStream = null;
+        }
+        socket.emit('leave-voice');
+        voiceMembers.clear();
+        // allVoiceUsers NO se limpia: seguimos viendo quién está en el canal
+        renderVoiceUsers();
+        voiceStatus.textContent = 'Desconectado de voz';
+        voiceToggle.textContent = 'Conectar voz';
+        inVoice = false;
+      }
+
+      voiceToggle.addEventListener('click', async () => {
+        if (inVoice) {
+          leaveVoice();
+          return;
+        }
+        try {
+          await startLocalAudio();
+          // Nos añadimos nosotros mismos a la lista local de voz
+          voiceMembers.set(socket.id, { name: username, speaking: false });
+          renderVoiceUsers();
+          socket.emit('join-voice');
+          voiceStatus.textContent = 'Conectado al canal de voz';
+          voiceToggle.textContent = 'Salir de voz';
+          inVoice = true;
+        } catch (err) {
+          console.error(err);
+          alert('No se pudo acceder al micrófono.');
+        }
+      });
+
+      // --- Compartir pantalla ---
+
+      // Monitor de stats en tiempo real
+      let statsInterval = null;
+      function startStatsMonitor() {
+        if (statsInterval) return;
+        statsInterval = setInterval(() => {
+          if (!screenStream) return;
+          const track = screenStream.getVideoTracks()[0];
+          if (!track) return;
+          const s = track.getSettings();
+          const txt = `${s.width||'?'}x${s.height||'?'}  ${s.frameRate ? Math.round(s.frameRate) : '?'}fps`;
+          screenStats.textContent = txt;
+          const sfs = document.getElementById('screen-stats-fs');
+          if (sfs) sfs.textContent = txt;
+        }, 800);
+      }
+      function stopStatsMonitor() {
+        clearInterval(statsInterval);
+        statsInterval = null;
+        screenStats.textContent = '';
+        const sfs = document.getElementById('screen-stats-fs');
+        if (sfs) sfs.textContent = '';
+      }
+
+      async function startScreenShare() {
+        if (screenStream) return;
+        try {
+          const resValue = screenResolutionSelect.value || '1920x1080';
+          const [w, h] = resValue.split('x').map((v) => parseInt(v, 10));
+          const kbps = Number(screenBitrateInput.value) || 20000;
+          screenBitrateKbps = Math.max(1000, Math.min(kbps, 100000));
+
+          screenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              width:     { ideal: w, max: w },
+              height:    { ideal: h, max: h },
+              frameRate: { ideal: 60, max: 60 },
+            },
+            audio: {
+              // Capturar audio del sistema/pestaña si el navegador lo permite
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl:  false,
+              sampleRate:       48000,
+              channelCount:     2,
+            },
+          });
+
+          const videoTrack = screenStream.getVideoTracks()[0];
+          if (videoTrack) videoTrack.addEventListener('ended', () => stopScreenShare());
+
+          // Mostrar preview local (muted para no escuchar el loopback propio)
+          screenVideo.srcObject = screenStream;
+          screenContainer.style.display = 'flex';
+          startStatsMonitor();
+
+          // Añadir track a los peers — onnegotiationneeded se encarga de renegociar
+          for (const peerId of Object.keys(peers)) {
+            await ensureLocalStreamsForPeer(peerId);
+          }
+
+          screenToggle.textContent = 'Detener pantalla';
+        } catch (err) {
+          console.error(err);
+          alert('No se pudo compartir la pantalla.');
+          screenStream = null;
+        }
+      }
+
+      function stopScreenShare() {
+        if (!screenStream) return;
+        screenStream.getTracks().forEach((t) => t.stop());
+        screenStream = null;
+        screenVideo.srcObject = null;
+        screenContainer.style.display = 'none';
+        screenContainer.classList.remove('large', 'fullscreen');
+        screenSizeToggle.textContent = 'Pantalla completa';
+        screenToggle.textContent = 'Compartir pantalla';
+        stopStatsMonitor();
+        // Reemplazar el track de vídeo con null en todos los senders (sin renegociar)
+        Object.values(peers).forEach((pc) => {
+          pc.getSenders()
+            .filter((s) => s.track && s.track.kind === 'video')
+            .forEach((sender) => sender.replaceTrack(null).catch(() => {}));
+        });
+      }
+
+      screenToggle.addEventListener('click', async () => {
+        if (!inVoice) {
+          alert('Primero conéctate al canal de voz.');
+          return;
+        }
+        if (screenStream) {
+          stopScreenShare();
+        } else {
+          await startScreenShare();
+        }
+      });
+
+      // Aplicar configuración EN CALIENTE via replaceTrack — sin renegociar
+      screenApplyButton.addEventListener('click', async () => {
+        const kbps = Number(screenBitrateInput.value) || 20000;
+        screenBitrateKbps = Math.max(1000, Math.min(kbps, 100000));
+        const resValue = screenResolutionSelect.value || '1920x1080';
+        const [w, h] = resValue.split('x').map((v) => parseInt(v, 10));
+
+        if (!screenStream) {
+          addMessage('[Sistema] Configuración guardada para la próxima captura.');
+          return;
+        }
+
+        try {
+          const newStream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              width:     { ideal: w, max: w },
+              height:    { ideal: h, max: h },
+              frameRate: { ideal: 60, max: 60 },
+            },
+            audio: false,
+          });
+
+          const newTrack = newStream.getVideoTracks()[0];
+          if (!newTrack) { newStream.getTracks().forEach(t => t.stop()); return; }
+
+          // replaceTrack en todos los senders — no dispara renegociación
+          await Promise.all(
+            Object.values(peers).flatMap((pc) =>
+              pc.getSenders()
+                .filter((s) => s.track && s.track.kind === 'video')
+                .map((sender) => sender.replaceTrack(newTrack))
+            )
+          );
+
+          // Actualizar bitrate en los senders
+          for (const pc of Object.values(peers)) {
+            await applyBitratesToPeer(pc);
+          }
+
+          // Limpiar stream viejo y actualizar preview
+          screenStream.getTracks().forEach((t) => t.stop());
+          screenStream = newStream;
+          screenVideo.srcObject = screenStream;
+          newTrack.addEventListener('ended', () => stopScreenShare());
+
+          addMessage('[Sistema] Configuración aplicada en caliente.');
+        } catch (err) {
+          if (err.name !== 'NotAllowedError') console.error(err);
+          addMessage('[Sistema] Aplicación cancelada.');
+        }
+      });
+
+
+      // --- Fullscreen nativo ---
+      const screenVideoWrapper = document.getElementById('screen-video-wrapper');
+      const screenStatsFsEl    = document.getElementById('screen-stats-fs');
+
+      function isFullscreen() {
+        return !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement);
+      }
+
+      async function enterFullscreen() {
+        const el = screenVideo;
+        try {
+          if      (el.requestFullscreen)       await el.requestFullscreen();
+          else if (el.webkitRequestFullscreen)  await el.webkitRequestFullscreen();
+          else if (el.mozRequestFullScreen)     await el.mozRequestFullScreen();
+          else if (el.webkitEnterFullscreen)    el.webkitEnterFullscreen();
+        } catch (e) { console.warn('Fullscreen denegado:', e); }
+      }
+
+      async function exitFullscreen() {
+        try {
+          if      (document.exitFullscreen)        await document.exitFullscreen();
+          else if (document.webkitExitFullscreen)  document.webkitExitFullscreen();
+          else if (document.mozCancelFullScreen)   document.mozCancelFullScreen();
+        } catch (e) {}
+      }
+
+      function updateFullscreenButton() {
+        screenSizeToggle.textContent = isFullscreen() ? 'Reducir' : 'Pantalla completa';
+      }
+
+      screenSizeToggle.addEventListener('click', async () => {
+        if (isFullscreen()) await exitFullscreen();
+        else                await enterFullscreen();
+      });
+
+      screenVideo.addEventListener('dblclick', async () => {
+        if (isFullscreen()) await exitFullscreen();
+        else                await enterFullscreen();
+      });
+
+      document.addEventListener('fullscreenchange',       updateFullscreenButton);
+      document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
+      document.addEventListener('mozfullscreenchange',    updateFullscreenButton);
+
+      socket.on('voice-users', async (users) => {
+        // Al entrar en voz recibimos los que ya estaban
+        for (const user of users) {
+          const n = user.name || 'Invitado';
+          allVoiceUsers.set(user.id, { name: n });
+          voiceMembers.set(user.id, { name: n, speaking: false });
+          await callPeer(user.id);
+        }
+        renderVoiceUsers();
+      });
+
+      socket.on('voice-user-joined', async ({ id, name }) => {
+        const n = name || 'Invitado';
+        allVoiceUsers.set(id, { name: n });   // siempre visible en el sidebar
+        if (inVoice) {
+          voiceMembers.set(id, { name: n, speaking: false });
+          await callPeer(id);
+        }
+        renderVoiceUsers();
+      });
+
+      socket.on('voice-user-left', (id) => {
+        const pc = peers[id];
+        if (pc) { pc.close(); delete peers[id]; }
+        delete pendingCandidates[id];
+        // Limpiar todos los elementos de audio de este peer (micrófono + audio sistema)
+        document.querySelectorAll(`[id^="audio-${id}"]`).forEach(el => el.parentNode?.removeChild(el));
+        voiceMembers.delete(id);
+        allVoiceUsers.delete(id);   // ya no está en voz
+        renderVoiceUsers();
+      });
+
+      // user-list: actualizar nombres en allVoiceUsers si ya están ahí
+      socket.on('user-list', (users) => {
+        users.forEach(u => {
+          if (allVoiceUsers.has(u.id)) {
+            allVoiceUsers.set(u.id, { name: u.name || 'Invitado' });
+          }
+        });
+        renderVoiceUsers();
+      });
+
+      // Recibir lista de voz actual al conectarse (sin tener que entrar en voz)
+      socket.on('current-voice-users', (users) => {
+        users.forEach(u => {
+          allVoiceUsers.set(u.id, { name: u.name || 'Invitado' });
+        });
+        renderVoiceUsers();
+      });
+
+      socket.on('webrtc-offer', handleOffer);
+      socket.on('webrtc-answer', handleAnswer);
+      socket.on('webrtc-ice-candidate', handleIceCandidate);
+    
+    // Actualizar UI de usuario cuando se establece el nombre
+    const _origSetUsername = setUsername;
+    // Parchar setUsername para actualizar el avatar y nombre en el panel
+    (function patchUI() {
+      const origSet = setUsername;
+      window.setUsername = function(name) {
+        origSet(name);
+        const n = name.trim() || 'Invitado';
+        const avatarEl = document.getElementById('user-avatar-icon');
+        const nameEl   = document.getElementById('user-name-display');
+        if (avatarEl) avatarEl.textContent = n.charAt(0).toUpperCase();
+        if (nameEl)   nameEl.textContent = n;
+      };
+      // Aplicar al username existente si ya estaba guardado
+      const saved = localStorage.getItem('username');
+      if (saved) window.setUsername(saved);
+    })();
+
+    // Botón renombrar
+    document.getElementById('btn-rename').addEventListener('click', () => {
+      localStorage.removeItem('username');
+      location.reload();
+    });
+
+    // Botón detener pantalla en el header del video
+    document.getElementById('screen-stop-btn').addEventListener('click', () => {
+      stopScreenShare();
+    });
+
+    // Sincronizar estado visual del botón de voz y dot
+    const voiceDot = document.getElementById('voice-dot');
+    const _origVoiceToggle = voiceToggle;
+    // Observar cambios en voiceStatus text para actualizar dot y canal activo
+    const voiceStatusEl = document.getElementById('voice-status');
+    const chanVoice = document.getElementById('chan-voice');
+    const observer = new MutationObserver(() => {
+      const connected = voiceStatusEl.textContent.toLowerCase().includes('conectado') && !voiceStatusEl.textContent.toLowerCase().includes('des');
+      voiceDot.classList.toggle('disconnected', !connected);
+      voiceStatusEl.classList.toggle('disconnected', !connected);
+      chanVoice.classList.toggle('active', connected);
+    });
+    observer.observe(voiceStatusEl, { childList: true, characterData: true, subtree: true });
+
+    // addMessage: mostrar timestamp
+    const _origAddMessage = addMessage;
+    window.addMessage = function(payload) {
+      const container = document.getElementById('messages');
+      const div = document.createElement('div');
+      if (typeof payload === 'object' && payload.author) {
+        div.className = 'message';
+        const now = new Date();
+        const time = now.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+        const header = document.createElement('div');
+        header.className = 'message-header';
+        const authorEl = document.createElement('span');
+        authorEl.className = 'message-author';
+        authorEl.textContent = payload.author;
+        const tsEl = document.createElement('span');
+        tsEl.className = 'message-timestamp';
+        tsEl.textContent = 'Hoy a las ' + time;
+        header.appendChild(authorEl);
+        header.appendChild(tsEl);
+        const textEl = document.createElement('div');
+        textEl.className = 'message-text';
+        textEl.textContent = payload.text;
+        div.appendChild(header);
+        div.appendChild(textEl);
+      } else {
+        div.className = 'message system';
+        const textEl = document.createElement('div');
+        textEl.className = 'message-text';
+        textEl.textContent = typeof payload === 'string' ? payload : '';
+        div.appendChild(textEl);
+      }
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+    };
+  </script>
+</body>
+</html>
