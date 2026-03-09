@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>Discord — Servidor amigos</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
@@ -322,7 +322,6 @@
     .username-card {
       background: var(--bg-secondary); border-radius: 8px; padding: 32px;
       width: 100%; max-width: 440px; box-shadow: 0 8px 32px rgba(0,0,0,.6);
-      margin: 16px;
     }
     .username-card h2 { font-size: 24px; font-weight: 700; color: var(--header-primary); text-align: center; margin-bottom: 8px; }
     .username-card p { font-size: 14px; color: var(--text-muted); text-align: center; margin-bottom: 24px; }
@@ -352,72 +351,17 @@
     #conn-toast.show { display: flex; }
     .toast-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); animation: livePulse 1s infinite; }
     .toast-dot.green { background: var(--green); animation: none; }
-
-    /* ═══════════════════════════════════════════════════════════════ */
-    /* RESPONSIVE (MÓVILES Y TABLETS)                                  */
-    /* ═══════════════════════════════════════════════════════════════ */
-    .mobile-nav-btn {
-      display: none;
-      background: transparent;
-      border: none;
-      color: var(--interactive-normal);
-      font-size: 24px;
-      cursor: pointer;
-      line-height: 1;
-      padding: 0 4px;
-    }
-    .mobile-nav-btn:hover { color: var(--interactive-hover); }
-
-    .mobile-backdrop {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.6);
-      z-index: 50;
-      backdrop-filter: blur(2px);
-    }
-
-    @media (max-width: 850px) {
-      .mobile-nav-btn { display: block; }
-      .topbar { padding: 0 12px; gap: 8px; }
-      .topbar-topic { display: none; }
-
-      .server-rail {
-        position: absolute; left: -72px; z-index: 100; height: 100%;
-        transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      }
-      .channels-sidebar {
-        position: absolute; left: -312px; z-index: 99; height: 100%;
-        transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        box-shadow: 4px 0 8px rgba(0,0,0,0.2);
-      }
-      .right-panel {
-        position: absolute; right: -240px; z-index: 100; height: 100%;
-        transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        box-shadow: -4px 0 8px rgba(0,0,0,0.2);
-      }
-
-      body.show-left .server-rail { left: 0; }
-      body.show-left .channels-sidebar { left: 72px; }
-      body.show-left .mobile-backdrop { display: block; }
-
-      body.show-right .right-panel { right: 0; }
-      body.show-right .mobile-backdrop { display: block; }
-
-      .message { padding: 2px 12px; }
-      .input-area { padding: 0 12px 16px; }
-      .input-box { padding: 0 12px; }
-      .stream-video { min-height: 120px; }
-    }
   </style>
 </head>
 <body>
 
+  <!-- Server rail -->
   <div class="server-rail">
     <div class="server-icon active" title="Servidor amigos">A</div>
     <div class="server-separator"></div>
   </div>
 
+  <!-- Channels sidebar -->
   <div class="channels-sidebar">
     <div class="server-header">
       Servidor amigos <span class="server-header-arrow">▼</span>
@@ -463,22 +407,16 @@
     </div>
   </div>
 
+  <!-- Main chat area -->
   <div class="main">
     <div class="topbar">
-      <button id="btn-menu" class="mobile-nav-btn" title="Menú">☰</button>
-
       <span class="topbar-icon">#</span>
       <span class="topbar-channel-name">general</span>
       <div class="topbar-separator"></div>
       <span class="topbar-topic">Chat de texto del servidor</span>
-      
-      <div style="flex: 1;"></div> 
-
-      <button id="btn-settings" class="mobile-nav-btn" title="Ajustes">⚙️</button>
     </div>
 
-    <div id="mobile-backdrop" class="mobile-backdrop"></div>
-
+    <!-- Streams activos (multi-stream) -->
     <div id="streams-container"></div>
 
     <div id="messages" class="messages"></div>
@@ -493,6 +431,7 @@
     </div>
   </div>
 
+  <!-- Right panel -->
   <div class="right-panel">
     <div class="right-panel-section">
       <div class="right-panel-title">Calidad de transmisión</div>
@@ -522,6 +461,7 @@
     </div>
   </div>
 
+  <!-- Username overlay -->
   <div id="username-overlay" class="username-overlay" style="display:none;">
     <div class="username-card">
       <h2>Bienvenido</h2>
@@ -534,11 +474,13 @@
     </div>
   </div>
 
+  <!-- Connection toast -->
   <div id="conn-toast">
     <div class="toast-dot" id="toast-dot"></div>
     <span id="toast-msg">Conectando...</span>
   </div>
 
+  <!-- Supabase SDK -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script>
     // ═══════════════════════════════════════════════════════════════
@@ -552,7 +494,7 @@
     // ═══════════════════════════════════════════════════════════════
     // ESTADO GLOBAL
     // ═══════════════════════════════════════════════════════════════
-    let myId       = crypto.randomUUID();  
+    let myId       = crypto.randomUUID();  // ID único por sesión
     let username   = localStorage.getItem('username') || '';
     let inVoice    = false;
     let localStream    = null;
@@ -564,8 +506,8 @@
 
     const peers = {};
     const pendingCandidates = {};
-    const voiceMembers  = new Map();  
-    const allVoiceUsers = new Map();  
+    const voiceMembers  = new Map();  // id -> { name, speaking }
+    const allVoiceUsers = new Map();  // id -> { name } siempre visible
 
     // ═══════════════════════════════════════════════════════════════
     // DOM
@@ -576,17 +518,20 @@
     const voiceToggle        = document.getElementById('voice-toggle');
     const voiceStatusEl      = document.getElementById('voice-status');
     const voiceUsersList     = document.getElementById('voice-users-list');
-    const screenToggle       = document.getElementById('screen-toggle');
+    const screenToggle           = document.getElementById('screen-toggle');
     const screenResolutionSelect = document.getElementById('screen-resolution');
-    const screenBitrateInput = document.getElementById('screen-bitrate');
-    const screenApplyButton  = document.getElementById('screen-apply');
-    const screenBitratePreset= document.getElementById('screen-bitrate-preset');
+    const screenBitrateInput     = document.getElementById('screen-bitrate');
+    const screenApplyButton      = document.getElementById('screen-apply');
+    const screenBitratePreset    = document.getElementById('screen-bitrate-preset');
     const voiceDot           = document.getElementById('voice-dot');
     const chanVoice          = document.getElementById('chan-voice');
     const connToast          = document.getElementById('conn-toast');
     const toastDot           = document.getElementById('toast-dot');
     const toastMsg           = document.getElementById('toast-msg');
 
+    // ═══════════════════════════════════════════════════════════════
+    // TOAST DE CONEXIÓN
+    // ═══════════════════════════════════════════════════════════════
     function showToast(msg, ok = false) {
       connToast.classList.add('show');
       toastMsg.textContent = msg;
@@ -607,6 +552,7 @@
       localStorage.setItem('username', username);
       document.getElementById('user-avatar-icon').textContent = username.charAt(0).toUpperCase();
       document.getElementById('user-name-display').textContent = username;
+      // Anunciar presencia si ya estamos conectados
       if (realtimeChannel) broadcastPresence();
     }
 
@@ -633,11 +579,12 @@
     // ═══════════════════════════════════════════════════════════════
     // MENSAJES UI
     // ═══════════════════════════════════════════════════════════════
-    const shownMessages = new Set(); 
+    const shownMessages = new Set(); // evitar duplicados del historial + realtime
 
     function addMessage(payload) {
       const div = document.createElement('div');
       if (typeof payload === 'object' && payload.author) {
+        // Deduplicar: si viene con ts (de DB) usarlo como key
         if (payload.ts) {
           if (shownMessages.has(payload.ts)) return;
           shownMessages.add(payload.ts);
@@ -695,6 +642,7 @@
         row.appendChild(mic);
         voiceUsersList.appendChild(row);
       });
+      // Actualizar dot y botón
       const connected = inVoice;
       voiceDot.classList.toggle('disconnected', !connected);
       voiceStatusEl.classList.toggle('disconnected', !connected);
@@ -703,6 +651,9 @@
 
     // ═══════════════════════════════════════════════════════════════
     // SUPABASE REALTIME
+    // - Presence: lista de usuarios en voz (fuente de verdad)
+    // - Broadcast: señalización WebRTC y chat en tiempo real
+    // - postgres_changes: chat persistente
     // ═══════════════════════════════════════════════════════════════
     function initRealtime() {
       showToast('Conectando al servidor...');
@@ -714,8 +665,11 @@
         }
       });
 
+      // ── Presence: fuente de verdad para quién está en voz ──
+      // sync se dispara cada vez que cambia cualquier presencia
       realtimeChannel.on('presence', { event: 'sync' }, () => {
         const state = realtimeChannel.presenceState();
+        // Reconstruir allVoiceUsers desde el estado completo de presencia
         const newVoiceUsers = new Map();
         Object.entries(state).forEach(([key, presences]) => {
           const p = presences[0];
@@ -724,6 +678,7 @@
           }
         });
 
+        // Detectar quién salió de voz para limpiar peers
         allVoiceUsers.forEach((_, id) => {
           if (!newVoiceUsers.has(id) && id !== myId) {
             voiceMembers.delete(id);
@@ -731,6 +686,7 @@
           }
         });
 
+        // Detectar quién entró en voz para conectar
         newVoiceUsers.forEach((info, id) => {
           if (!allVoiceUsers.has(id) && id !== myId && inVoice) {
             voiceMembers.set(id, { name: info.name, speaking: false });
@@ -738,19 +694,23 @@
           }
         });
 
+        // Actualizar el mapa global
         allVoiceUsers.clear();
         newVoiceUsers.forEach((v, k) => allVoiceUsers.set(k, v));
+        // Incluir siempre al usuario actual si está en voz
         if (inVoice) allVoiceUsers.set(myId, { name: username });
 
         renderVoiceUsers();
       });
 
+      // ── Chat via DB Realtime (persistente) ──
       sb.channel('db-messages')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, ({ new: row }) => {
           addMessage({ author: row.author, text: row.text, ts: row.created_at });
         })
         .subscribe();
 
+      // ── Señalización WebRTC via Broadcast ──
       realtimeChannel.on('broadcast', { event: 'webrtc-offer' }, ({ payload }) => {
         if (payload.to !== myId) return;
         handleOffer({ from: payload.from, sdp: payload.sdp });
@@ -770,6 +730,7 @@
         if (status === 'SUBSCRIBED') {
           showToast('Conectado', true);
           await loadHistory();
+          // Anunciar presencia inicial (no en voz)
           await broadcastPresence();
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           showToast('Error de conexión. Recargando...');
@@ -780,11 +741,12 @@
 
     async function broadcastPresence() {
       if (!realtimeChannel) return;
+      // track() actualiza nuestra presencia — Presence sync se dispara en todos
       await realtimeChannel.track({ name: username, inVoice });
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // CHAT 
+    // CHAT — persistente en Supabase
     // ═══════════════════════════════════════════════════════════════
     async function loadHistory() {
       const { data, error } = await sb
@@ -801,6 +763,7 @@
       const text = input.value.trim().slice(0, 1000);
       if (!text) return;
       input.value = '';
+      // Guardar en DB — el Realtime lo distribuye automáticamente a todos
       const { error } = await sb.from('messages').insert({ author: username, text });
       if (error) console.warn('Error enviando mensaje:', error.message);
     });
@@ -901,6 +864,7 @@
 
       pc.onconnectionstatechange = () => {
         if (pc.connectionState === 'connected') {
+          // Aplicar bitrates cuando la conexión está realmente establecida
           applyBitratesToPeer(pc);
         }
         if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
@@ -909,12 +873,14 @@
         }
       };
 
+      // Guardar tracks remotos por tipo para armar la card
       const remoteTracks = { audio: null, video: null };
 
       pc.ontrack = (event) => {
         const track = event.track;
         if (track.kind === 'audio') {
           remoteTracks.audio = track;
+          // Si ya hay vídeo, actualizar la card con el audio
           if (remoteStreams[peerId]) {
             remoteStreams[peerId].audioTrack = track;
             const video = remoteStreams[peerId].card?.querySelector('.stream-video');
@@ -925,6 +891,7 @@
           }
         } else if (track.kind === 'video') {
           remoteTracks.video = track;
+          // Mostrar cuando el track tenga datos reales
           const show = () => {
             if (track.readyState === 'ended') return;
             upsertStreamCard(peerId, false, track, remoteTracks.audio);
@@ -941,12 +908,14 @@
 
     async function ensureLocalStreamsForPeer(peerId) {
       const pc = createPeerConnection(peerId);
+      // Audio del micrófono
       if (localStream) {
         localStream.getAudioTracks().forEach(track => {
           const already = pc.getSenders().some(s => s.track && s.track.id === track.id);
           if (!already) pc.addTrack(track, localStream);
         });
       }
+      // Vídeo y audio del sistema (screenStream)
       if (screenStream) {
         screenStream.getTracks().forEach(track => {
           const already = pc.getSenders().some(s => s.track && s.track.id === track.id);
@@ -975,6 +944,7 @@
     }
 
     async function handleOffer({ from, sdp }) {
+      // Si recibimos un offer de alguien que no conocemos, añadirlo temporalmente
       if (!allVoiceUsers.has(from)) {
         allVoiceUsers.set(from, { name: voiceMembers.get(from)?.name || '...' });
         renderVoiceUsers();
@@ -1040,13 +1010,17 @@
           if (!username) { alert('Pon un nombre de usuario primero.'); return; }
           await startLocalAudio();
           inVoice = true;
+          // Añadirse localmente de inmediato para que aparezca en el sidebar
           allVoiceUsers.set(myId, { name: username });
           voiceMembers.set(myId, { name: username, speaking: false });
           voiceStatusEl.textContent = 'Conectado al canal de voz';
           voiceToggle.textContent = 'Salir de voz';
           voiceToggle.className = 'action-btn danger';
           renderVoiceUsers();
+          // Actualizar Presence — esto dispara 'sync' en todos los demás
+          // y ellos nos verán automáticamente en la lista
           await broadcastPresence();
+          // Conectar con quienes ya estaban en voz
           allVoiceUsers.forEach((info, id) => {
             if (id === myId) return;
             voiceMembers.set(id, { name: info.name, speaking: false });
@@ -1072,15 +1046,20 @@
       voiceToggle.textContent = 'Conectar';
       voiceToggle.className = 'action-btn primary';
       renderVoiceUsers();
+      // Actualizar Presence — los demás nos verán desaparecer del canal de voz
       await broadcastPresence();
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // STREAMS 
+    // STREAMS — múltiples transmisiones simultáneas
+    // Cada peer que transmite tiene su propia stream-card en el DOM
     // ═══════════════════════════════════════════════════════════════
     const streamsContainer = document.getElementById('streams-container');
+
+    // Mapa de streams remotos: peerId -> { videoTrack, audioTrack, card, audioMuted, statsInterval }
     const remoteStreams = {};
 
+    // ── Stream propio (emisor) ──
     function startStatsMonitor(peerId) {
       if (remoteStreams[peerId]?.statsInterval) return;
       const entry = remoteStreams[peerId];
@@ -1102,8 +1081,11 @@
       entry.statsInterval = null;
     }
 
+    // Crear o actualizar la card de un stream
     function upsertStreamCard(peerId, isLocal, videoTrack, audioTrack) {
+      // Reutilizar si ya existe
       if (remoteStreams[peerId]?.card) {
+        // Actualizar tracks si cambiaron
         const entry = remoteStreams[peerId];
         if (videoTrack) entry.videoTrack = videoTrack;
         if (audioTrack) entry.audioTrack = audioTrack;
@@ -1120,6 +1102,7 @@
       card.className = 'stream-card';
       card.id = `stream-${peerId}`;
 
+      // Header (aparece al hover)
       card.innerHTML = `
         <div class="stream-card-header">
           <span class="screen-live-badge"><span class="screen-live-dot"></span>EN VIVO</span>
@@ -1137,6 +1120,7 @@
       const video = card.querySelector('.stream-video');
       video.srcObject = new MediaStream([videoTrack, ...(audioTrack ? [audioTrack] : [])]);
 
+      // Botón mute/unmute audio (solo espectador)
       const muteBtn = card.querySelector('[data-mute]');
       if (muteBtn) {
         muteBtn.addEventListener('click', () => {
@@ -1147,6 +1131,7 @@
         });
       }
 
+      // Fullscreen
       card.querySelector('[data-fs]').addEventListener('click', async () => {
         if (document.fullscreenElement) {
           await document.exitFullscreen().catch(() => {});
@@ -1159,6 +1144,7 @@
         else await video.requestFullscreen().catch(() => {});
       });
 
+      // Dejar de transmitir (emisor) / Salir de la vista (espectador)
       const stopBtn = card.querySelector('[data-stop]');
       const leaveBtn = card.querySelector('[data-leave]');
       if (stopBtn) stopBtn.addEventListener('click', stopScreenShare);
@@ -1193,8 +1179,10 @@
         const audioTrack = screenStream.getAudioTracks()[0] || null;
         if (videoTrack) videoTrack.addEventListener('ended', () => stopScreenShare());
 
+        // Mostrar preview local
         upsertStreamCard('local', true, videoTrack, audioTrack);
 
+        // Enviar a todos los peers
         for (const peerId of Object.keys(peers)) await ensureLocalStreamsForPeer(peerId);
         screenToggle.textContent = '🖥 Detener';
       } catch (err) {
@@ -1244,7 +1232,7 @@
         for (const pc of Object.values(peers)) await applyBitratesToPeer(pc);
         screenStream.getTracks().forEach(t => t.stop());
         screenStream = newStream;
-        
+        // Actualizar preview local
         const localEntry = remoteStreams['local'];
         if (localEntry?.card) {
           const video = localEntry.card.querySelector('.stream-video');
@@ -1258,71 +1246,7 @@
       }
     });
 
-    // ═══════════════════════════════════════════════════════════════
-    // RESPONSIVE UI (Menús móviles y gestos táctiles Swipe)
-    // ═══════════════════════════════════════════════════════════════
-    const btnMenu = document.getElementById('btn-menu');
-    const btnSettings = document.getElementById('btn-settings');
-    const backdrop = document.getElementById('mobile-backdrop');
-
-    function closeMobileDrawers() {
-      document.body.classList.remove('show-left', 'show-right');
-    }
-
-    if (btnMenu && btnSettings && backdrop) {
-      btnMenu.addEventListener('click', () => document.body.classList.toggle('show-left'));
-      btnSettings.addEventListener('click', () => document.body.classList.toggle('show-right'));
-      backdrop.addEventListener('click', closeMobileDrawers);
-    }
-
-    document.querySelectorAll('.channel-item').forEach(item => {
-      item.addEventListener('click', () => {
-        if (window.innerWidth <= 850) closeMobileDrawers();
-      });
-    });
-
-    // --- Lógica de Swipe (Deslizar) ---
-    let touchStartX = 0;
-    let touchEndX = 0;
-
-    document.addEventListener('touchstart', e => {
-      touchStartX = e.changedTouches[0].screenX;
-    }, { passive: true });
-
-    document.addEventListener('touchend', e => {
-      touchEndX = e.changedTouches[0].screenX;
-      handleSwipe();
-    }, { passive: true });
-
-    function handleSwipe() {
-      // Solo actuar en pantallas móviles
-      if (window.innerWidth > 850) return;
-
-      const swipeDist = touchEndX - touchStartX;
-      const threshold = 50; // Distancia mínima para considerar un swipe
-      const isLeftOpen = document.body.classList.contains('show-left');
-      const isRightOpen = document.body.classList.contains('show-right');
-
-      if (swipeDist > threshold) {
-        // Deslizar hacia la DERECHA
-        if (isRightOpen) {
-          // Si el panel derecho está abierto, lo cerramos
-          document.body.classList.remove('show-right');
-        } else if (!isLeftOpen && touchStartX < 40) {
-          // Si iniciamos el swipe desde el borde izquierdo (tipo iOS), abrimos el izquierdo
-          document.body.classList.add('show-left');
-        }
-      } else if (swipeDist < -threshold) {
-        // Deslizar hacia la IZQUIERDA
-        if (isLeftOpen) {
-          // Si el panel izquierdo está abierto, lo cerramos
-          document.body.classList.remove('show-left');
-        } else if (!isRightOpen && touchStartX > window.innerWidth - 40) {
-          // Si iniciamos el swipe desde el borde derecho, abrimos el derecho
-          document.body.classList.add('show-right');
-        }
-      }
-    }
+    // Fullscreen gestionado dentro de cada stream-card individualmente
 
     // ═══════════════════════════════════════════════════════════════
     // INIT
