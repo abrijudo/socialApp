@@ -529,7 +529,6 @@
       <span class="topbar-channel-name">general</span>
       <div class="topbar-separator"></div>
       <span class="topbar-topic">Chat de texto del servidor</span>
-      <button class="topbar-menu-btn settings-btn" id="btn-settings-toggle" title="Ajustes de transmisión" style="margin-left:auto;">⚙</button>
     </div>
 
     <!-- Streams activos (multi-stream) -->
@@ -544,48 +543,6 @@
           <button type="submit" class="input-send-btn" title="Enviar">➤</button>
         </div>
       </form>
-    </div>
-  </div>
-
-  <!-- Right panel -->
-  <div class="right-panel">
-    <div class="right-panel-section">
-      <div class="right-panel-title">Calidad de transmisión</div>
-      <div class="screen-controls-panel">
-        <div class="ctrl-row">
-          <span class="ctrl-label">Resolución</span>
-          <select class="ctrl-select" id="screen-resolution">
-            <option value="1280x720" selected>720p ★</option>
-            <option value="1920x1080">1080p</option>
-            <option value="2560x1440">1440p</option>
-            <option value="3840x2160">4K</option>
-          </select>
-        </div>
-        <div class="ctrl-row">
-          <span class="ctrl-label">Calidad</span>
-          <select class="ctrl-select" id="screen-bitrate-preset">
-            <option value="3000">3 Mbps</option>
-            <option value="5000">5 Mbps</option>
-            <option value="8000" selected>8 Mbps ★</option>
-            <option value="15000">15 Mbps</option>
-            <option value="25000">25 Mbps</option>
-            <option value="50000">50 Mbps</option>
-          </select>
-        </div>
-        <div class="ctrl-row">
-          <span class="ctrl-label">FPS</span>
-          <select class="ctrl-select" id="screen-fps">
-            <option value="15">15 fps — ligero</option>
-            <option value="30">30 fps</option>
-            <option value="60" selected>60 fps ★</option>
-          </select>
-        </div>
-        <div class="ctrl-row">
-          <span class="ctrl-label">Kbps manual</span>
-          <input class="ctrl-input" id="screen-bitrate" type="number" min="1000" max="100000" step="500" value="15000" style="width:80px;" />
-        </div>
-        <button class="action-btn primary" id="screen-apply">Aplicar cambios</button>
-      </div>
     </div>
   </div>
 
@@ -635,6 +592,7 @@
     let _screenVideoTrack  = null;  // LocalVideoTrack activo
     let _screenAudioTrack  = null;  // LocalAudioTrack de audio del sistema
     let _presenceChannel   = null;  // Supabase Presence para ver quién está en voz
+    let _screenAdaptInterval = null; // controlador dinámico de bitrate para pantalla
 
     // ═══════════════════════════════════════════════════════════════
     // DOM
@@ -647,11 +605,6 @@
     const voiceStatusEl      = document.getElementById('voice-status');
     const voiceUsersList     = document.getElementById('voice-users-list');
     const screenToggle           = document.getElementById('screen-toggle');
-    const screenResolutionSelect = document.getElementById('screen-resolution');
-    const screenBitrateInput     = document.getElementById('screen-bitrate');
-    const screenFpsSelect        = document.getElementById('screen-fps');
-    const screenApplyButton      = document.getElementById('screen-apply');
-    const screenBitratePreset    = document.getElementById('screen-bitrate-preset');
     const voiceDot           = document.getElementById('voice-dot');
     const chanVoice          = document.getElementById('chan-voice');
     const connToast          = document.getElementById('conn-toast');
@@ -1181,7 +1134,7 @@
           if (mbpsMatch)      actualKbps = parseFloat(mbpsMatch[1]) * 1000;
           else if (kbpsMatch) actualKbps = parseFloat(kbpsMatch[1]);
         }
-        const configured = Number(screenBitrateInput?.value) || 8000;
+        const configured = screenBitrateKbps || 8000;
         const limited    = actualKbps > 0 && actualKbps < configured * 0.5 ? ' ⚠ red limitando' : '';
         statsEl.textContent = `${w}×${h} ${fps}fps${kbpsStr}${limited}`;
       }, 1500);
@@ -1191,14 +1144,112 @@
       return room && room.state === 'connected';
     }
 
+    function getBestScreenCodec() {
+      try {
+        const codecs = RTCRtpSender.getCapabilities('video')?.codecs || [];
+        const mimes = codecs.map(c => (c.mimeType || '').toLowerCase());
+        if (mimes.includes('video/av1')) return 'av1';
+        if (mimes.includes('video/vp9')) return 'vp9';
+      } catch (_) {}
+      return 'vp8';
+    }
+
+    function getEffectiveScreenProfile(width, height, requestedFps, requestedKbps) {
+      let fps = Math.max(10, Math.min(requestedFps || 30, 60));
+      let kbps = Math.max(1200, Math.min(requestedKbps || 8000, 150000));
+
+      const pixels = width * height;
+      if (pixels >= 3840 * 2160) fps = Math.min(fps, 30);
+      else if (pixels >= 2560 * 1440) fps = Math.min(fps, 45);
+
+      const recommendedMin = Math.ceil((pixels / (1280 * 720)) * (fps / 30) * 4500);
+      kbps = Math.max(kbps, Math.min(recommendedMin, 80000));
+
+      return { fps, kbps };
+    }
+
+    async function applySenderEncoding(lkTrack, kbps, fps) {
+      if (!lkTrack?.sender) return;
+      const params = lkTrack.sender.getParameters();
+      if (!params.encodings?.length) return;
+
+      if (params.encodings.length > 1) {
+        const scales = [0.2, 0.45, 1];
+        params.encodings.forEach((enc, i) => {
+          const scale = scales[Math.min(i, scales.length - 1)];
+          enc.maxBitrate = Math.max(300_000, Math.round(kbps * 1000 * scale));
+          enc.maxFramerate = i < params.encodings.length - 1 ? Math.max(10, Math.round(fps * 0.5)) : fps;
+          enc.priority = 'high';
+          enc.networkPriority = 'high';
+          enc.scalabilityMode = fps >= 30 ? 'L1T3' : 'L1T2';
+        });
+      } else {
+        const enc = params.encodings[0];
+        enc.maxBitrate = kbps * 1000;
+        enc.maxFramerate = fps;
+        enc.priority = 'high';
+        enc.networkPriority = 'high';
+        enc.scalabilityMode = fps >= 30 ? 'L1T3' : 'L1T2';
+      }
+
+      await lkTrack.sender.setParameters(params);
+    }
+
+    function startScreenBitrateAdaptation(lkTrack, baseKbps, fps) {
+      if (_screenAdaptInterval) clearInterval(_screenAdaptInterval);
+      let targetKbps = Math.round(baseKbps * 0.8);
+      let stableCycles = 0;
+      screenBitrateKbps = targetKbps;
+
+      _screenAdaptInterval = setInterval(async () => {
+        if (lkTrack !== _screenVideoTrack || !roomIsConnected()) {
+          clearInterval(_screenAdaptInterval);
+          _screenAdaptInterval = null;
+          return;
+        }
+        if (!lkTrack?.sender) return;
+
+        try {
+          const stats = await lkTrack.sender.getStats();
+          let reason = '';
+          let fpsSent = fps;
+          stats.forEach(report => {
+            if (report.type === 'outbound-rtp' && report.kind === 'video') {
+              if (report.qualityLimitationReason) reason = report.qualityLimitationReason;
+              if (typeof report.framesPerSecond === 'number') fpsSent = report.framesPerSecond;
+            }
+          });
+
+          if (reason === 'bandwidth' || fpsSent < fps * 0.65) {
+            targetKbps = Math.max(1200, Math.round(targetKbps * 0.85));
+            stableCycles = 0;
+          } else {
+            stableCycles += 1;
+            if (stableCycles >= 2 && targetKbps < baseKbps) {
+              targetKbps = Math.min(baseKbps, Math.round(targetKbps * 1.08));
+            }
+          }
+
+          screenBitrateKbps = targetKbps;
+          await applySenderEncoding(lkTrack, targetKbps, fps);
+        } catch (_) {}
+      }, 2500);
+    }
+
     // ── Compartir pantalla ──
     async function startScreenShare() {
       if (!roomIsConnected() || _screenVideoTrack) return;
 
-      const resValue = screenResolutionSelect.value || '1280x720';
-      const [w, h]   = resValue.split('x').map(v => parseInt(v, 10));
-      const fps      = Number(screenFpsSelect?.value) || 30;
-      const kbps     = Math.max(1000, Math.min(Number(screenBitrateInput.value) || 8000, 150000));
+      const displayW = Math.round((window.screen?.width || 1920) * (window.devicePixelRatio || 1));
+      const displayH = Math.round((window.screen?.height || 1080) * (window.devicePixelRatio || 1));
+      const w = Math.max(1280, Math.min(displayW, 2560));
+      const h = Math.max(720, Math.min(displayH, 1440));
+      const requestedFps = 60;
+      const requestedKbps = 20000;
+      const profile = getEffectiveScreenProfile(w, h, requestedFps, requestedKbps);
+      const fps = profile.fps;
+      const kbps = profile.kbps;
+      screenBitrateKbps = kbps;
 
       // Capturar con frameRate en la propia llamada Y aplicarlo después como respaldo
       const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -1218,13 +1269,19 @@
       if (!nativeVideo) return;
 
       // Reforzar con applyConstraints por si el navegador ignoró el valor inicial
-      try { await nativeVideo.applyConstraints({ frameRate: fps }); } catch (_) {}
+      try {
+        await nativeVideo.applyConstraints({
+          width: { ideal: w },
+          height: { ideal: h },
+          frameRate: { ideal: fps, max: fps },
+        });
+      } catch (_) {}
       try { nativeVideo.contentHint = 'detail'; } catch (_) {}
 
       const { LocalVideoTrack, LocalAudioTrack, Track } = LivekitClient;
       _screenVideoTrack = new LocalVideoTrack(nativeVideo, undefined, false);
 
-      // 3. Publicar con VP8 (sin SVC) y encoding máximo
+      // 3. Publicar con codec eficiente y encoding de alta calidad
       if (!roomIsConnected()) {
         nativeVideo.stop();
         _screenVideoTrack = null;
@@ -1236,9 +1293,9 @@
           videoEncoding: {
             maxBitrate: kbps * 1000, maxFramerate: fps, priority: 'high',
           },
-          degradationPreference:      'maintain-resolution',
-          screenShareSimulcastLayers: [],
-          videoCodec: 'vp8', backupCodec: false,
+          degradationPreference: 'balanced',
+          videoCodec: getBestScreenCodec(),
+          backupCodec: true,
         });
       } catch (err) {
         // Si falla la publicación, limpiar el track para que el usuario pueda reintentar
@@ -1250,6 +1307,7 @@
       // 4. Forzar parámetros directamente en RTCRtpSender en múltiples momentos
       //    (LiveKit puede sobrescribirlos, por eso reintentamos)
       forceEncoderSettings(_screenVideoTrack, kbps, fps);
+      startScreenBitrateAdaptation(_screenVideoTrack, kbps, fps);
 
       if (nativeAudio) {
         _screenAudioTrack = new LocalAudioTrack(nativeAudio, undefined, false);
@@ -1261,30 +1319,24 @@
       nativeVideo.addEventListener('ended', () => stopScreenShare(true));
     }
 
-    // Fuerza maxBitrate, maxFramerate y L1T1 directamente en el RTCRtpSender.
+    // Fuerza maxBitrate/maxFramerate directamente en el RTCRtpSender.
     // Se aplica varias veces porque LiveKit puede renegociar y sobrescribir.
     async function forceEncoderSettings(lkTrack, kbps, fps) {
       for (const delay of [100, 600, 1500, 3000, 6000]) {
         await new Promise(r => setTimeout(r, delay));
         // Parar si el track ya no es el activo o la sala se desconectó
         if (lkTrack !== _screenVideoTrack || !roomIsConnected()) break;
-        if (!lkTrack.sender) continue;
         try {
-          const params = lkTrack.sender.getParameters();
-          if (!params.encodings?.length) continue;
-          params.encodings.forEach(enc => {
-            enc.maxBitrate      = kbps * 1000;
-            enc.maxFramerate    = fps;
-            enc.priority        = 'high';
-            enc.networkPriority = 'high';
-            enc.scalabilityMode = 'L1T1';
-          });
-          await lkTrack.sender.setParameters(params);
+          await applySenderEncoding(lkTrack, kbps, fps);
         } catch (_) {}
       }
     }
 
     async function stopScreenShare(showEnded = false) {
+      if (_screenAdaptInterval) {
+        clearInterval(_screenAdaptInterval);
+        _screenAdaptInterval = null;
+      }
       if (_screenVideoTrack) {
         const trackToStop = _screenVideoTrack;
         _screenVideoTrack = null; // limpiar primero para cortar forceEncoderSettings
@@ -1336,55 +1388,21 @@
       }
     });
 
-    // ── Presets de resolución ──
-    const RESOLUTION_BITRATE = { '1280x720': 8000, '1920x1080': 15000, '2560x1440': 25000, '3840x2160': 50000 };
-    screenBitrateInput.value = '8000';
-
-    screenResolutionSelect.addEventListener('change', () => {
-      const preset = RESOLUTION_BITRATE[screenResolutionSelect.value];
-      if (!preset) return;
-      screenBitrateInput.value = preset;
-      const opt = screenBitratePreset.querySelector(`option[value="${preset}"]`);
-      screenBitratePreset.value = opt ? preset : '20000';
-    });
-
-    screenBitratePreset.addEventListener('change', () => {
-      screenBitrateInput.value = screenBitratePreset.value;
-    });
-
-    screenApplyButton.addEventListener('click', async () => {
-      if (_screenVideoTrack) {
-        await stopScreenShare();
-        await startScreenShare();
-        addMessage('[Sistema] Transmisión reiniciada con la nueva calidad.');
-      } else {
-        addMessage('[Sistema] Configuración guardada. Se aplicará al iniciar la transmisión.');
-      }
-    });
-
     // ═══════════════════════════════════════════════════════════════
     // MENÚ RESPONSIVO — sidebars en móvil / tablet
     // ═══════════════════════════════════════════════════════════════
     const sidebarEl        = document.querySelector('.channels-sidebar');
-    const rightPanelEl     = document.querySelector('.right-panel');
     const overlayEl        = document.getElementById('sidebar-overlay');
     const btnSidebarToggle = document.getElementById('btn-sidebar-toggle');
-    const btnSettingsToggle= document.getElementById('btn-settings-toggle');
 
     function closeAllDrawers() {
       sidebarEl.classList.remove('open');
-      rightPanelEl.classList.remove('open');
       overlayEl.classList.remove('show');
     }
     btnSidebarToggle?.addEventListener('click', () => {
       const opening = !sidebarEl.classList.contains('open');
       closeAllDrawers();
       if (opening) { sidebarEl.classList.add('open'); overlayEl.classList.add('show'); }
-    });
-    btnSettingsToggle?.addEventListener('click', () => {
-      const opening = !rightPanelEl.classList.contains('open');
-      closeAllDrawers();
-      if (opening) { rightPanelEl.classList.add('open'); overlayEl.classList.add('show'); }
     });
     overlayEl?.addEventListener('click', closeAllDrawers);
     document.querySelectorAll('.channel-item').forEach(el => {

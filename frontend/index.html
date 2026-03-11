@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SocialApp Pro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/frontend/styles.css" />
+</head>
+<body>
+  <div id="app" class="layout">
+    <aside class="server-sidebar">
+      <div class="server-badge">S</div>
+    </aside>
+
+    <aside class="channels-sidebar">
+      <header class="server-header">
+        <h1 id="server-name">Servidor</h1>
+        <button id="btn-server-settings" class="icon-btn" title="Ajustes del servidor">⚙</button>
+      </header>
+
+      <section class="channel-group">
+        <div class="group-header">
+          <span>Texto</span>
+          <button id="btn-new-text-channel" class="mini-btn">+</button>
+        </div>
+        <div id="text-channel-list"></div>
+      </section>
+
+      <section class="channel-group">
+        <div class="group-header">
+          <span>Voz</span>
+          <button id="btn-new-voice-channel" class="mini-btn">+</button>
+        </div>
+        <div id="voice-channel-list"></div>
+      </section>
+
+      <footer class="user-footer">
+        <img id="user-avatar" class="avatar" alt="avatar" />
+        <div class="user-meta">
+          <strong id="user-display">Invitado</strong>
+          <span id="user-status">offline</span>
+        </div>
+        <button id="btn-profile" class="icon-btn" title="Editar perfil">✎</button>
+      </footer>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <div class="channel-title">
+          <span id="channel-icon">#</span>
+          <strong id="active-channel-name">general</strong>
+        </div>
+        <div class="voice-controls">
+          <button id="btn-voice-toggle" class="action-btn">Conectar voz</button>
+          <button id="btn-webcam-toggle" class="action-btn secondary">Webcam</button>
+          <button id="btn-screen-toggle" class="action-btn secondary">Pantalla</button>
+          <button id="btn-layout-toggle" class="action-btn secondary">Vista foco</button>
+        </div>
+      </header>
+
+      <section id="streams-grid" class="streams-grid hidden"></section>
+
+      <section id="messages" class="messages"></section>
+
+      <form id="message-form" class="composer">
+        <input id="message-input" placeholder="Escribe un mensaje..." autocomplete="off" />
+        <button type="submit">Enviar</button>
+      </form>
+    </main>
+  </div>
+
+  <dialog id="username-dialog">
+    <form method="dialog" id="username-form">
+      <h3>Bienvenido</h3>
+      <p>Elige tu nombre para entrar al servidor.</p>
+      <input id="username-input" minlength="2" maxlength="20" required placeholder="Tu nombre" />
+      <button type="submit">Entrar</button>
+    </form>
+  </dialog>
+
+  <dialog id="profile-dialog">
+    <form method="dialog" id="profile-form">
+      <h3>Perfil de usuario</h3>
+      <label>Nombre visible<input id="profile-display-name" maxlength="30" required /></label>
+      <label>Avatar URL<input id="profile-avatar-url" type="url" placeholder="https://..." /></label>
+      <label>Bio<textarea id="profile-bio" maxlength="180"></textarea></label>
+      <label>Estado
+        <select id="profile-status">
+          <option value="online">online</option>
+          <option value="idle">idle</option>
+          <option value="dnd">dnd</option>
+        </select>
+      </label>
+      <menu>
+        <button value="cancel" type="button" onclick="this.closest('dialog').close()">Cancelar</button>
+        <button value="default" type="submit">Guardar</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="channel-dialog">
+    <form method="dialog" id="channel-form">
+      <h3 id="channel-dialog-title">Nuevo canal</h3>
+      <label>Nombre<input id="channel-name-input" minlength="2" maxlength="40" required /></label>
+      <input id="channel-type-input" type="hidden" />
+      <menu>
+        <button value="cancel" type="button" onclick="this.closest('dialog').close()">Cancelar</button>
+        <button value="default" type="submit">Crear</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="server-dialog">
+    <form method="dialog" id="server-form">
+      <h3>Ajustes del servidor</h3>
+      <label>Nombre del grupo<input id="server-name-input" minlength="2" maxlength="40" required /></label>
+      <menu>
+        <button value="cancel" type="button" onclick="this.closest('dialog').close()">Cancelar</button>
+        <button value="default" type="submit">Guardar</button>
+      </menu>
+    </form>
+    <div class="admin-block">
+      <h4>Miembros y roles</h4>
+      <div id="members-admin-list" class="members-admin-list"></div>
+    </div>
+    <div class="admin-block">
+      <h4>Permisos por canal</h4>
+      <div class="permissions-row">
+        <select id="perm-channel-select"></select>
+        <select id="perm-role-select">
+          <option value="member">member</option>
+          <option value="mod">mod</option>
+          <option value="admin">admin</option>
+        </select>
+      </div>
+      <div class="perm-grid">
+        <label><input type="checkbox" id="perm-send-message" /> enviar mensajes</label>
+        <label><input type="checkbox" id="perm-join-voice" /> entrar voz</label>
+        <label><input type="checkbox" id="perm-use-webcam" /> usar webcam</label>
+        <label><input type="checkbox" id="perm-share-screen" /> compartir pantalla</label>
+        <label><input type="checkbox" id="perm-manage-channel" /> gestionar canal</label>
+        <label><input type="checkbox" id="perm-moderate-voice" /> moderar voz</label>
+      </div>
+      <button id="btn-save-permissions" class="action-btn" type="button">Guardar permisos</button>
+    </div>
+  </dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="/livekit-client.js"></script>
+  <script type="module" src="/frontend/app.js"></script>
+</body>
+</html>
