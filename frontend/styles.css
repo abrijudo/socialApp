@@ -238,6 +238,7 @@ body {
 .action-btn.secondary:hover { background: #515763; }
 .action-btn.danger { background: var(--danger); }
 .action-btn.danger:hover { background: var(--danger-hover); }
+.action-btn.hidden { display: none; }
 
 .streams-grid {
   border-bottom: 1px solid var(--border); padding: 10px; display: grid; gap: 10px;

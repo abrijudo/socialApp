@@ -23,6 +23,8 @@ const state = {
   room: null,
   localCameraTrack: null,
   localScreenTrack: null,
+  localScreenAudioTrack: null,
+  screenAudioEnabled: true,
   streamLayoutMode: localStorage.getItem(STREAM_LAYOUT_KEY) || 'grid',
   pinnedTileId: null,
   screenAdaptTimer: null,
@@ -94,6 +96,7 @@ const els = {
   btnMicToggle: document.getElementById('btn-mic-toggle'),
   btnWebcamToggle: document.getElementById('btn-webcam-toggle'),
   btnScreenToggle: document.getElementById('btn-screen-toggle'),
+  btnScreenAudioToggle: document.getElementById('btn-screen-audio-toggle'),
   btnLayoutToggle: document.getElementById('btn-layout-toggle'),
   streamsGrid: document.getElementById('streams-grid'),
   membersList: document.getElementById('members-list'),
@@ -1131,17 +1134,23 @@ async function toggleScreen(forceOff = false) {
     state.localScreenTrack = null;
     t.mediaStreamTrack.stop();
     await state.room.localParticipant.unpublishTrack(t);
+    if (state.localScreenAudioTrack) {
+      state.localScreenAudioTrack.mediaStreamTrack.stop();
+      await state.room.localParticipant.unpublishTrack(state.localScreenAudioTrack);
+      state.localScreenAudioTrack = null;
+    }
     removeStreamTile('local:screen');
     if (state.screenAdaptTimer) {
       clearInterval(state.screenAdaptTimer);
       state.screenAdaptTimer = null;
     }
     els.btnScreenToggle.classList.remove('danger');
+    els.btnScreenAudioToggle.classList.add('hidden');
     return;
   }
   const stream = await navigator.mediaDevices.getDisplayMedia({
     video: { width: { ideal: 2560 }, height: { ideal: 1440 }, frameRate: { ideal: 60, max: 60 } },
-    audio: false,
+    audio: true,
   });
   const track = stream.getVideoTracks()[0];
   try {
@@ -1159,9 +1168,40 @@ async function toggleScreen(forceOff = false) {
   await applyScreenSenderParams(screenTrack, 18000, 60).catch(() => {});
   startScreenAdaptation(screenTrack, 20000, 60);
   state.localScreenTrack = screenTrack;
+
+  const audioTrack = stream.getAudioTracks()[0];
+  if (audioTrack) {
+    const screenAudio = new LivekitClient.LocalAudioTrack(audioTrack, undefined, false);
+    await state.room.localParticipant.publishTrack(screenAudio, {
+      source: Track.Source.ScreenShareAudio,
+    });
+    state.localScreenAudioTrack = screenAudio;
+    state.screenAudioEnabled = true;
+    els.btnScreenAudioToggle.textContent = '🔊 Audio';
+    els.btnScreenAudioToggle.classList.remove('hidden', 'danger');
+  } else {
+    state.localScreenAudioTrack = null;
+    els.btnScreenAudioToggle.classList.add('hidden');
+  }
+
   upsertStreamTile('local:screen', `${state.profile.display_name} (tú) · pantalla`, screenTrack, { muted: true });
   track.addEventListener('ended', () => { toggleScreen(true).catch(() => {}); });
   els.btnScreenToggle.classList.add('danger');
+}
+
+function toggleScreenAudio() {
+  if (!state.localScreenAudioTrack) return;
+  if (state.screenAudioEnabled) {
+    state.localScreenAudioTrack.mediaStreamTrack.enabled = false;
+    state.screenAudioEnabled = false;
+    els.btnScreenAudioToggle.textContent = '🔇 Audio';
+    els.btnScreenAudioToggle.classList.add('danger');
+  } else {
+    state.localScreenAudioTrack.mediaStreamTrack.enabled = true;
+    state.screenAudioEnabled = true;
+    els.btnScreenAudioToggle.textContent = '🔊 Audio';
+    els.btnScreenAudioToggle.classList.remove('danger');
+  }
 }
 
 function wireEvents() {
@@ -1450,6 +1490,7 @@ function wireEvents() {
   });
   els.btnWebcamToggle.addEventListener('click', () => toggleWebcam());
   els.btnScreenToggle.addEventListener('click', () => toggleScreen());
+  els.btnScreenAudioToggle.addEventListener('click', () => toggleScreenAudio());
   els.btnLayoutToggle.addEventListener('click', () => {
     setStreamLayout(state.streamLayoutMode === 'focus' ? 'grid' : 'focus');
   });
