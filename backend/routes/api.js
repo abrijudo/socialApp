@@ -10,7 +10,6 @@ const idSchema = z.string().min(2).max(80);
 const channelTypeSchema = z.enum(['text', 'voice']);
 const roleSchema = z.enum(['owner', 'admin', 'mod', 'member']);
 const actionSchema = z.enum(['send_message', 'join_voice', 'use_webcam', 'share_screen', 'manage_channel', 'moderate_voice']);
-const ROLE_RANK = { member: 1, mod: 2, admin: 3, owner: 4 };
 
 function handleError(res, err) {
   const message = err?.message || 'Error interno';
@@ -18,9 +17,8 @@ function handleError(res, err) {
 }
 
 async function requireAdmin(serverId, userId) {
-  const role = await getUserRole(serverId, userId);
-  if (!['owner', 'admin'].includes(role)) throw new Error('No tienes permisos de administrador.');
-  return role;
+  // Modo servidor de amigos: cualquier miembro puede gestionar.
+  return getUserRole(serverId, userId);
 }
 
 async function getUserRole(serverId, userId) {
@@ -47,14 +45,9 @@ async function getChannelServer(channelId) {
 }
 
 function defaultPermission(role, action) {
-  if (role === 'owner' || role === 'admin') return true;
-  if (role === 'mod') {
-    return ['send_message', 'join_voice', 'use_webcam', 'share_screen', 'moderate_voice'].includes(action);
-  }
-  if (role === 'member') {
-    return ['send_message', 'join_voice', 'use_webcam'].includes(action);
-  }
-  return false;
+  // Modo servidor de amigos: permisos completos por defecto para todos.
+  if (role && action) return true;
+  return true;
 }
 
 function permissionColumn(action) {
@@ -94,6 +87,33 @@ router.get('/health', (_req, res) => {
   res.json({ ok: true, at: new Date().toISOString() });
 });
 
+router.post('/presence/offline', async (req, res) => {
+  try {
+    const rawUserId = req.query?.userId;
+    const rawUsername = req.query?.username;
+    const userId = Array.isArray(rawUserId) ? rawUserId[0] : rawUserId;
+    const username = Array.isArray(rawUsername) ? rawUsername[0] : rawUsername;
+    const body = z.object({
+      userId: idSchema,
+      username: z.string().min(2).max(20),
+    }).parse({ userId, username });
+
+    await ensureProfile({ userId: body.userId, username: body.username });
+    const sb = getSupabaseAdmin();
+    const { error } = await sb
+      .from('profiles')
+      .update({
+        status: 'offline',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', body.userId);
+    if (error) throw error;
+    return res.json({ ok: true });
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
 router.get('/token', (req, res) => tokenHandler(req, res));
 
 router.get('/bootstrap', async (req, res) => {
@@ -109,14 +129,16 @@ router.get('/bootstrap', async (req, res) => {
 
 router.post('/profiles/upsert', async (req, res) => {
   try {
+    const rawBody = typeof req.body === 'string' ? req.body : null;
+    const parsedBody = rawBody ? JSON.parse(rawBody) : req.body;
     const body = z.object({
       userId: idSchema,
       username: z.string().min(2).max(20),
       displayName: z.string().min(2).max(30).optional(),
       avatarUrl: z.string().url().optional().or(z.literal('')),
       bio: z.string().max(180).optional(),
-      status: z.enum(['online', 'idle', 'dnd']).optional(),
-    }).parse(req.body);
+      status: z.enum(['online', 'idle', 'dnd', 'offline']).optional(),
+    }).parse(parsedBody);
 
     await ensureProfile({ userId: body.userId, username: body.username });
     const sb = getSupabaseAdmin();
@@ -245,7 +267,7 @@ router.get('/servers/:serverId/members', async (req, res) => {
     if (ids.length) {
       const { data: profiles, error: pErr } = await sb
         .from('profiles')
-        .select('user_id, username, display_name, avatar_url, status')
+        .select('user_id, username, display_name, avatar_url, status, bio, updated_at')
         .in('user_id', ids);
       if (pErr) throw pErr;
       profileMap = Object.fromEntries((profiles || []).map(p => [p.user_id, p]));
@@ -261,17 +283,7 @@ router.patch('/servers/:serverId/members/:memberUserId/role', async (req, res) =
   try {
     const params = z.object({ serverId: idSchema, memberUserId: idSchema }).parse(req.params);
     const body = z.object({ actorUserId: idSchema, role: roleSchema }).parse(req.body);
-    const actorRole = await getUserRole(params.serverId, body.actorUserId);
-    if (!['owner', 'admin'].includes(actorRole)) throw new Error('No tienes permisos para cambiar roles.');
-    if (body.role === 'owner' && actorRole !== 'owner') throw new Error('Solo owner puede asignar owner.');
-
-    const targetRole = await getUserRole(params.serverId, params.memberUserId);
-    if (ROLE_RANK[actorRole] <= ROLE_RANK[targetRole] && body.actorUserId !== params.memberUserId) {
-      throw new Error('No puedes modificar un miembro con rango igual o superior.');
-    }
-    if (params.memberUserId === body.actorUserId && actorRole === 'owner' && body.role !== 'owner') {
-      throw new Error('El owner no puede degradarse a sí mismo.');
-    }
+    await getUserRole(params.serverId, body.actorUserId);
 
     const sb = getSupabaseAdmin();
     const { data, error } = await sb
@@ -372,7 +384,7 @@ router.get('/messages/:channelId', async (req, res) => {
     const sb = getSupabaseAdmin();
     const { data, error } = await sb
       .from('messages')
-      .select('id, channel_id, author_id, body, created_at')
+      .select('id, channel_id, author_id, body, created_at, message_type, media_data, media_mime, media_name, media_duration_ms')
       .eq('channel_id', params.channelId)
       .order('created_at', { ascending: true })
       .limit(200);
@@ -383,7 +395,7 @@ router.get('/messages/:channelId', async (req, res) => {
     if (authorIds.length) {
       const { data: profiles, error: pErr } = await sb
         .from('profiles')
-        .select('user_id, display_name, username, avatar_url')
+        .select('user_id, display_name, username, avatar_url, status, bio, updated_at')
         .in('user_id', authorIds);
       if (pErr) throw pErr;
       profilesMap = Object.fromEntries((profiles || []).map(p => [p.user_id, p]));
@@ -404,18 +416,41 @@ router.post('/messages', async (req, res) => {
     const body = z.object({
       channelId: idSchema,
       authorId: idSchema,
-      text: z.string().min(1).max(1000),
+      text: z.string().max(1000).optional().default(''),
+      messageType: z.enum(['text', 'image', 'video', 'audio']).optional().default('text'),
+      mediaData: z.string().optional(),
+      mediaMime: z.string().optional(),
+      mediaName: z.string().optional(),
+      mediaDurationMs: z.number().int().nonnegative().optional(),
     }).parse(req.body);
 
+    const text = (body.text || '').trim();
+    const hasMedia = Boolean(body.mediaData);
+    if (!text && !hasMedia) throw new Error('Mensaje vacío.');
+    if (body.messageType !== 'text' && !hasMedia) throw new Error('Falta contenido multimedia.');
+    if (body.mediaData && body.mediaData.length > 14_000_000) throw new Error('Media demasiado grande.');
+
     const sb = getSupabaseAdmin();
+    const fallbackBody = body.messageType === 'image'
+      ? '[imagen]'
+      : body.messageType === 'video'
+        ? '[video]'
+        : body.messageType === 'audio'
+          ? '[audio]'
+          : '';
     const { data, error } = await sb
       .from('messages')
       .insert({
         channel_id: body.channelId,
         author_id: body.authorId,
-        body: body.text,
+        body: text || fallbackBody,
+        message_type: body.messageType,
+        media_data: body.mediaData || null,
+        media_mime: body.mediaMime || null,
+        media_name: body.mediaName || null,
+        media_duration_ms: body.mediaDurationMs ?? null,
       })
-      .select('id, channel_id, author_id, body, created_at')
+      .select('id, channel_id, author_id, body, created_at, message_type, media_data, media_mime, media_name, media_duration_ms')
       .single();
     if (error) throw error;
     return res.json(data);

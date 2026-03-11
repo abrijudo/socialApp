@@ -41,6 +41,11 @@ create table if not exists public.messages (
   channel_id uuid not null references public.channels(id) on delete cascade,
   author_id text not null references public.profiles(user_id) on delete cascade,
   body text not null check (char_length(body) between 1 and 1000),
+  message_type text not null default 'text' check (message_type in ('text','image','video','audio')),
+  media_data text null,
+  media_mime text null,
+  media_name text null,
+  media_duration_ms int null,
   created_at timestamptz not null default now(),
   edited_at timestamptz null
 );
@@ -75,7 +80,7 @@ create policy "members_can_read_servers" on public.servers
   for select using (
     exists (
       select 1 from public.server_members sm
-      where sm.server_id = servers.id
+      where sm.server_id = public.servers.id
     )
   );
 
@@ -88,7 +93,7 @@ create policy "members_can_read_channels" on public.channels
   for select using (
     exists (
       select 1 from public.server_members sm
-      where sm.server_id = channels.server_id
+      where sm.server_id = public.channels.server_id
     )
   );
 
@@ -96,9 +101,10 @@ drop policy if exists "members_can_read_messages" on public.messages;
 create policy "members_can_read_messages" on public.messages
   for select using (
     exists (
-      select 1 from public.channels c
+      select 1
+      from public.channels c
       join public.server_members sm on sm.server_id = c.server_id
-      where c.id = messages.channel_id
+      where c.id = public.messages.channel_id
     )
   );
 
@@ -106,8 +112,9 @@ drop policy if exists "members_can_read_channel_permissions" on public.channel_p
 create policy "members_can_read_channel_permissions" on public.channel_permissions
   for select using (
     exists (
-      select 1 from public.channels c
+      select 1
+      from public.channels c
       join public.server_members sm on sm.server_id = c.server_id
-      where c.id = channel_permissions.channel_id
+      where c.id = public.channel_permissions.channel_id
     )
   );

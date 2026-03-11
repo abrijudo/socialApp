@@ -95,7 +95,7 @@ async function getBootstrapPayload({ userId, username }) {
   if (memberIds.length) {
     const { data: memberProfiles, error: profilesErr } = await sb
       .from('profiles')
-      .select('user_id, username, display_name, avatar_url, status')
+      .select('user_id, username, display_name, avatar_url, status, bio, updated_at')
       .in('user_id', memberIds);
     if (profilesErr) throw profilesErr;
     profileMap = Object.fromEntries((memberProfiles || []).map(p => [p.user_id, p]));
