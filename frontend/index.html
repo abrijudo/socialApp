@@ -6,7 +6,7 @@
   <title>SocialApp Pro</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/frontend/styles.css" />
 </head>
 <body>
@@ -18,9 +18,16 @@
     <aside class="channels-sidebar">
       <header class="server-header">
         <h1 id="server-name">Servidor</h1>
-        <button id="btn-server-settings" class="icon-btn" title="Ajustes del servidor">⚙</button>
+        <button id="btn-theme-toggle" class="icon-btn" title="Cambiar tema" aria-label="Cambiar tema">🌙</button>
+        <button id="btn-server-settings" class="icon-btn" title="Ajustes del servidor" aria-label="Ajustes del servidor" data-icon="settings"></button>
       </header>
 
+      <section class="channel-group dm-group">
+        <div class="group-header">
+          <span>Mensajes directos</span>
+        </div>
+        <div id="dm-list" class="dm-list"></div>
+      </section>
       <section class="channel-group">
         <div class="group-header">
           <span>Texto</span>
@@ -49,7 +56,10 @@
           <strong id="user-display">Invitado</strong>
           <span id="user-status">offline</span>
         </div>
-        <button id="btn-profile" class="icon-btn" title="Editar perfil">✎</button>
+        <div class="user-actions">
+          <button id="btn-profile" class="icon-btn" title="Editar perfil" aria-label="Editar perfil" data-icon="edit"></button>
+          <button id="btn-logout" class="icon-btn" title="Cerrar sesión" aria-label="Cerrar sesión" data-icon="logout"></button>
+        </div>
       </footer>
     </aside>
 
@@ -58,27 +68,37 @@
         <div class="channel-title">
           <span id="channel-icon">#</span>
           <strong id="active-channel-name">general</strong>
+          <span id="typing-indicator" class="typing-indicator hidden">Escribiendo...</span>
         </div>
-        <div class="voice-controls">
-          <button id="btn-mic-toggle" class="action-btn secondary" disabled>Mic ON</button>
-          <button id="btn-webcam-toggle" class="action-btn secondary">Webcam</button>
-          <button id="btn-screen-toggle" class="action-btn secondary">Pantalla</button>
-          <button id="btn-screen-audio-toggle" class="action-btn secondary hidden">🔊 Audio</button>
-          <button id="btn-layout-toggle" class="action-btn secondary">Vista foco</button>
+        <div id="voice-controls" class="voice-controls hidden">
+          <button id="btn-mic-toggle" class="action-btn secondary" disabled><span class="btn-icon">🎤</span> Mic ON</button>
+          <button id="btn-webcam-toggle" class="action-btn secondary"><span class="btn-icon">📷</span> Webcam</button>
+          <button id="btn-screen-toggle" class="action-btn secondary"><span class="btn-icon">🖥</span> Pantalla</button>
+          <button id="btn-screen-audio-toggle" class="action-btn secondary hidden"><span class="btn-icon">🔊</span> Audio</button>
+          <button id="btn-audio-unlock" class="action-btn secondary hidden"><span class="btn-icon">🔈</span> Activar audio</button>
+          <button id="btn-layout-toggle" class="action-btn secondary"><span class="btn-icon">⊞</span> Vista foco</button>
         </div>
       </header>
+      <div id="capture-status" class="capture-status hidden">
+        <span id="capture-status-source">Fuente: -</span>
+        <span id="capture-status-audio">Audio: -</span>
+      </div>
+      <details id="audio-diag" class="audio-diag">
+        <summary>Diagnostico audio</summary>
+        <pre id="audio-diag-log"></pre>
+      </details>
 
       <section id="streams-grid" class="streams-grid hidden"></section>
 
       <section id="messages" class="messages"></section>
 
       <form id="message-form" class="composer">
-        <button type="button" id="btn-attach-media" class="composer-icon-btn" title="Adjuntar foto o video">📎</button>
-        <button type="button" id="btn-record-voice" class="composer-icon-btn" title="Grabar mensaje de voz">🎙️</button>
+        <button type="button" id="btn-attach-media" class="composer-icon-btn" title="Adjuntar foto o video" aria-label="Adjuntar archivo" data-icon="paperclip"></button>
+        <button type="button" id="btn-record-voice" class="composer-icon-btn" title="Grabar mensaje de voz" aria-label="Grabar voz" data-icon="mic"></button>
         <span id="voice-record-timer" class="voice-record-timer hidden">● 00:00</span>
-        <input id="media-input" type="file" accept="image/*,video/*" style="display:none;" />
+        <input id="media-input" type="file" accept="image/*,video/*,audio/*,application/pdf" style="display:none;" />
         <input id="message-input" placeholder="Escribe un mensaje..." autocomplete="off" />
-        <button type="submit">Enviar</button>
+        <button type="submit"><span class="btn-icon" data-icon="send"></span> Enviar</button>
       </form>
       <section id="media-preview" class="media-preview hidden">
         <div id="media-preview-card" class="media-preview-card"></div>
@@ -101,12 +121,17 @@
     </aside>
   </div>
 
-  <dialog id="username-dialog">
-    <form method="dialog" id="username-form">
-      <h3>Bienvenido</h3>
-      <p>Elige tu nombre para entrar al servidor.</p>
-      <input id="username-input" minlength="2" maxlength="20" required placeholder="Tu nombre" />
-      <button type="submit">Entrar</button>
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <dialog id="auth-dialog">
+    <form method="dialog" id="auth-form">
+      <h3 id="auth-title">Entrar</h3>
+      <p id="auth-subtitle">Elige cómo te verán en el chat. No hace falta correo ni contraseña.</p>
+      <label>Tu nombre<input id="auth-username" type="text" autocomplete="nickname" minlength="1" maxlength="20" required placeholder="Ej. Ana" /></label>
+      <div id="auth-feedback" class="server-settings-feedback hidden"></div>
+      <menu>
+        <button id="btn-auth-submit" type="submit">Entrar</button>
+      </menu>
     </form>
   </dialog>
 
@@ -142,39 +167,65 @@
     </form>
   </dialog>
 
-  <dialog id="server-dialog">
-    <form method="dialog" id="server-form">
+  <dialog id="server-dialog" class="server-settings-dialog">
+    <div class="server-settings-head">
       <h3>Ajustes del servidor</h3>
-      <label>Nombre del grupo<input id="server-name-input" minlength="2" maxlength="40" required /></label>
+      <p>Configura tu grupo, miembros y permisos sin salir del chat.</p>
+    </div>
+    <div class="server-settings-body">
+      <section class="admin-block server-settings-section">
+        <h4>Invitaciones</h4>
+        <button type="button" id="btn-invite" class="action-btn secondary">Crear enlace de invitación</button>
+        <div id="invite-result" class="invite-result hidden"></div>
+      </section>
+      <section class="admin-block server-settings-section">
+        <h4>General</h4>
+        <form method="dialog" id="server-form">
+          <label>Nombre del grupo<input id="server-name-input" minlength="2" maxlength="40" required /></label>
+        </form>
+      </section>
+      <section class="admin-block server-settings-section">
+        <h4>Miembros y roles</h4>
+        <div id="members-admin-list" class="members-admin-list"></div>
+      </section>
+      <section class="admin-block server-settings-section">
+        <h4>Permisos por canal</h4>
+        <div class="permissions-row">
+          <select id="perm-channel-select"></select>
+          <select id="perm-role-select">
+            <option value="member">member</option>
+            <option value="mod">mod</option>
+            <option value="admin">admin</option>
+          </select>
+        </div>
+        <div class="perm-grid">
+          <label><input type="checkbox" id="perm-send-message" /> enviar mensajes</label>
+          <label><input type="checkbox" id="perm-join-voice" /> entrar voz</label>
+          <label><input type="checkbox" id="perm-use-webcam" /> usar webcam</label>
+          <label><input type="checkbox" id="perm-share-screen" /> compartir pantalla</label>
+          <label><input type="checkbox" id="perm-manage-channel" /> gestionar canal</label>
+          <label><input type="checkbox" id="perm-moderate-voice" /> moderar voz</label>
+        </div>
+      </section>
+    </div>
+    <div id="server-settings-feedback" class="server-settings-feedback hidden"></div>
+    <menu class="server-settings-actions">
+      <button value="cancel" type="button" onclick="this.closest('dialog').close()">Cancelar</button>
+      <button id="btn-save-permissions" class="action-btn secondary" type="button">Guardar permisos</button>
+      <button value="default" type="submit" form="server-form">Guardar cambios</button>
+    </menu>
+  </dialog>
+
+  <dialog id="capture-source-dialog" class="capture-source-dialog">
+    <form method="dialog" id="capture-source-form">
+      <h3>Compartir pantalla</h3>
+      <p>Selecciona una fuente para compartir en la llamada.</p>
+      <div id="capture-source-list" class="capture-source-list"></div>
       <menu>
-        <button value="cancel" type="button" onclick="this.closest('dialog').close()">Cancelar</button>
-        <button value="default" type="submit">Guardar</button>
+        <button type="button" value="cancel" onclick="this.closest('dialog').close()">Cancelar</button>
+        <button id="btn-capture-source-confirm" type="submit">Compartir</button>
       </menu>
     </form>
-    <div class="admin-block">
-      <h4>Miembros y roles</h4>
-      <div id="members-admin-list" class="members-admin-list"></div>
-    </div>
-    <div class="admin-block">
-      <h4>Permisos por canal</h4>
-      <div class="permissions-row">
-        <select id="perm-channel-select"></select>
-        <select id="perm-role-select">
-          <option value="member">member</option>
-          <option value="mod">mod</option>
-          <option value="admin">admin</option>
-        </select>
-      </div>
-      <div class="perm-grid">
-        <label><input type="checkbox" id="perm-send-message" /> enviar mensajes</label>
-        <label><input type="checkbox" id="perm-join-voice" /> entrar voz</label>
-        <label><input type="checkbox" id="perm-use-webcam" /> usar webcam</label>
-        <label><input type="checkbox" id="perm-share-screen" /> compartir pantalla</label>
-        <label><input type="checkbox" id="perm-manage-channel" /> gestionar canal</label>
-        <label><input type="checkbox" id="perm-moderate-voice" /> moderar voz</label>
-      </div>
-      <button id="btn-save-permissions" class="action-btn" type="button">Guardar permisos</button>
-    </div>
   </dialog>
 
   <dialog id="user-card-dialog" class="user-card-dialog">
@@ -189,11 +240,33 @@
       <div id="user-card-status" class="user-card-status">Estado: offline</div>
       <p id="user-card-bio" class="user-card-bio">Sin bio.</p>
       <menu>
+        <button type="button" id="btn-user-dm">Mensaje directo</button>
         <button type="button" onclick="this.closest('dialog').close()">Cerrar</button>
       </menu>
     </div>
   </dialog>
 
+  <dialog id="edit-message-dialog" class="edit-message-dialog">
+    <form method="dialog" id="edit-message-form">
+      <h3>Editar mensaje</h3>
+      <label>Mensaje<textarea id="edit-message-body" rows="4" maxlength="1000" required></textarea></label>
+      <menu>
+        <button value="cancel" type="button" onclick="this.closest('dialog').close()">Cancelar</button>
+        <button value="default" type="submit">Guardar</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="join-dialog" class="join-dialog">
+    <div id="join-content">
+      <h3>Unirse al servidor</h3>
+      <p id="join-message">Cargando...</p>
+      <menu>
+        <button type="button" id="btn-join-cancel">Cancelar</button>
+        <button type="button" id="btn-join-confirm" class="hidden">Unirse</button>
+      </menu>
+    </div>
+  </dialog>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="/livekit-client.js"></script>
   <script type="module" src="/frontend/app.js"></script>

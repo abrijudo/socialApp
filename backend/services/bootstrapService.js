@@ -89,8 +89,9 @@ async function getBootstrapPayload({ userId, username }) {
   if (channelsError) throw channelsError;
   if (memberError) throw memberError;
   if (membersError) throw membersError;
+  if (!server || !server.id) throw new Error('Servidor no encontrado.');
 
-  const memberIds = (members || []).map(m => m.user_id);
+  const memberIds = (members || []).filter(m => m && m.user_id).map(m => m.user_id);
   let profileMap = {};
   if (memberIds.length) {
     const { data: memberProfiles, error: profilesErr } = await sb
@@ -98,15 +99,16 @@ async function getBootstrapPayload({ userId, username }) {
       .select('user_id, username, display_name, avatar_url, status, bio, updated_at')
       .in('user_id', memberIds);
     if (profilesErr) throw profilesErr;
-    profileMap = Object.fromEntries((memberProfiles || []).map(p => [p.user_id, p]));
+    profileMap = Object.fromEntries((memberProfiles || []).filter(p => p && p.user_id).map(p => [p.user_id, p]));
   }
 
-  const enrichedMembers = (members || []).map(m => ({
+  const enrichedMembers = (members || []).filter(m => m && m.user_id).map(m => ({
     ...m,
     profile: profileMap[m.user_id] || null,
   }));
 
-  return { profile, server, channels, membership, members: enrichedMembers };
+  const safeChannels = (channels || []).filter(c => c && c.id);
+  return { profile, server, channels: safeChannels, membership, members: enrichedMembers };
 }
 
 module.exports = { ensureProfile, getBootstrapPayload };

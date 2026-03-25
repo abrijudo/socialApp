@@ -1,10 +1,70 @@
 const express = require('express');
 const { z } = require('zod');
-const tokenHandler = require('../../api/token');
+const { requireAuth } = require('../middleware/auth');
+const { getLiveKitToken } = require('./token');
 const { getSupabaseAdmin } = require('../services/supabaseAdmin');
+const { uploadMedia, MAX_SIZE, ALLOWED_TYPES } = require('../services/storageService');
 const { ensureProfile, getBootstrapPayload } = require('../services/bootstrapService');
+const { buildProfileMap, enrichItems, MINIMAL_PROFILE_FIELDS } = require('../lib/apiHelpers');
 
 const router = express.Router();
+
+/** Rutas públicas (sin auth) */
+router.get('/health', (_req, res) => {
+  res.json({ ok: true, at: new Date().toISOString() });
+});
+
+router.get('/config', (_req, res) => {
+  res.json({
+    supabaseUrl: process.env.SUPABASE_URL || '',
+    supabaseAnonKey: process.env.SUPABASE_ANON_KEY || '',
+  });
+});
+
+const registerSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(6),
+  username: z.string().optional(),
+});
+
+function normalizeRegisterUsername(raw) {
+  const cleaned = String(raw ?? '')
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(/[^a-zA-Z0-9._-]/g, '');
+  if (cleaned.length >= 2) return cleaned.slice(0, 20);
+  return `user${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Registro con correo ya confirmado (sin depender de la opción "Confirm email" en Supabase). */
+router.post('/register', async (req, res) => {
+  const parsed = registerSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: 'Email válido y contraseña de al menos 6 caracteres.',
+    });
+  }
+  const { email, password } = parsed.data;
+  const username = normalizeRegisterUsername(parsed.data.username);
+  try {
+    const sb = getSupabaseAdmin();
+    const { error } = await sb.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { username },
+    });
+    if (error) {
+      return res.status(400).json({ error: error.message || 'No se pudo crear la cuenta.' });
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
+/** Middleware de auth para el resto de rutas */
+router.use(requireAuth);
 
 const idSchema = z.string().min(2).max(80);
 const channelTypeSchema = z.enum(['text', 'voice']);
@@ -83,20 +143,17 @@ async function canPerform({ serverId, channelId, userId, action }) {
   return { allowed: Boolean(override), role, source: 'channel-override' };
 }
 
-router.get('/health', (_req, res) => {
-  res.json({ ok: true, at: new Date().toISOString() });
-});
-
 router.post('/presence/offline', async (req, res) => {
   try {
-    const rawUserId = req.query?.userId;
-    const rawUsername = req.query?.username;
-    const userId = Array.isArray(rawUserId) ? rawUserId[0] : rawUserId;
-    const username = Array.isArray(rawUsername) ? rawUsername[0] : rawUsername;
+    const raw = typeof req.body === 'object' ? req.body : {};
     const body = z.object({
       userId: idSchema,
       username: z.string().min(2).max(20),
-    }).parse({ userId, username });
+    }).parse({
+      userId: raw.userId || req.query?.userId,
+      username: raw.username || req.query?.username,
+    });
+    if (body.userId !== req.userId) throw new Error('No autorizado.');
 
     await ensureProfile({ userId: body.userId, username: body.username });
     const sb = getSupabaseAdmin();
@@ -114,11 +171,42 @@ router.post('/presence/offline', async (req, res) => {
   }
 });
 
-router.get('/token', (req, res) => tokenHandler(req, res));
+router.get('/token', (req, res) => getLiveKitToken(req, res));
+
+router.post('/upload', async (req, res) => {
+  try {
+    const raw = typeof req.body === 'object' ? req.body : {};
+    const { data: base64, mimeType, fileName } = z.object({
+      data: z.string().min(1),
+      mimeType: z.string().optional(),
+      fileName: z.string().optional(),
+    }).parse(raw);
+
+    const match = base64.match(/^data:([^;]+);base64,(.+)$/);
+    const mime = mimeType || (match ? match[1] : 'application/octet-stream');
+    const b64 = match ? match[2] : base64;
+
+    if (!ALLOWED_TYPES.some(t => mime.startsWith(t))) {
+      throw new Error('Tipo de archivo no permitido.');
+    }
+    const buffer = Buffer.from(b64, 'base64');
+    if (buffer.length > MAX_SIZE) throw new Error('Archivo demasiado grande.');
+
+    const url = await uploadMedia({
+      buffer,
+      mimeType: mime,
+      fileName: fileName || 'file',
+      userId: req.userId,
+    });
+    return res.json({ url });
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
 
 router.get('/bootstrap', async (req, res) => {
   try {
-    const userId = idSchema.parse(String(req.query.userId || ''));
+    const userId = req.userId;
     const username = z.string().min(2).max(20).parse(String(req.query.username || ''));
     const payload = await getBootstrapPayload({ userId, username });
     return res.json(payload);
@@ -132,7 +220,6 @@ router.post('/profiles/upsert', async (req, res) => {
     const rawBody = typeof req.body === 'string' ? req.body : null;
     const parsedBody = rawBody ? JSON.parse(rawBody) : req.body;
     const body = z.object({
-      userId: idSchema,
       username: z.string().min(2).max(20),
       displayName: z.string().min(2).max(30).optional(),
       avatarUrl: z.string().url().optional().or(z.literal('')),
@@ -140,7 +227,8 @@ router.post('/profiles/upsert', async (req, res) => {
       status: z.enum(['online', 'idle', 'dnd', 'offline']).optional(),
     }).parse(parsedBody);
 
-    await ensureProfile({ userId: body.userId, username: body.username });
+    const userId = req.userId;
+    await ensureProfile({ userId, username: body.username });
     const sb = getSupabaseAdmin();
     const { data, error } = await sb
       .from('profiles')
@@ -152,7 +240,7 @@ router.post('/profiles/upsert', async (req, res) => {
         status: body.status || 'online',
         updated_at: new Date().toISOString(),
       })
-      .eq('user_id', body.userId)
+      .eq('user_id', userId)
       .select('*')
       .single();
 
@@ -163,14 +251,77 @@ router.post('/profiles/upsert', async (req, res) => {
   }
 });
 
+router.post('/servers/:serverId/invitations', async (req, res) => {
+  try {
+    const { serverId } = z.object({ serverId: idSchema }).parse(req.params);
+    const body = z.object({
+      expiresInHours: z.number().min(1).max(168).optional().default(24),
+      maxUses: z.number().int().min(1).max(100).optional(),
+    }).parse(req.body || {});
+
+    const sb = getSupabaseAdmin();
+    const { data: member } = await sb.from('server_members').select('role').eq('server_id', serverId).eq('user_id', req.userId).single();
+    if (!member || !['owner', 'admin', 'mod'].includes(member.role)) throw new Error('Sin permiso para crear invitaciones.');
+
+    const expiresAt = new Date(Date.now() + body.expiresInHours * 3600 * 1000).toISOString();
+    const code = Math.random().toString(36).slice(2, 10).toUpperCase() + Math.random().toString(36).slice(2, 10).toUpperCase();
+
+    const { data, error } = await sb.from('invitations').insert({
+      server_id: serverId,
+      code,
+      created_by: req.userId,
+      expires_at: expiresAt,
+      max_uses: body.maxUses || null,
+    }).select('id, code, expires_at, max_uses').single();
+
+    if (error) throw error;
+    return res.json({ ...data, url: `${req.protocol}://${req.get('host')}/join/${data.code}` });
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
+router.get('/invitations/:code', async (req, res) => {
+  try {
+    const { code } = z.object({ code: z.string().min(1).max(20) }).parse(req.params);
+    const sb = getSupabaseAdmin();
+    const { data, error } = await sb.from('invitations').select('id, server_id, code, expires_at, max_uses, uses_count').eq('code', String(code).toUpperCase()).single();
+    if (error || !data) throw new Error('Invitación no encontrada.');
+    if (new Date(data.expires_at) < new Date()) throw new Error('Invitación expirada.');
+    if (data.max_uses != null && data.uses_count >= data.max_uses) throw new Error('Invitación agotada.');
+
+    const { data: server } = await sb.from('servers').select('id, name').eq('id', data.server_id).single();
+    const { data: member } = await sb.from('server_members').select('user_id').eq('server_id', data.server_id).eq('user_id', req.userId).single();
+    return res.json({ server, code: data.code, alreadyMember: !!member });
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
+router.post('/invitations/:code/join', async (req, res) => {
+  try {
+    const { code } = z.object({ code: z.string().min(1).max(20) }).parse(req.params);
+    const sb = getSupabaseAdmin();
+    const { data: inv, error: invErr } = await sb.from('invitations').select('*').eq('code', String(code).toUpperCase()).single();
+    if (invErr || !inv) throw new Error('Invitación no encontrada.');
+    if (new Date(inv.expires_at) < new Date()) throw new Error('Invitación expirada.');
+    if (inv.max_uses != null && inv.uses_count >= inv.max_uses) throw new Error('Invitación agotada.');
+
+    const { error: memberErr } = await sb.from('server_members').upsert({ server_id: inv.server_id, user_id: req.userId, role: 'member' }, { onConflict: 'server_id,user_id' });
+    if (memberErr) throw memberErr;
+
+    await sb.from('invitations').update({ uses_count: inv.uses_count + 1 }).eq('id', inv.id);
+    return res.json({ ok: true, serverId: inv.server_id });
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
 router.patch('/servers/:serverId', async (req, res) => {
   try {
     const params = z.object({ serverId: idSchema }).parse(req.params);
-    const body = z.object({
-      name: z.string().min(2).max(40),
-      userId: idSchema,
-    }).parse(req.body);
-    await requireAdmin(params.serverId, body.userId);
+    const body = z.object({ name: z.string().min(2).max(40) }).parse(req.body);
+    await requireAdmin(params.serverId, req.userId);
     const sb = getSupabaseAdmin();
     const { data, error } = await sb
       .from('servers')
@@ -190,12 +341,11 @@ router.post('/channels', async (req, res) => {
   try {
     const body = z.object({
       serverId: idSchema,
-      userId: idSchema,
       type: channelTypeSchema,
       name: z.string().min(2).max(40),
     }).parse(req.body);
     const sb = getSupabaseAdmin();
-    await requireAdmin(body.serverId, body.userId);
+    await requireAdmin(body.serverId, req.userId);
 
     const { count, error: countError } = await sb
       .from('channels')
@@ -210,7 +360,7 @@ router.post('/channels', async (req, res) => {
         type: body.type,
         name: body.name,
         position: (count || 0) + 1,
-        created_by: body.userId,
+        created_by: req.userId,
       })
       .select('*')
       .single();
@@ -226,12 +376,11 @@ router.patch('/channels/:channelId', async (req, res) => {
   try {
     const params = z.object({ channelId: idSchema }).parse(req.params);
     const body = z.object({
-      userId: idSchema,
       name: z.string().min(2).max(40).optional(),
       isArchived: z.boolean().optional(),
     }).parse(req.body);
     const serverId = await getChannelServer(params.channelId);
-    await requireAdmin(serverId, body.userId);
+    await requireAdmin(serverId, req.userId);
     const sb = getSupabaseAdmin();
     const patch = {};
     if (body.name !== undefined) patch.name = body.name;
@@ -263,17 +412,8 @@ router.get('/servers/:serverId/members', async (req, res) => {
     if (error) throw error;
 
     const ids = (members || []).map(m => m.user_id);
-    let profileMap = {};
-    if (ids.length) {
-      const { data: profiles, error: pErr } = await sb
-        .from('profiles')
-        .select('user_id, username, display_name, avatar_url, status, bio, updated_at')
-        .in('user_id', ids);
-      if (pErr) throw pErr;
-      profileMap = Object.fromEntries((profiles || []).map(p => [p.user_id, p]));
-    }
-
-    return res.json((members || []).map(m => ({ ...m, profile: profileMap[m.user_id] || null })));
+    const profileMap = await buildProfileMap(sb, ids);
+    return res.json(enrichItems(members || [], profileMap, 'user_id', 'profile'));
   } catch (err) {
     return handleError(res, err);
   }
@@ -282,8 +422,8 @@ router.get('/servers/:serverId/members', async (req, res) => {
 router.patch('/servers/:serverId/members/:memberUserId/role', async (req, res) => {
   try {
     const params = z.object({ serverId: idSchema, memberUserId: idSchema }).parse(req.params);
-    const body = z.object({ actorUserId: idSchema, role: roleSchema }).parse(req.body);
-    await getUserRole(params.serverId, body.actorUserId);
+    const body = z.object({ role: roleSchema }).parse(req.body);
+    await getUserRole(params.serverId, req.userId);
 
     const sb = getSupabaseAdmin();
     const { data, error } = await sb
@@ -305,13 +445,12 @@ router.get('/permissions/check', async (req, res) => {
     const q = z.object({
       serverId: idSchema,
       channelId: idSchema.optional(),
-      userId: idSchema,
       action: actionSchema,
     }).parse(req.query);
     const result = await canPerform({
       serverId: q.serverId,
       channelId: q.channelId,
-      userId: q.userId,
+      userId: req.userId,
       action: q.action,
     });
     return res.json(result);
@@ -340,7 +479,6 @@ router.patch('/channels/:channelId/permissions', async (req, res) => {
   try {
     const params = z.object({ channelId: idSchema }).parse(req.params);
     const body = z.object({
-      actorUserId: idSchema,
       role: roleSchema,
       canSendMessage: z.boolean().nullable().optional(),
       canJoinVoice: z.boolean().nullable().optional(),
@@ -351,7 +489,7 @@ router.patch('/channels/:channelId/permissions', async (req, res) => {
     }).parse(req.body);
 
     const serverId = await getChannelServer(params.channelId);
-    await requireAdmin(serverId, body.actorUserId);
+    await requireAdmin(serverId, req.userId);
 
     const patch = {
       channel_id: params.channelId,
@@ -378,34 +516,77 @@ router.patch('/channels/:channelId/permissions', async (req, res) => {
   }
 });
 
-router.get('/messages/:channelId', async (req, res) => {
+router.get('/messages/search', async (req, res) => {
   try {
-    const params = z.object({ channelId: idSchema }).parse(req.params);
+    const q = z.object({
+      channelId: idSchema,
+      q: z.string().min(1).max(100),
+    }).parse(req.query);
     const sb = getSupabaseAdmin();
     const { data, error } = await sb
       .from('messages')
-      .select('id, channel_id, author_id, body, created_at, message_type, media_data, media_mime, media_name, media_duration_ms')
-      .eq('channel_id', params.channelId)
+      .select('id, channel_id, author_id, body, created_at, edited_at, message_type')
+      .eq('channel_id', q.channelId)
+      .ilike('body', `%${q.q.replace(/%/g, '\\%')}%`)
       .order('created_at', { ascending: true })
-      .limit(200);
+      .limit(50);
     if (error) throw error;
+    const authorIds = [...new Set((data || []).map(m => m.author_id))];
+    const profilesMap = await buildProfileMap(sb, authorIds, MINIMAL_PROFILE_FIELDS);
+    return res.json(enrichItems(data || [], profilesMap));
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
+router.get('/messages/:channelId', async (req, res) => {
+  try {
+    const params = z.object({ channelId: idSchema }).parse(req.params);
+    const before = req.query.before;
+    const limit = Math.min(100, parseInt(req.query.limit, 10) || 50);
+    const sb = getSupabaseAdmin();
+    const parentId = req.query.parentMessageId;
+    let q = sb
+      .from('messages')
+      .select('id, channel_id, author_id, body, created_at, edited_at, message_type, media_data, media_mime, media_name, media_duration_ms, parent_message_id')
+      .eq('channel_id', params.channelId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (parentId) q = q.eq('parent_message_id', parentId);
+    else q = q.is('parent_message_id', null);
+    if (before) q = q.lt('created_at', before);
+    const { data: raw, error } = await q;
+    if (error) throw error;
+    const data = (raw || []).filter(Boolean).filter(m => m && m.id).reverse();
 
     const authorIds = [...new Set((data || []).map(m => m.author_id))];
-    let profilesMap = {};
-    if (authorIds.length) {
-      const { data: profiles, error: pErr } = await sb
-        .from('profiles')
-        .select('user_id, display_name, username, avatar_url, status, bio, updated_at')
-        .in('user_id', authorIds);
-      if (pErr) throw pErr;
-      profilesMap = Object.fromEntries((profiles || []).map(p => [p.user_id, p]));
-    }
+    const profilesMap = await buildProfileMap(sb, authorIds);
 
+    const msgIds = (data || []).map(m => m.id);
+    let reactionsMap = {};
+    let replyCountMap = {};
+    if (msgIds.length) {
+      const [reactionsRes, repliesRes] = await Promise.allSettled([
+        sb.from('message_reactions').select('message_id, user_id, emoji').in('message_id', msgIds),
+        sb.from('messages').select('parent_message_id').in('parent_message_id', msgIds),
+      ]);
+      const reactionsData = reactionsRes.status === 'fulfilled' && reactionsRes.value?.data ? reactionsRes.value.data : [];
+      const repliesData = repliesRes.status === 'fulfilled' && repliesRes.value?.data ? repliesRes.value.data : [];
+      reactionsData.forEach(r => {
+        if (!reactionsMap[r.message_id]) reactionsMap[r.message_id] = [];
+        reactionsMap[r.message_id].push({ userId: r.user_id, emoji: r.emoji });
+      });
+      repliesData.forEach(r => {
+        if (r?.parent_message_id) replyCountMap[r.parent_message_id] = (replyCountMap[r.parent_message_id] || 0) + 1;
+      });
+    }
     const enriched = (data || []).map(m => ({
       ...m,
       profiles: profilesMap[m.author_id] || null,
+      reactions: reactionsMap[m.id] || [],
+      replyCount: replyCountMap[m.id] || 0,
     }));
-    return res.json(enriched);
+    return res.json({ messages: enriched, hasMore: (raw || []).length >= limit });
   } catch (err) {
     return handleError(res, err);
   }
@@ -415,9 +596,10 @@ router.post('/messages', async (req, res) => {
   try {
     const body = z.object({
       channelId: idSchema,
-      authorId: idSchema,
+      parentMessageId: z.string().uuid().optional(),
       text: z.string().max(1000).optional().default(''),
-      messageType: z.enum(['text', 'image', 'video', 'audio']).optional().default('text'),
+      messageType: z.enum(['text', 'image', 'video', 'audio', 'file']).optional().default('text'),
+      mediaUrl: z.string().url().optional(),
       mediaData: z.string().optional(),
       mediaMime: z.string().optional(),
       mediaName: z.string().optional(),
@@ -425,7 +607,8 @@ router.post('/messages', async (req, res) => {
     }).parse(req.body);
 
     const text = (body.text || '').trim();
-    const hasMedia = Boolean(body.mediaData);
+    const mediaSource = body.mediaUrl || body.mediaData;
+    const hasMedia = Boolean(mediaSource);
     if (!text && !hasMedia) throw new Error('Mensaje vacío.');
     if (body.messageType !== 'text' && !hasMedia) throw new Error('Falta contenido multimedia.');
     if (body.mediaData && body.mediaData.length > 14_000_000) throw new Error('Media demasiado grande.');
@@ -437,15 +620,18 @@ router.post('/messages', async (req, res) => {
         ? '[video]'
         : body.messageType === 'audio'
           ? '[audio]'
-          : '';
+          : body.messageType === 'file'
+            ? '[archivo]'
+            : '';
     const { data, error } = await sb
       .from('messages')
       .insert({
         channel_id: body.channelId,
-        author_id: body.authorId,
+        author_id: req.userId,
+        parent_message_id: body.parentMessageId || null,
         body: text || fallbackBody,
         message_type: body.messageType,
-        media_data: body.mediaData || null,
+        media_data: body.mediaUrl || body.mediaData || null,
         media_mime: body.mediaMime || null,
         media_name: body.mediaName || null,
         media_duration_ms: body.mediaDurationMs ?? null,
@@ -454,6 +640,194 @@ router.post('/messages', async (req, res) => {
       .single();
     if (error) throw error;
     return res.json(data);
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
+router.patch('/messages/:messageId', async (req, res) => {
+  try {
+    const params = z.object({ messageId: z.string().uuid() }).parse(req.params);
+    const rawBody = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
+    const body = z.object({ text: z.string().min(1).max(1000) }).parse(rawBody);
+
+    const sb = getSupabaseAdmin();
+    const { data: msg, error: fetchErr } = await sb
+      .from('messages')
+      .select('id, channel_id, author_id, message_type')
+      .eq('id', params.messageId)
+      .single();
+    if (fetchErr || !msg) throw new Error('Mensaje no encontrado.');
+    if (msg.author_id !== req.userId) throw new Error('Solo el autor puede editar.');
+
+    const { data, error } = await sb
+      .from('messages')
+      .update({ body: body.text.trim(), edited_at: new Date().toISOString() })
+      .eq('id', params.messageId)
+      .eq('author_id', req.userId)
+      .select('id, body, edited_at')
+      .single();
+    if (error) throw error;
+    return res.json(data);
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
+router.delete('/messages/:messageId', async (req, res) => {
+  try {
+    const params = z.object({ messageId: z.string().uuid() }).parse(req.params);
+
+    const sb = getSupabaseAdmin();
+    const { data: msg, error: fetchErr } = await sb
+      .from('messages')
+      .select('id, author_id')
+      .eq('id', params.messageId)
+      .single();
+    if (fetchErr || !msg) throw new Error('Mensaje no encontrado.');
+    if (msg.author_id !== req.userId) throw new Error('Solo el autor puede borrar.');
+
+    const { error } = await sb.from('messages').delete().eq('id', params.messageId);
+    if (error) throw error;
+    return res.json({ ok: true });
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
+router.post('/messages/:messageId/reactions', async (req, res) => {
+  try {
+    const { messageId } = z.object({ messageId: z.string().uuid() }).parse(req.params);
+    const body = z.object({ emoji: z.string().min(1).max(10) }).parse(req.body || {});
+
+    const sb = getSupabaseAdmin();
+    const { data: existing } = await sb.from('message_reactions').select('user_id').eq('message_id', messageId).eq('user_id', req.userId).eq('emoji', body.emoji).maybeSingle();
+    if (existing) {
+      await sb.from('message_reactions').delete().eq('message_id', messageId).eq('user_id', req.userId).eq('emoji', body.emoji);
+      return res.json({ action: 'removed' });
+    }
+    await sb.from('message_reactions').upsert({ message_id: messageId, user_id: req.userId, emoji: body.emoji }, { onConflict: 'message_id,user_id,emoji' });
+    return res.json({ action: 'added' });
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
+router.get('/dm', async (req, res) => {
+  try {
+    const sb = getSupabaseAdmin();
+    const { data: dms } = await sb.from('dm_participants').select('dm_channel_id').eq('user_id', req.userId);
+    if (!dms?.length) return res.json([]);
+    const dmIds = dms.map(d => d.dm_channel_id);
+    const { data: participants } = await sb.from('dm_participants').select('dm_channel_id, user_id').in('dm_channel_id', dmIds);
+    const otherUserIds = (participants || []).filter(p => p.user_id !== req.userId).map(p => p.user_id);
+    const profilesMap = await buildProfileMap(sb, otherUserIds, 'user_id, display_name, username, avatar_url, status');
+    const dmMap = {};
+    (participants || []).forEach(p => {
+      if (p.user_id !== req.userId) dmMap[p.dm_channel_id] = { ...profilesMap[p.user_id], user_id: p.user_id };
+    });
+    return res.json(dms.map(d => ({ id: d.dm_channel_id, otherUser: dmMap[d.dm_channel_id] || null })));
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
+router.post('/dm', async (req, res) => {
+  try {
+    let otherUserId = req.body?.otherUserId ?? req.query?.otherUserId;
+    if (typeof otherUserId !== 'string') {
+      if (typeof req.body === 'string') {
+        try {
+          const parsed = JSON.parse(req.body);
+          otherUserId = parsed?.otherUserId;
+        } catch (_) {}
+      }
+      if (req.body && typeof req.body === 'object' && !Array.isArray(req.body)) {
+        otherUserId = req.body.otherUserId ?? otherUserId;
+      }
+    }
+    otherUserId = typeof otherUserId === 'string' ? otherUserId.trim() : '';
+    if (!otherUserId || otherUserId.length < 2 || otherUserId.length > 80) {
+      return res.status(400).json({ error: 'Se requiere otherUserId (ID del usuario). Comprueba que el perfil tenga un ID válido.' });
+    }
+    if (otherUserId === req.userId) throw new Error('No puedes enviarte DM a ti mismo.');
+    const sb = getSupabaseAdmin();
+    const { data: otherProfile } = await sb.from('profiles').select('user_id').eq('user_id', otherUserId).maybeSingle();
+    if (!otherProfile) {
+      const fallbackUsername = `user_${String(otherUserId).slice(0, 8)}`;
+      await ensureProfile({ userId: otherUserId, username: fallbackUsername });
+    }
+    const { data: existing } = await sb.from('dm_participants').select('dm_channel_id').eq('user_id', req.userId);
+    const myDmIds = (existing || []).map(d => d.dm_channel_id);
+    if (myDmIds.length) {
+      const { data: match } = await sb.from('dm_participants').select('dm_channel_id').eq('user_id', otherUserId).in('dm_channel_id', myDmIds).limit(1).maybeSingle();
+      if (match) return res.json({ id: match.dm_channel_id });
+    }
+    const { data: created } = await sb.from('dm_channels').insert({}).select('id').single();
+    await sb.from('dm_participants').insert([{ dm_channel_id: created.id, user_id: req.userId }, { dm_channel_id: created.id, user_id: otherUserId }]);
+    return res.json({ id: created.id });
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
+router.get('/dm/:dmChannelId/messages', async (req, res) => {
+  try {
+    const { dmChannelId } = z.object({ dmChannelId: idSchema }).parse(req.params);
+    const sb = getSupabaseAdmin();
+    const { data: member } = await sb.from('dm_participants').select('user_id').eq('dm_channel_id', dmChannelId).eq('user_id', req.userId).single();
+    if (!member) throw new Error('No tienes acceso a este DM.');
+    const { data, error } = await sb.from('dm_messages').select('id, dm_channel_id, author_id, body, created_at, edited_at, message_type, media_data, media_name').eq('dm_channel_id', dmChannelId).order('created_at', { ascending: true }).limit(100);
+    if (error) throw error;
+    const authorIds = [...new Set((data || []).map(m => m.author_id))];
+    const profilesMap = await buildProfileMap(sb, authorIds, MINIMAL_PROFILE_FIELDS);
+    return res.json(enrichItems(data || [], profilesMap));
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
+router.post('/dm/:dmChannelId/messages', async (req, res) => {
+  try {
+    const { dmChannelId } = z.object({ dmChannelId: idSchema }).parse(req.params);
+    const body = z.object({
+      text: z.string().max(1000).optional().default(''),
+      mediaUrl: z.string().url().optional(),
+      mediaData: z.string().optional(),
+      mediaMime: z.string().optional(),
+      mediaName: z.string().optional(),
+    }).parse(req.body || {});
+    const sb = getSupabaseAdmin();
+    const { data: member } = await sb.from('dm_participants').select('user_id').eq('dm_channel_id', dmChannelId).eq('user_id', req.userId).single();
+    if (!member) throw new Error('No tienes acceso a este DM.');
+    const text = (body.text || '').trim();
+    const hasMedia = Boolean(body.mediaUrl || body.mediaData);
+    if (!text && !hasMedia) throw new Error('Mensaje vacío.');
+    const { data, error } = await sb.from('dm_messages').insert({
+      dm_channel_id: dmChannelId,
+      author_id: req.userId,
+      body: text || '[archivo]',
+      message_type: hasMedia ? 'file' : 'text',
+      media_data: body.mediaUrl || body.mediaData || null,
+      media_mime: body.mediaMime || null,
+      media_name: body.mediaName || null,
+    }).select('id, dm_channel_id, author_id, body, created_at, message_type, media_data').single();
+    if (error) throw error;
+    return res.json(data);
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
+router.get('/messages/:channelId/thread/:parentId', async (req, res) => {
+  try {
+    const { channelId, parentId } = z.object({ channelId: idSchema, parentId: z.string().uuid() }).parse(req.params);
+    const sb = getSupabaseAdmin();
+    const { data, error } = await sb.from('messages').select('id, channel_id, author_id, body, created_at, edited_at, message_type, media_data, parent_message_id').eq('channel_id', channelId).eq('parent_message_id', parentId).order('created_at', { ascending: true });
+    if (error) throw error;
+    const authorIds = [...new Set((data || []).map(m => m.author_id))];
+    const profilesMap = await buildProfileMap(sb, authorIds, MINIMAL_PROFILE_FIELDS);
+    return res.json(enrichItems(data || [], profilesMap));
   } catch (err) {
     return handleError(res, err);
   }

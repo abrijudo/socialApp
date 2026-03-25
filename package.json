@@ -2,9 +2,18 @@
   "name": "mini-discord",
   "version": "1.0.0",
   "private": true,
+  "main": "electron/main.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon --watch server.js --watch api --watch backend --watch frontend server.js"
+    "test": "start-server-and-test start http://localhost:3000/api/health test:api",
+    "test:api": "node scripts/test-api.js",
+    "dev": "nodemon --watch server.js --watch api --watch backend --watch frontend server.js",
+    "electron": "electron .",
+    "electron:dev": "electron .",
+    "electron:watch": "nodemon --watch electron --watch frontend --watch backend --watch api --watch server.js --exec \"electron .\"",
+    "live:watch": "concurrently -k \"npm run dev\" \"npm run electron:watch\"",
+    "electron:pack": "electron-builder --dir",
+    "electron:build": "electron-builder -w portable"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.1",
@@ -15,6 +24,33 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "concurrently": "^9.2.1",
+    "electron": "^41.0.0",
+    "electron-builder": "^26.8.1",
+    "nodemon": "^3.1.14",
+    "start-server-and-test": "^2.1.5"
+  },
+  "build": {
+    "appId": "com.abrijudo.socialapppro",
+    "productName": "SocialApp Pro",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "backend/**/*",
+      "frontend/**/*",
+      "api/**/*",
+      "electron/**/*",
+      "server.js",
+      "livekit-client.js",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "signAndEditExecutable": false
+    }
   }
 }
