@@ -77,9 +77,18 @@ function handleError(res, err) {
   return res.status(400).json({ error: message });
 }
 
-async function requireAdmin(serverId, userId) {
-  // Modo servidor de amigos: cualquier miembro puede gestionar.
+/** Debe ser miembro del servidor (cualquier rol). */
+async function requireMember(serverId, userId) {
   return getUserRole(serverId, userId);
+}
+
+/** Solo el propietario: crear canales y cambiar nombre del servidor. */
+async function requireOwner(serverId, userId) {
+  const role = await getUserRole(serverId, userId);
+  if (role !== 'owner') {
+    throw new Error('Solo el propietario del servidor puede hacer esto.');
+  }
+  return role;
 }
 
 async function getUserRole(serverId, userId) {
@@ -282,8 +291,7 @@ router.post('/servers/:serverId/invitations', async (req, res) => {
     }).parse(req.body || {});
 
     const sb = getSupabaseAdmin();
-    const { data: member } = await sb.from('server_members').select('role').eq('server_id', serverId).eq('user_id', req.userId).single();
-    if (!member || !['owner', 'admin', 'mod'].includes(member.role)) throw new Error('Sin permiso para crear invitaciones.');
+    await requireMember(serverId, req.userId);
 
     const expiresAt = new Date(Date.now() + body.expiresInHours * 3600 * 1000).toISOString();
     const code = Math.random().toString(36).slice(2, 10).toUpperCase() + Math.random().toString(36).slice(2, 10).toUpperCase();
@@ -343,7 +351,7 @@ router.patch('/servers/:serverId', async (req, res) => {
   try {
     const params = z.object({ serverId: idSchema }).parse(req.params);
     const body = z.object({ name: z.string().min(2).max(40) }).parse(req.body);
-    await requireAdmin(params.serverId, req.userId);
+    await requireOwner(params.serverId, req.userId);
     const sb = getSupabaseAdmin();
     const { data, error } = await sb
       .from('servers')
@@ -367,7 +375,7 @@ router.post('/channels', async (req, res) => {
       name: z.string().min(2).max(40),
     }).parse(req.body);
     const sb = getSupabaseAdmin();
-    await requireAdmin(body.serverId, req.userId);
+    await requireOwner(body.serverId, req.userId);
 
     const { count, error: countError } = await sb
       .from('channels')
@@ -402,7 +410,7 @@ router.patch('/channels/:channelId', async (req, res) => {
       isArchived: z.boolean().optional(),
     }).parse(req.body);
     const serverId = await getChannelServer(params.channelId);
-    await requireAdmin(serverId, req.userId);
+    await requireMember(serverId, req.userId);
     const sb = getSupabaseAdmin();
     const patch = {};
     if (body.name !== undefined) patch.name = body.name;
@@ -445,9 +453,24 @@ router.patch('/servers/:serverId/members/:memberUserId/role', async (req, res) =
   try {
     const params = z.object({ serverId: idSchema, memberUserId: idSchema }).parse(req.params);
     const body = z.object({ role: roleSchema }).parse(req.body);
-    await getUserRole(params.serverId, req.userId);
+    const requesterRole = await requireMember(params.serverId, req.userId);
 
     const sb = getSupabaseAdmin();
+    const { data: target, error: targetErr } = await sb
+      .from('server_members')
+      .select('role')
+      .eq('server_id', params.serverId)
+      .eq('user_id', params.memberUserId)
+      .single();
+    if (targetErr || !target) throw new Error('Miembro no encontrado.');
+
+    if (body.role === 'owner' && requesterRole !== 'owner') {
+      throw new Error('Solo el propietario puede asignar el rol owner.');
+    }
+    if (target.role === 'owner' && requesterRole !== 'owner') {
+      throw new Error('Solo el propietario puede cambiar el rol del propietario.');
+    }
+
     const { data, error } = await sb
       .from('server_members')
       .update({ role: body.role })
@@ -511,7 +534,7 @@ router.patch('/channels/:channelId/permissions', async (req, res) => {
     }).parse(req.body);
 
     const serverId = await getChannelServer(params.channelId);
-    await requireAdmin(serverId, req.userId);
+    await requireMember(serverId, req.userId);
 
     const patch = {
       channel_id: params.channelId,

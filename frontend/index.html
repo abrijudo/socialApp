@@ -204,6 +204,7 @@
       </section>
       <section class="admin-block server-settings-section">
         <h4>General</h4>
+        <p id="server-name-owner-hint" class="server-settings-feedback info hidden">Solo el propietario puede cambiar el nombre del grupo.</p>
         <form method="dialog" id="server-form">
           <label>Nombre del grupo<input id="server-name-input" minlength="2" maxlength="40" required /></label>
         </form>
@@ -220,6 +221,7 @@
             <option value="member">member</option>
             <option value="mod">mod</option>
             <option value="admin">admin</option>
+            <option value="owner">owner</option>
           </select>
         </div>
         <div class="perm-grid">
@@ -236,7 +238,7 @@
     <menu class="server-settings-actions">
       <button value="cancel" type="button" onclick="this.closest('dialog').close()">Cancelar</button>
       <button id="btn-save-permissions" class="action-btn secondary" type="button">Guardar permisos</button>
-      <button value="default" type="submit" form="server-form">Guardar cambios</button>
+      <button id="btn-server-name-save" value="default" type="submit" form="server-form">Guardar cambios</button>
     </menu>
   </dialog>
 

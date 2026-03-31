@@ -556,9 +556,31 @@ async function syncPresence(status, options = {}) {
   }
 }
 
-function canManageServer() {
-  // Modo servidor de amigos: todos gestionan.
-  return true;
+/** Renombrar/archivar canales, invitaciones, roles (salvo owner ajeno), permisos por canal: cualquier miembro. */
+function canCreateChannel() {
+  return state.role === 'owner';
+}
+
+function canEditServerName() {
+  return state.role === 'owner';
+}
+
+function updateChannelCreateButtons() {
+  const show = canCreateChannel();
+  els.btnNewTextChannel?.classList.toggle('hidden', !show);
+  els.btnNewVoiceChannel?.classList.toggle('hidden', !show);
+}
+
+function updateServerSettingsFormState() {
+  const canName = canEditServerName();
+  if (els.serverNameInput) els.serverNameInput.disabled = !canName;
+  const nameSave = document.getElementById('btn-server-name-save');
+  if (nameSave) {
+    nameSave.disabled = !canName;
+    nameSave.classList.toggle('hidden', !canName);
+  }
+  const nameHint = document.getElementById('server-name-owner-hint');
+  if (nameHint) nameHint.classList.toggle('hidden', canName);
 }
 
 function isDialogOpen(dialog) {
@@ -651,7 +673,7 @@ function renderChannels() {
   textChannels.filter(c => c && c.id).forEach(channel => {
     const btn = document.createElement('button');
     btn.className = `channel-item ${!state.activeDmChannelId && state.activeTextChannelId === channel.id ? 'active' : ''}`;
-    btn.innerHTML = `${icon('hashtag')}<span>${channel.name}</span>${canManageServer() ? `<span class="actions"><button type="button" class="channel-action-btn" data-action="rename">${icon('edit')}</button><button type="button" class="channel-action-btn" data-action="archive">${icon('trash')}</button></span>` : ''}`;
+    btn.innerHTML = `${icon('hashtag')}<span>${channel.name}</span><span class="actions"><button type="button" class="channel-action-btn" data-action="rename">${icon('edit')}</button><button type="button" class="channel-action-btn" data-action="archive">${icon('trash')}</button></span>`;
     btn.addEventListener('click', (e) => {
       const actionBtn = e.target.closest('[data-action]');
       if (actionBtn) return handleChannelAction(channel, actionBtn.dataset.action);
@@ -676,7 +698,7 @@ function renderChannels() {
 
     const btn = document.createElement('button');
     btn.className = `channel-item ${state.activeVoiceChannelId === channel.id ? 'active' : ''}`;
-    btn.innerHTML = `${icon('speaker')}<span>${channel.name}</span>${canManageServer() ? `<span class="actions"><button type="button" class="channel-action-btn" data-action="rename">${icon('edit')}</button><button type="button" class="channel-action-btn" data-action="archive">${icon('trash')}</button></span>` : ''}`;
+    btn.innerHTML = `${icon('speaker')}<span>${channel.name}</span><span class="actions"><button type="button" class="channel-action-btn" data-action="rename">${icon('edit')}</button><button type="button" class="channel-action-btn" data-action="archive">${icon('trash')}</button></span>`;
     btn.addEventListener('click', (e) => {
       const actionBtn = e.target.closest('[data-action]');
       if (actionBtn) return handleChannelAction(channel, actionBtn.dataset.action);
@@ -733,7 +755,7 @@ function renderChannels() {
     els.voiceChannelList.appendChild(wrap);
   });
 
-  if (canManageServer()) {
+  {
     const prevChannelId = els.permChannelSelect.value || state.selectedPermChannelId;
     const prevRole = els.permRoleSelect.value || state.selectedPermRole || 'member';
     els.permChannelSelect.innerHTML = (state.channels || [])
@@ -783,10 +805,6 @@ function renderMembersAdmin() {
     els.membersAdminList.innerHTML = '';
     return;
   }
-  if (!canManageServer()) {
-    els.membersAdminList.innerHTML = '<div class="system">No tienes permisos para gestionar miembros.</div>';
-    return;
-  }
   els.membersAdminList.innerHTML = '';
   (state.members || []).filter(Boolean).forEach(member => {
     const row = document.createElement('div');
@@ -802,7 +820,7 @@ function renderMembersAdmin() {
       </select>
     `;
     const select = row.querySelector('select');
-    select.disabled = member.user_id === state.userId && state.role === 'owner';
+    select.disabled = member.role === 'owner' && state.role !== 'owner';
     select.addEventListener('change', async () => {
       try {
         await api(`/servers/${state.server.id}/members/${member.user_id}/role`, {
@@ -1503,8 +1521,12 @@ async function refreshMembers(options = {}) {
   if (!silent) renderMembersSkeleton();
   try {
     state.members = await api(`/servers/${state.server.id}/members`);
+    const me = (state.members || []).find((m) => m.user_id === state.userId);
+    if (me) state.role = me.role || 'member';
     renderMembersAdmin();
     renderMembersSidebar();
+    updateChannelCreateButtons();
+    updateServerSettingsFormState();
   } finally {
     state.membersLoading = false;
   }
@@ -1572,7 +1594,6 @@ async function refreshChannels() {
 }
 
 async function loadChannelPermissionPreset() {
-  if (!canManageServer()) return;
   const channelId = els.permChannelSelect.value;
   const role = els.permRoleSelect.value;
   if (!channelId) return;
@@ -1580,17 +1601,17 @@ async function loadChannelPermissionPreset() {
   state.selectedPermRole = role;
   const rows = await api(`/channels/${channelId}/permissions`);
   const row = rows.find(r => r.role === role) || {};
-  els.permSendMessage.checked = row.can_send_message ?? false;
-  els.permJoinVoice.checked = row.can_join_voice ?? false;
-  els.permUseWebcam.checked = row.can_use_webcam ?? false;
-  els.permShareScreen.checked = row.can_share_screen ?? false;
-  els.permManageChannel.checked = row.can_manage_channel ?? false;
-  els.permModerateVoice.checked = row.can_moderate_voice ?? false;
+  const def = true;
+  els.permSendMessage.checked = row.can_send_message ?? def;
+  els.permJoinVoice.checked = row.can_join_voice ?? def;
+  els.permUseWebcam.checked = row.can_use_webcam ?? def;
+  els.permShareScreen.checked = row.can_share_screen ?? def;
+  els.permManageChannel.checked = row.can_manage_channel ?? def;
+  els.permModerateVoice.checked = row.can_moderate_voice ?? def;
   showServerSettingsFeedback('');
 }
 
 async function saveChannelPermissionPreset() {
-  if (!canManageServer()) return;
   const channelId = els.permChannelSelect.value;
   const role = els.permRoleSelect.value;
   if (!channelId) return;
@@ -2760,11 +2781,11 @@ function wireEvents() {
   });
 
   els.btnServerSettings.addEventListener('click', () => {
-    if (!canManageServer()) return;
     els.serverNameInput.value = state.server?.name || '';
     els.inviteResult?.classList.add('hidden');
     showServerSettingsFeedback('');
     els.serverDialog.showModal();
+    updateServerSettingsFormState();
     renderMembersAdmin();
     loadChannelPermissionPreset().catch(() => {});
   });
@@ -2775,6 +2796,10 @@ function wireEvents() {
 
   els.serverForm.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (!canEditServerName()) {
+      showServerSettingsFeedback('Solo el propietario puede cambiar el nombre del servidor.', 'error');
+      return;
+    }
     try {
       state.server = await api(`/servers/${state.server.id}`, {
         method: 'PATCH',
@@ -2799,7 +2824,11 @@ function wireEvents() {
 
   els.channelForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    if (!canManageServer() || !state.server?.id) return;
+    if (!state.server?.id) return;
+    if (!canCreateChannel()) {
+      toast('Solo el propietario puede crear canales.', 'error');
+      return;
+    }
     await api('/channels', {
       method: 'POST',
       body: JSON.stringify({
@@ -2985,6 +3014,8 @@ async function boot() {
     });
   }
   state.initialBootDone = true;
+  updateChannelCreateButtons();
+  updateServerSettingsFormState();
 }
 
 function injectIcons() {
