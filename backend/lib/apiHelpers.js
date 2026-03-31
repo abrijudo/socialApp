@@ -2,7 +2,7 @@
  * Helpers compartidos para las rutas API
  */
 
-const DEFAULT_PROFILE_FIELDS = 'user_id, display_name, username, avatar_url, status, bio, updated_at';
+const DEFAULT_PROFILE_FIELDS = 'user_id, display_name, username, avatar_url, status, bio, updated_at, last_login';
 const MINIMAL_PROFILE_FIELDS = 'user_id, display_name, username, avatar_url';
 
 async function buildProfileMap(sb, userIds, fields = DEFAULT_PROFILE_FIELDS) {

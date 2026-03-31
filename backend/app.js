@@ -45,4 +45,8 @@ app.get('/join/:code', (_req, res) => {
   res.sendFile(path.join(frontendDir, 'index.html'));
 });
 
+app.get('/dashboard', (_req, res) => {
+  res.sendFile(path.join(frontendDir, 'dashboard-creative.html'));
+});
+
 module.exports = app;

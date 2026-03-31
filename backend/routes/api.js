@@ -261,6 +261,7 @@ router.post('/profiles/upsert', async (req, res) => {
     const userId = req.userId;
     await ensureProfile({ userId, username: body.username });
     const sb = getSupabaseAdmin();
+    const now = new Date().toISOString();
     const { data, error } = await sb
       .from('profiles')
       .update({
@@ -269,7 +270,8 @@ router.post('/profiles/upsert', async (req, res) => {
         avatar_url: body.avatarUrl || null,
         bio: body.bio || '',
         status: body.status || 'online',
-        updated_at: new Date().toISOString(),
+        updated_at: now,
+        last_login: now,
       })
       .eq('user_id', userId)
       .select('*')
@@ -868,7 +870,7 @@ router.get('/messages/:channelId/thread/:parentId', async (req, res) => {
   try {
     const { channelId, parentId } = z.object({ channelId: idSchema, parentId: z.string().uuid() }).parse(req.params);
     const sb = getSupabaseAdmin();
-    const { data, error } = await sb.from('messages').select('id, channel_id, author_id, body, created_at, edited_at, message_type, media_data, parent_message_id').eq('channel_id', channelId).eq('parent_message_id', parentId).order('created_at', { ascending: true });
+    const { data, error } = await sb.from('messages').select('id, channel_id, author_id, body, created_at, edited_at, message_type, media_data, media_name, media_duration_ms, parent_message_id').eq('channel_id', channelId).eq('parent_message_id', parentId).order('created_at', { ascending: true });
     if (error) throw error;
     const authorIds = [...new Set((data || []).map(m => m.author_id))];
     const profilesMap = await buildProfileMap(sb, authorIds, MINIMAL_PROFILE_FIELDS);

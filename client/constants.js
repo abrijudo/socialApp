@@ -4,16 +4,29 @@
 
 export const VOICE_CHANNEL_KEY = 'voice-channel-id';
 export const THEME_KEY = 'app-theme';
+/** Panel derecho de miembros: '1' abierto, '0' cerrado. */
+export const MEMBERS_PANEL_KEY = 'members-sidebar-open';
 export const VOICE_REJOIN_KEY = 'voice-rejoin-on-reload';
 export const STREAM_LAYOUT_KEY = 'stream-layout-mode';
+/** Nombre normalizado guardado tras entrar; permite omitir el diálogo de registro en la próxima visita. */
+export const SESSION_DISPLAY_NAME_KEY = 'session-display-name';
 export const PRESENCE_IDLE_MS = 2 * 60 * 1000;
 export const PRESENCE_HEARTBEAT_MS = 30 * 1000;
 export const MEMBERS_PRESENCE_POLL_MS = 8000;
 /** Listado LiveKit por canal (quién está en voz sin estar conectado). */
 export const VOICE_PARTICIPANTS_POLL_MS = 5000;
 export const TYPING_DEBOUNCE_MS = 400;
-export const MESSAGES_POLL_MS = 2500;
-export const MESSAGES_POLL_MS_HIDDEN = 5000;
+/** Tiempo tras el último broadcast en que mostramos "escribiendo…" en sidebar y cabecera. */
+export const TYPING_DISPLAY_TTL_MS = 4000;
+/**
+ * Canal de texto: copia de seguridad frente a Realtime. Valores bajos multiplican
+ * GET /messages y egress; los INSERT/UPDATE/DELETE ya llaman loadMessages vía subscribeRealtime.
+ */
+export const MESSAGES_POLL_MS = 45000;
+export const MESSAGES_POLL_MS_HIDDEN = 120000;
+/** DM: no hay postgres_changes en el cliente → polling un poco más frecuente. */
+export const DM_MESSAGES_POLL_MS = 8000;
+export const DM_MESSAGES_POLL_MS_HIDDEN = 20000;
 
 export const MIC_AUDIO_CAPTURE_OPTIONS = {
   echoCancellation: true,

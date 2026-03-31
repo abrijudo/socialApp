@@ -1,15 +1,20 @@
 import {
   VOICE_CHANNEL_KEY,
   THEME_KEY,
+  MEMBERS_PANEL_KEY,
   VOICE_REJOIN_KEY,
   STREAM_LAYOUT_KEY,
+  SESSION_DISPLAY_NAME_KEY,
   PRESENCE_IDLE_MS,
   PRESENCE_HEARTBEAT_MS,
   MEMBERS_PRESENCE_POLL_MS,
   VOICE_PARTICIPANTS_POLL_MS,
   TYPING_DEBOUNCE_MS,
+  TYPING_DISPLAY_TTL_MS,
   MESSAGES_POLL_MS,
   MESSAGES_POLL_MS_HIDDEN,
+  DM_MESSAGES_POLL_MS,
+  DM_MESSAGES_POLL_MS_HIDDEN,
   MIC_AUDIO_CAPTURE_OPTIONS,
   icons,
   icon,
@@ -53,6 +58,23 @@ function toggleTheme() {
   const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
   localStorage.setItem(THEME_KEY, next);
   applyTheme(next);
+}
+
+function syncMembersPanelUI(isOpen) {
+  const btn = document.getElementById('btn-toggle-members');
+  if (btn) {
+    btn.setAttribute('aria-expanded', String(isOpen));
+    const path = btn.querySelector('path');
+    if (path) path.setAttribute('d', isOpen ? 'M9 18l6-6-6-6' : 'M15 18l-6-6 6-6');
+  }
+}
+
+function initMembersPanelState() {
+  const app = document.getElementById('app');
+  if (!app) return;
+  const isOpen = localStorage.getItem(MEMBERS_PANEL_KEY) !== '0';
+  app.setAttribute('data-members-panel', isOpen ? 'open' : 'closed');
+  syncMembersPanelUI(isOpen);
 }
 
 const { createClient } = supabase;
@@ -140,6 +162,7 @@ let lastPresenceStatus = '';
 let lastActivityAt = Date.now();
 let presenceIdleTimer = null;
 let presenceHeartbeatTimer = null;
+let typingRefreshInterval = null;
 let membersPresencePollTimer = null;
 let voiceParticipantsPollTimer = null;
 
@@ -280,6 +303,8 @@ async function api(path, options = {}) {
   if (res.status === 401) {
     state.accessToken = null;
     sb?.auth.signOut();
+    const hint = localStorage.getItem(SESSION_DISPLAY_NAME_KEY);
+    if (hint && els.authUsername) els.authUsername.value = hint;
     els.authDialog?.showModal();
     throw new Error('Sesión expirada. Inicia sesión de nuevo.');
   }
@@ -295,12 +320,45 @@ function setAuthFeedback(message = '', type = 'info') {
   setFeedback(els.authFeedback, message, type);
 }
 
+function persistChosenDisplayName(username) {
+  const n = normalizeUsername(String(username || ''));
+  if (n) localStorage.setItem(SESSION_DISPLAY_NAME_KEY, n);
+}
+
+/**
+ * Equivalente a useEffect(..., []) al montar la app: usa la sesión de Supabase si existe;
+ * si no, intenta signInAnonymously con el nombre guardado en localStorage para saltar el registro.
+ */
+async function restoreSessionOrSavedDisplayNameEffect(sbClient) {
+  const { data, error } = await sbClient.auth.getSession();
+  if (error) throw error;
+  let user = data?.session?.user;
+  let session = data?.session;
+  if (user) return { user, session };
+
+  const saved = localStorage.getItem(SESSION_DISPLAY_NAME_KEY)?.trim();
+  if (!saved) return { user: null, session: null };
+
+  const username = normalizeUsername(saved);
+  try {
+    const { data: signData, error: signErr } = await sbClient.auth.signInAnonymously({
+      options: { data: { username, display_name: username } },
+    });
+    if (signErr) return { user: null, session: null };
+    const sessionOut = signData?.session;
+    const userOut = signData?.user ?? sessionOut?.user;
+    if (userOut && sessionOut) return { user: userOut, session: sessionOut };
+  } catch (_) {}
+  return { user: null, session: null };
+}
+
 function applyAuthenticatedUser(user, session) {
   state.userId = user.id;
   state.accessToken = session?.access_token || null;
   const fromMeta = user.user_metadata?.username || user.user_metadata?.display_name || '';
   const fromEmail = user.email ? user.email.split('@')[0] : '';
   state.username = normalizeUsername(fromMeta || fromEmail || '');
+  persistChosenDisplayName(state.username);
 }
 
 async function initAuthAndBoot() {
@@ -308,12 +366,11 @@ async function initAuthAndBoot() {
   if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) throw new Error('Config no disponible.');
   sb = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
 
-  const { data, error } = await sb.auth.getSession();
-  if (error) throw error;
-  const user = data?.session?.user;
-  const session = data?.session;
+  const { user, session } = await restoreSessionOrSavedDisplayNameEffect(sb);
   if (!user) {
     setAuthFeedback('');
+    const hint = localStorage.getItem(SESSION_DISPLAY_NAME_KEY);
+    if (hint && els.authUsername) els.authUsername.value = hint;
     els.authDialog?.showModal();
     return;
   }
@@ -464,6 +521,59 @@ function stopMembersPresencePolling() {
   if (!membersPresencePollTimer) return;
   clearInterval(membersPresencePollTimer);
   membersPresencePollTimer = null;
+}
+
+function pruneStaleTypingUsers() {
+  const t = state.typingUsers;
+  if (!t || !Object.keys(t).length) return false;
+  const now = Date.now();
+  let changed = false;
+  for (const id of Object.keys(t)) {
+    if (now - t[id] > TYPING_DISPLAY_TTL_MS) {
+      delete t[id];
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+/** Cabecera del canal + lista de miembros: quién está escribiendo (solo canal de texto). */
+function updateTypingUi() {
+  pruneStaleTypingUsers();
+  const inTextChannel = Boolean(state.activeTextChannelId && !state.activeDmChannelId);
+  const remoteTypers = Object.entries(state.typingUsers || {})
+    .filter(([uid, ts]) => uid !== state.userId && Date.now() - ts <= TYPING_DISPLAY_TTL_MS)
+    .map(([uid]) => uid);
+  if (els.typingIndicator) {
+    if (!inTextChannel || remoteTypers.length === 0) {
+      els.typingIndicator.classList.add('hidden');
+    } else {
+      const names = remoteTypers.map((uid) => {
+        const m = state.members.find((x) => x && x.user_id === uid);
+        return m?.profile?.display_name || m?.profile?.username || 'Alguien';
+      });
+      const uniq = [...new Set(names)];
+      els.typingIndicator.textContent =
+        uniq.length === 1
+          ? `${uniq[0]} está escribiendo…`
+          : uniq.length === 2
+            ? `${uniq[0]} y ${uniq[1]} están escribiendo…`
+            : `${uniq.slice(0, 2).join(', ')} y ${uniq.length - 2} más están escribiendo…`;
+      els.typingIndicator.classList.remove('hidden');
+    }
+  }
+  renderMembersSidebar();
+}
+
+function startTypingRefreshLoop() {
+  if (typingRefreshInterval) return;
+  typingRefreshInterval = setInterval(() => {
+    if (!state.activeTextChannelId || state.activeDmChannelId) return;
+    const before = JSON.stringify(state.typingUsers || {});
+    pruneStaleTypingUsers();
+    const after = JSON.stringify(state.typingUsers || {});
+    if (before !== after) updateTypingUi();
+  }, 1200);
 }
 
 async function pollVoiceParticipants() {
@@ -914,19 +1024,37 @@ function renderMembersSidebar() {
     const isSelf = member.user_id === state.userId;
     const currentStatus = resolvePresenceStatus(member.profile || {}, { forSelf: member.user_id === state.userId });
     const subStatus = inVoice ? `${statusLabel(currentStatus)} · En voz` : statusLabel(currentStatus);
+    const typingTs = state.typingUsers?.[member.user_id];
+    const showTyping =
+      Boolean(
+        typingTs &&
+          Date.now() - typingTs <= TYPING_DISPLAY_TTL_MS &&
+          !isSelf &&
+          state.activeTextChannelId &&
+          !state.activeDmChannelId,
+      );
 
     const row = document.createElement('div');
     row.className = `member-item ${currentStatus === 'offline' ? 'member-offline' : ''}`;
     row.innerHTML = `
       <div class="member-avatar-wrap">
         <img class="member-avatar" src="${avatar}" alt="avatar" />
-        <span class="member-dot ${currentStatus}"></span>
+        <span class="member-dot ${currentStatus}" title="${statusLabel(currentStatus)}"></span>
       </div>
       <div class="member-main">
         <div class="member-name">${displayName}${isSelf ? ' (tú)' : ''}</div>
-        <div class="member-sub">${subStatus}</div>
+        <div class="member-sub"></div>
       </div>
     `;
+    const subEl = row.querySelector('.member-sub');
+    if (showTyping) {
+      const sp = document.createElement('span');
+      sp.className = 'member-typing';
+      sp.textContent = 'escribiendo…';
+      subEl.appendChild(sp);
+    } else {
+      subEl.textContent = subStatus;
+    }
     row.addEventListener('click', () => {
       openUserCard(member.profile || {}, member?.user_id ?? null);
     });
@@ -1057,13 +1185,49 @@ async function handleMessageDelete(msg) {
   }
 }
 
+/**
+ * Audio de voz: no asigna la URL hasta el primer clic en Reproducir (evita descargar todos los archivos al cargar el canal).
+ */
+function mountLazyVoicePlayer(container, src, opts = {}) {
+  if (!container || !src) return;
+  container.replaceChildren();
+  const wrap = document.createElement('div');
+  wrap.className = 'voice-message-lazy';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'voice-play-btn';
+  const durMs = opts.durationMs;
+  const dur =
+    durMs != null && Number.isFinite(durMs) && durMs > 0 ? ` · ${formatDurationMs(durMs)}` : '';
+  btn.textContent = `▶ Reproducir${dur}`;
+  btn.setAttribute('aria-label', 'Reproducir mensaje de voz');
+  const audio = document.createElement('audio');
+  audio.className = 'voice-audio-player';
+  audio.controls = true;
+  audio.preload = 'none';
+  audio.style.display = 'none';
+  wrap.appendChild(btn);
+  wrap.appendChild(audio);
+  container.appendChild(wrap);
+  let srcAttached = false;
+  btn.addEventListener('click', () => {
+    if (!srcAttached) {
+      audio.src = src;
+      srcAttached = true;
+    }
+    audio.style.display = '';
+    btn.hidden = true;
+    audio.play().catch(() => {});
+  });
+}
+
 function renderMessagesSkeleton() {
   els.messages.innerHTML = '';
   for (let i = 0; i < 6; i++) {
     const wrap = document.createElement('article');
     wrap.className = 'message message-skeleton';
     wrap.innerHTML = `
-      <div class="skeleton skeleton-avatar"></div>
+      <div class="message-avatar-wrap"><div class="skeleton skeleton-avatar"></div></div>
       <div class="message-content">
         <div class="message-header">
           <span class="skeleton skeleton-text" style="width:100px"></span>
@@ -1123,7 +1287,7 @@ function renderMessages(messages, append = false) {
     ).join('');
 
     wrap.innerHTML = `
-      <img class="message-avatar" alt="avatar" src="${avatar}">
+      <div class="message-avatar-wrap"><img class="message-avatar" alt="avatar" src="${avatar}"></div>
       <div class="message-content">
         <div class="message-header">
           <span class="message-author">${author}</span>
@@ -1165,7 +1329,7 @@ function renderMessages(messages, append = false) {
       }
     } else if (messageType === 'audio' && msg.media_data) {
       mediaEl.style.display = 'block';
-      mediaEl.innerHTML = `<audio src="${msg.media_data}" controls></audio>`;
+      mountLazyVoicePlayer(mediaEl, msg.media_data, { durationMs: msg.media_duration_ms });
       bodyEl.textContent = msg.body && !msg.body.startsWith('[') ? '' : 'Mensaje de voz';
       if (msg.body && !msg.body.startsWith('[')) {
         captionEl.style.display = 'block';
@@ -1383,6 +1547,7 @@ async function loadMessages(options = {}) {
       state.messagesHasMore = hasMore;
     }
     const nextFingerprint = messagesFingerprint(messages);
+    // Nota egress: el JSON completo ya se descargó; el fingerprint solo evita re-render.
     if (silent && !force && !append && nextFingerprint === state.lastMessagesFingerprint) return;
     if (!append) state.lastMessagesFingerprint = nextFingerprint;
     renderMessages(messages, append);
@@ -1414,11 +1579,14 @@ function renderDmList() {
     btn.addEventListener('click', () => {
       state.activeDmChannelId = dm.id;
       state.activeTextChannelId = null;
+      state.typingUsers = {};
+      els.typingIndicator?.classList.add('hidden');
       updateHeader();
       loadDmMessages();
       renderChannels();
       renderDmList();
       renderVoiceExitPanel();
+      renderMembersSidebar();
     });
     els.dmList.appendChild(btn);
   });
@@ -1454,13 +1622,32 @@ function renderDmMessages(messages) {
     wrap.className = 'message';
     const author = msg.profiles?.display_name || msg.profiles?.username || 'Usuario';
     const avatar = avatarFromProfile(msg.profiles || { display_name: author });
+    const isAudio = msg.message_type === 'audio' && msg.media_data;
     wrap.innerHTML = `
-      <img class="message-avatar" alt="avatar" src="${avatar}">
+      <div class="message-avatar-wrap"><img class="message-avatar" alt="avatar" src="${avatar}"></div>
       <div class="message-content">
         <div class="message-header"><span class="message-author">${author}</span><span class="message-time">${formatTs(msg.created_at)}</span></div>
-        <div class="message-body">${msg.media_data ? `<a href="${msg.media_data}" target="_blank">${msg.body}</a>` : parseSimpleMarkdown(msg.body, [])}</div>
+        <div class="message-body"></div>
+        <div class="message-media-dm" style="display:none;"></div>
       </div>
     `;
+    const bodyEl = wrap.querySelector('.message-body');
+    const mediaDm = wrap.querySelector('.message-media-dm');
+    if (isAudio) {
+      bodyEl.textContent = msg.body && !msg.body.startsWith('[') ? '' : 'Mensaje de voz';
+      if (msg.body && !msg.body.startsWith('[')) {
+        bodyEl.innerHTML = parseSimpleMarkdown(msg.body, state.members);
+      }
+      mediaDm.style.display = 'block';
+      mountLazyVoicePlayer(mediaDm, msg.media_data, { durationMs: msg.media_duration_ms });
+    } else if (msg.media_data) {
+      bodyEl.innerHTML = `<a href="${msg.media_data}" target="_blank" rel="noopener">${msg.body || 'Adjunto'}</a>`;
+    } else {
+      bodyEl.innerHTML = parseSimpleMarkdown(msg.body, state.members);
+    }
+    wrap.querySelector('.message-author')?.addEventListener('click', () =>
+      openUserCard(msg.profiles || {}, msg.author_id),
+    );
     els.messages.appendChild(wrap);
   });
   els.messages.scrollTop = els.messages.scrollHeight;
@@ -1483,15 +1670,30 @@ function renderThreadReplies(container, replies) {
     let bodyHtml = parseSimpleMarkdown(r.body || '', state.members);
     if (r.message_type === 'image' && r.media_data) bodyHtml = `<img src="${r.media_data}" alt="imagen" loading="lazy" style="max-width:200px;border-radius:6px;">` + (r.body && !r.body.startsWith('[') ? `<p>${bodyHtml}</p>` : '');
     else if (r.message_type === 'file' && r.media_data) bodyHtml = `<a href="${r.media_data}" target="_blank" rel="noopener">📎 ${r.media_name || 'archivo'}</a>` + (r.body && !r.body.startsWith('[') ? `<p>${parseSimpleMarkdown(r.body, state.members)}</p>` : '');
+    else if (r.message_type === 'audio' && r.media_data) {
+      bodyHtml =
+        r.body && !r.body.startsWith('[')
+          ? parseSimpleMarkdown(r.body, state.members)
+          : 'Mensaje de voz';
+    }
+    const isVoiceReply = r.message_type === 'audio' && r.media_data;
     const el = document.createElement('div');
     el.className = 'message thread-reply';
     el.innerHTML = `
-      <img class="message-avatar" alt="avatar" src="${avatar}">
+      <div class="message-avatar-wrap"><img class="message-avatar" alt="avatar" src="${avatar}"></div>
       <div class="message-content">
         <div class="message-header"><span class="message-author">${author}</span><span class="message-time">${formatTs(r.created_at)}</span></div>
-        <div class="message-body">${bodyHtml}</div>
+        <div class="message-body"></div>
       </div>
     `;
+    const bodyDiv = el.querySelector('.message-body');
+    bodyDiv.innerHTML = bodyHtml;
+    if (isVoiceReply) {
+      const host = document.createElement('div');
+      host.className = 'thread-voice-host';
+      mountLazyVoicePlayer(host, r.media_data, { durationMs: r.media_duration_ms });
+      bodyDiv.appendChild(host);
+    }
     el.querySelector('.message-author')?.addEventListener('click', () => openUserCard(r.profiles || {}, r.author_id));
     container.appendChild(el);
   });
@@ -1506,12 +1708,25 @@ async function loadMoreMessages() {
 }
 
 function startMessagesPolling() {
-  if (state.messagesPollTimer) clearInterval(state.messagesPollTimer);
-  const interval = document.hidden ? MESSAGES_POLL_MS_HIDDEN : MESSAGES_POLL_MS;
-  state.messagesPollTimer = setInterval(() => {
-    if (state.activeDmChannelId) loadDmMessages().catch(() => {});
-    else if (state.activeTextChannelId) loadMessages({ silent: true }).catch(() => {});
-  }, interval);
+  if (state.messagesPollTimer) {
+    clearTimeout(state.messagesPollTimer);
+    state.messagesPollTimer = null;
+  }
+  const pollDelay = () => {
+    const dm = Boolean(state.activeDmChannelId);
+    const hidden = document.hidden;
+    return dm
+      ? (hidden ? DM_MESSAGES_POLL_MS_HIDDEN : DM_MESSAGES_POLL_MS)
+      : (hidden ? MESSAGES_POLL_MS_HIDDEN : MESSAGES_POLL_MS);
+  };
+  const tick = async () => {
+    try {
+      if (state.activeDmChannelId) await loadDmMessages();
+      else if (state.activeTextChannelId) await loadMessages({ silent: true });
+    } catch (_) { /* ignore */ }
+    state.messagesPollTimer = setTimeout(tick, pollDelay());
+  };
+  state.messagesPollTimer = setTimeout(tick, pollDelay());
 }
 
 async function refreshMembers(options = {}) {
@@ -1636,11 +1851,14 @@ async function setActiveTextChannel(channelId) {
   state.activeTextChannelId = channelId;
   state.activeDmChannelId = null;
   state.lastMessagesFingerprint = '';
+  state.typingUsers = {};
+  els.typingIndicator?.classList.add('hidden');
   renderChannels();
   renderDmList();
   updateHeader();
   await loadMessages();
   startMessagesPolling();
+  renderMembersSidebar();
 }
 
 async function setActiveVoiceChannel(channelId) {
@@ -1899,18 +2117,13 @@ async function getElectronCaptureStream() {
     `${state.lastCaptureSourceName} (${sourceKind})${pickedKind === 'window' && screenSource?.id ? ' [compat window->screen]' : ''}`
   );
 
-  const screenAudioConstraints = {
-    echoCancellation: false,
-    noiseSuppression: false,
-    autoGainControl: false,
-    channelCount: 2,
-    sampleRate: 48000,
-  };
+  /** audio: true + systemAudio:'include' maximiza compatibilidad para audio del sistema (Chrome/Edge/Electron). */
   const captureFromSource = async (sourceId, includeAudio = true) => {
     await window.desktopApp?.setCaptureSource?.(sourceId);
     return navigator.mediaDevices.getDisplayMedia({
       video: { width: { ideal: 2560 }, height: { ideal: 1440 }, frameRate: { ideal: 60, max: 60 } },
-      audio: includeAudio ? screenAudioConstraints : false,
+      audio: includeAudio,
+      ...(includeAudio ? { systemAudio: 'include' } : {}),
     });
   };
 
@@ -2216,59 +2429,119 @@ async function toggleScreen(forceOff = false) {
     pushAudioDiag('Screen share stopped');
     return;
   }
-  const screenAudioConstraints = {
-    echoCancellation: false,
-    noiseSuppression: false,
-    autoGainControl: false,
-    channelCount: 2,
-    sampleRate: 48000,
+  const screenShareResolution = { width: 2560, height: 1440, frameRate: 60 };
+  const displayMediaVideoOpts = {
+    width: { ideal: 2560 },
+    height: { ideal: 1440 },
+    frameRate: { ideal: 60, max: 60 },
   };
-  const captureDisplay = async (advanced) => {
-    const videoOpts = {
-      width: { ideal: 2560 },
-      height: { ideal: 1440 },
-      frameRate: { ideal: 60, max: 60 },
-    };
-    const audioOpts = advanced ? screenAudioConstraints : true;
-    return navigator.mediaDevices.getDisplayMedia({
-      video: videoOpts,
-      audio: audioOpts,
+  /** Permisos Display Media: audio:true pide pista de audio; systemAudio:'include' hace que Chrome ofrezca captura de audio del sistema/pestaña. */
+  const captureDisplayWithSystemAudio = async (withSystemAudioHint = true) =>
+    navigator.mediaDevices.getDisplayMedia({
+      video: displayMediaVideoOpts,
+      audio: true,
+      ...(withSystemAudioHint ? { systemAudio: 'include' } : {}),
     });
-  };
 
   let stream;
+  let screenTrack;
+  let audioTrack;
+  let videoTrack;
+  let surface = 'desconocida';
+  /** Si viene de createScreenTracks, ya es LocalAudioTrack (no crear otro envoltorio). */
+  let screenAudioLocalPrebuilt = null;
+
   if (isElectronDesktop()) {
     stream = await getElectronCaptureStream();
-  } else {
-    try {
-      stream = await captureDisplay(true);
-    } catch (_) {
-      stream = await captureDisplay(false);
-    }
-    state.lastCaptureSourceName = '';
-  }
-  pushAudioDiag('Screen capture started', `isElectron=${isElectronDesktop()} audioTracks=${stream.getAudioTracks().length}`);
-
-  let audioTrack = await waitForDisplayAudioTrack(stream);
-  let videoTrack = stream.getVideoTracks()[0];
-  let surface = videoTrack?.getSettings?.().displaySurface || 'desconocida';
-
-  if (!audioTrack) {
-    // Reintento simple para navegadores que ignoran constraints avanzadas de audio.
-    stream.getTracks().forEach((t) => t.stop());
-    stream = await captureDisplay(false);
+    pushAudioDiag('Screen capture started', `isElectron=${true} audioTracks=${stream.getAudioTracks().length}`);
     audioTrack = await waitForDisplayAudioTrack(stream);
     videoTrack = stream.getVideoTracks()[0];
     surface = videoTrack?.getSettings?.().displaySurface || 'desconocida';
+    pushAudioDiag('Screen tracks resolved', `surface=${surface} audioTrack=${audioTrack ? 'yes' : 'no'}`);
+    try {
+      await videoTrack.applyConstraints({ frameRate: { ideal: 60, max: 60 } });
+      videoTrack.contentHint = 'detail';
+    } catch (_) {}
+    screenTrack = new LivekitClient.LocalVideoTrack(videoTrack, undefined, false);
+  } else {
+    let created = null;
+    try {
+      created = await state.room.localParticipant.createScreenTracks({
+        audio: true,
+        systemAudio: 'include',
+        resolution: screenShareResolution,
+        video: true,
+        contentHint: 'detail',
+      });
+    } catch (err) {
+      pushAudioDiag('createScreenTracks failed', err?.message || String(err));
+    }
+    const fromCreated = (kind) => created?.find((t) => t.kind === kind);
+    let screenVideoLocal = fromCreated(Track.Kind.Video);
+    let screenAudioLocal = fromCreated(Track.Kind.Audio);
+    if (screenVideoLocal && !screenAudioLocal) {
+      pushAudioDiag('createScreenTracks sin audio', 'reintento con getDisplayMedia');
+      try {
+        created.forEach((t) => {
+          try {
+            t.stop();
+          } catch (_) {}
+        });
+      } catch (_) {}
+      created = null;
+      screenVideoLocal = null;
+    }
+    if (screenVideoLocal) {
+      videoTrack = screenVideoLocal.mediaStreamTrack;
+      audioTrack = screenAudioLocal?.mediaStreamTrack ?? null;
+      pushAudioDiag(
+        'Screen capture (createScreenTracks)',
+        `audioLocalTrack=${screenAudioLocal ? 'yes' : 'no'} streamAudio=${audioTrack ? 'yes' : 'no'}`,
+      );
+      try {
+        await videoTrack.applyConstraints({ frameRate: { ideal: 60, max: 60 } });
+        videoTrack.contentHint = 'detail';
+      } catch (_) {}
+      screenTrack = screenVideoLocal;
+      screenAudioLocalPrebuilt = screenAudioLocal || null;
+      surface = videoTrack?.getSettings?.().displaySurface || 'desconocida';
+    } else {
+      state.lastCaptureSourceName = '';
+      try {
+        stream = await captureDisplayWithSystemAudio(true);
+      } catch (_) {
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          video: displayMediaVideoOpts,
+          audio: true,
+        });
+      }
+      pushAudioDiag('Screen capture started', `isElectron=false audioTracks=${stream.getAudioTracks().length}`);
+      audioTrack = await waitForDisplayAudioTrack(stream);
+      videoTrack = stream.getVideoTracks()[0];
+      surface = videoTrack?.getSettings?.().displaySurface || 'desconocida';
+      if (!audioTrack) {
+        stream.getTracks().forEach((t) => t.stop());
+        try {
+          stream = await captureDisplayWithSystemAudio(false);
+        } catch (_) {
+          stream = await navigator.mediaDevices.getDisplayMedia({
+            video: displayMediaVideoOpts,
+            audio: true,
+          });
+        }
+        audioTrack = await waitForDisplayAudioTrack(stream);
+        videoTrack = stream.getVideoTracks()[0];
+        surface = videoTrack?.getSettings?.().displaySurface || 'desconocida';
+      }
+      pushAudioDiag('Screen tracks resolved', `surface=${surface} audioTrack=${audioTrack ? 'yes' : 'no'}`);
+      try {
+        await videoTrack.applyConstraints({ frameRate: { ideal: 60, max: 60 } });
+        videoTrack.contentHint = 'detail';
+      } catch (_) {}
+      screenTrack = new LivekitClient.LocalVideoTrack(videoTrack, undefined, false);
+    }
   }
-  pushAudioDiag('Screen tracks resolved', `surface=${surface} audioTrack=${audioTrack ? 'yes' : 'no'}`);
 
-  const track = videoTrack;
-  try {
-    await track.applyConstraints({ frameRate: { ideal: 60, max: 60 } });
-    track.contentHint = 'detail';
-  } catch (_) {}
-  const screenTrack = new LivekitClient.LocalVideoTrack(track, undefined, false);
   await state.room.localParticipant.publishTrack(screenTrack, {
     source: Track.Source.ScreenShare,
     videoCodec: chooseBestCodec(),
@@ -2300,11 +2573,13 @@ async function toggleScreen(forceOff = false) {
       });
     } catch (_) {}
 
-    const screenAudio = new LivekitClient.LocalAudioTrack(
-      audioTrack,
-      { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-      false
-    );
+    const screenAudio =
+      screenAudioLocalPrebuilt ||
+      new LivekitClient.LocalAudioTrack(
+        audioTrack,
+        { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        false
+      );
     try {
       await state.room.localParticipant.publishTrack(screenAudio, {
         source: Track.Source.ScreenShareAudio,
@@ -2349,7 +2624,7 @@ async function toggleScreen(forceOff = false) {
     muted: true,
     isScreenShare: true,
   });
-  track.addEventListener('ended', () => { toggleScreen(true).catch(() => {}); });
+  videoTrack?.addEventListener?.('ended', () => { toggleScreen(true).catch(() => {}); });
   els.btnScreenToggle.classList.add('danger');
 }
 
@@ -2384,6 +2659,17 @@ function setupKeyboardShortcuts() {
 }
 
 function wireEvents() {
+  initMembersPanelState();
+  document.getElementById('btn-toggle-members')?.addEventListener('click', () => {
+    const app = document.getElementById('app');
+    if (!app) return;
+    const isOpen = app.getAttribute('data-members-panel') !== 'closed';
+    const nextOpen = !isOpen;
+    app.setAttribute('data-members-panel', nextOpen ? 'open' : 'closed');
+    localStorage.setItem(MEMBERS_PANEL_KEY, nextOpen ? '1' : '0');
+    syncMembersPanelUI(nextOpen);
+  });
+
   setupKeyboardShortcuts();
   const activityEvents = ['pointerdown', 'keydown', 'scroll', 'touchstart'];
   activityEvents.forEach((eventName) => {
@@ -2443,6 +2729,7 @@ function wireEvents() {
       if (!user || !session) {
         throw new Error('No se pudo entrar. Revisa la configuración de Supabase.');
       }
+      persistChosenDisplayName(username);
       applyAuthenticatedUser(user, session);
       els.authDialog.close();
       if (state.pendingJoinCode) {
@@ -2471,33 +2758,22 @@ function wireEvents() {
     }
   });
 
-  let typingTimeout = null;
-  els.messageInput?.addEventListener('input', () => {
-    if (typingTimeout) clearTimeout(typingTimeout);
-    els.typingIndicator?.classList.toggle('hidden', !els.messageInput.value.trim());
-    typingTimeout = setTimeout(() => {
-      els.typingIndicator?.classList.add('hidden');
-    }, 2000);
-  });
-  els.messageInput?.addEventListener('blur', () => {
-    els.typingIndicator?.classList.add('hidden');
-  });
-
-  const sendTyping = debounce(() => {
-    if (!state.activeTextChannelId || !sb || !state.userId) return;
+  const sendTypingBroadcast = debounce(() => {
+    if (!state.activeTextChannelId || !sb || !state.userId || state.activeDmChannelId) return;
     sb.channel('typing').send({
       type: 'broadcast',
       event: 'typing',
-      payload: { channelId: state.activeTextChannelId, userId: state.userId, username: state.profile?.display_name || state.username },
+      payload: {
+        channelId: state.activeTextChannelId,
+        userId: state.userId,
+        username: state.profile?.display_name || state.username,
+      },
     });
   }, TYPING_DEBOUNCE_MS);
+
   els.messageInput?.addEventListener('input', () => {
-    if (els.messageInput.value.trim()) {
-      els.typingIndicator?.classList.remove('hidden');
-      els.typingIndicator.textContent = 'Escribiendo...';
-      sendTyping();
-    } else {
-      els.typingIndicator?.classList.add('hidden');
+    if (state.activeTextChannelId && !state.activeDmChannelId && els.messageInput.value.trim()) {
+      sendTypingBroadcast();
     }
   });
 
@@ -2538,7 +2814,6 @@ function wireEvents() {
       els.messageInput.value = '';
       els.messageInput.placeholder = 'Escribe un mensaje...';
       state.replyTo = null;
-      els.typingIndicator?.classList.add('hidden');
       await loadMessages({ silent: true });
     } finally {
       if (submitBtn) {
@@ -2734,6 +3009,7 @@ function wireEvents() {
   els.btnLogout?.addEventListener('click', async () => {
     try {
       await syncPresence('offline', { force: true });
+      localStorage.removeItem(SESSION_DISPLAY_NAME_KEY);
       await sb.auth.signOut();
       location.reload();
     } catch (err) {
@@ -2946,18 +3222,19 @@ function subscribeRealtime() {
   if (sb) {
     sb.channel('typing')
       .on('broadcast', { event: 'typing' }, ({ payload }) => {
-        if (payload?.channelId !== state.activeTextChannelId || payload?.userId === state.userId) return;
+        if (
+          state.activeDmChannelId ||
+          payload?.channelId !== state.activeTextChannelId ||
+          payload?.userId === state.userId
+        ) {
+          return;
+        }
         state.typingUsers = state.typingUsers || {};
         state.typingUsers[payload.userId] = Date.now();
-        els.typingIndicator?.classList.remove('hidden');
-        els.typingIndicator.textContent = `${payload?.username || 'Alguien'} está escribiendo...`;
-        setTimeout(() => {
-          if (state.typingUsers?.[payload?.userId] && Date.now() - state.typingUsers[payload.userId] > 3000) {
-            els.typingIndicator?.classList.add('hidden');
-          }
-        }, 3500);
+        updateTypingUi();
       })
       .subscribe();
+    startTypingRefreshLoop();
   }
 
   sb.channel('members-live')

@@ -6,6 +6,7 @@ const DEFAULT_VOICE_CHANNEL = 'voz-general';
 
 async function ensureProfile({ userId, username }) {
   const sb = getSupabaseAdmin();
+  const now = new Date().toISOString();
   const { data, error } = await sb
     .from('profiles')
     .upsert({
@@ -13,7 +14,8 @@ async function ensureProfile({ userId, username }) {
       username: username.toLowerCase(),
       display_name: username,
       status: 'online',
-      updated_at: new Date().toISOString(),
+      updated_at: now,
+      last_login: now,
     }, { onConflict: 'user_id' })
     .select('*')
     .single();
@@ -96,7 +98,7 @@ async function getBootstrapPayload({ userId, username }) {
   if (memberIds.length) {
     const { data: memberProfiles, error: profilesErr } = await sb
       .from('profiles')
-      .select('user_id, username, display_name, avatar_url, status, bio, updated_at')
+      .select('user_id, username, display_name, avatar_url, status, bio, updated_at, last_login')
       .in('user_id', memberIds);
     if (profilesErr) throw profilesErr;
     profileMap = Object.fromEntries((memberProfiles || []).filter(p => p && p.user_id).map(p => [p.user_id, p]));
