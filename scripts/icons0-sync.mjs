@@ -89,12 +89,12 @@ async function main() {
     .join('\n');
 
   const block = `export const icons = {\n${lines}\n};`;
-  const constantsPath = path.join(ROOT, 'frontend', 'constants.js');
+  const constantsPath = path.join(ROOT, 'client', 'constants.js');
   let existing = fs.readFileSync(constantsPath, 'utf8');
   const replaced = existing.replace(/export const icons = \{[\s\S]*?\n\};/m, block);
   if (replaced === existing) throw new Error('No se reemplazó export const icons en constants.js');
   fs.writeFileSync(constantsPath, replaced, 'utf8');
-  console.error('Actualizado frontend/constants.js');
+  console.error('Actualizado client/constants.js');
 }
 
 main().catch((e) => {

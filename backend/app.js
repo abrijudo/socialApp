@@ -7,6 +7,7 @@ const app = express();
 const rootDir =
   process.env.VERCEL === '1' ? process.cwd() : path.join(__dirname, '..');
 const frontendDir = path.join(rootDir, 'frontend');
+const clientDir = path.join(rootDir, 'client');
 
 // Middleware específico para POST /api/dm: parsea body manualmente (fix Electron/Express body vacío)
 app.use((req, res, next) => {
@@ -28,6 +29,8 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json({ limit: '1mb', type: (req) => req.originalUrl !== '/api/dm' }));
+// Módulos ESM del navegador (no deben pasar por el bundler de @vercel/node).
+app.use('/client', express.static(clientDir));
 app.use('/frontend', express.static(frontendDir));
 app.use('/api', apiRouter);
 
