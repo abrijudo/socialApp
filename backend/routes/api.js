@@ -5,6 +5,7 @@ const { getLiveKitToken } = require('./token');
 const { getSupabaseAdmin } = require('../services/supabaseAdmin');
 const { uploadMedia, MAX_SIZE, ALLOWED_TYPES } = require('../services/storageService');
 const { ensureProfile, getBootstrapPayload } = require('../services/bootstrapService');
+const { listParticipantsByVoiceChannels } = require('../services/voicePresenceService');
 const { buildProfileMap, enrichItems, MINIMAL_PROFILE_FIELDS } = require('../lib/apiHelpers');
 
 const router = express.Router();
@@ -172,6 +173,27 @@ router.post('/presence/offline', async (req, res) => {
 });
 
 router.get('/token', (req, res) => getLiveKitToken(req, res));
+
+/** Quién está en cada canal de voz (LiveKit), sin unirse a la sala. Miembro del servidor. */
+router.get('/servers/:serverId/voice-participants', async (req, res) => {
+  try {
+    const serverId = idSchema.parse(req.params.serverId);
+    await getUserRole(serverId, req.userId);
+    const sb = getSupabaseAdmin();
+    const { data: channels, error } = await sb
+      .from('channels')
+      .select('id')
+      .eq('server_id', serverId)
+      .eq('type', 'voice')
+      .eq('is_archived', false);
+    if (error) throw error;
+    const ids = (channels || []).map((c) => c.id).filter(Boolean);
+    const byChannel = await listParticipantsByVoiceChannels(serverId, ids);
+    return res.json({ byChannel });
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
 
 router.post('/upload', async (req, res) => {
   try {

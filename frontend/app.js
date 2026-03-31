@@ -6,6 +6,7 @@ import {
   PRESENCE_IDLE_MS,
   PRESENCE_HEARTBEAT_MS,
   MEMBERS_PRESENCE_POLL_MS,
+  VOICE_PARTICIPANTS_POLL_MS,
   TYPING_DEBOUNCE_MS,
   MESSAGES_POLL_MS,
   MESSAGES_POLL_MS_HIDDEN,
@@ -42,7 +43,8 @@ window.addEventListener('unhandledrejection', (e) => {
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme || 'dark');
   if (els.btnThemeToggle) {
-    els.btnThemeToggle.textContent = theme === 'light' ? '☀️' : '🌙';
+    els.btnThemeToggle.innerHTML = theme === 'light' ? icon('moon') : icon('sun');
+    els.btnThemeToggle.classList.add('has-icon');
     els.btnThemeToggle.title = theme === 'light' ? 'Modo oscuro' : 'Modo claro';
   }
 }
@@ -130,12 +132,16 @@ const state = {
   pendingJoinCode: null,
   /** Evita dejar la app sin cargar si el usuario cancela el diálogo de invitación sin haber hecho boot. */
   initialBootDone: false,
+  /** { [channelId]: { identity, name, micMuted }[] } desde API LiveKit (sin unirse a la sala). */
+  voiceParticipantsByChannel: {},
+  _voiceParticipantsJson: '',
 };
 let lastPresenceStatus = '';
 let lastActivityAt = Date.now();
 let presenceIdleTimer = null;
 let presenceHeartbeatTimer = null;
 let membersPresencePollTimer = null;
+let voiceParticipantsPollTimer = null;
 
 const els = {
   authDialog: document.getElementById('auth-dialog'),
@@ -240,12 +246,35 @@ const els = {
   btnCaptureSourceConfirm: document.getElementById('btn-capture-source-confirm'),
 };
 
+/** Rutas /api hacia el backend. En GitHub Pages define window.__API_ORIGIN__ (HTML) apuntando a tu API desplegada. */
+function resolveApiUrl(path) {
+  const p = path.startsWith('/') ? path : `/${path}`;
+  const raw =
+    typeof window !== 'undefined' && window.__API_ORIGIN__ != null
+      ? String(window.__API_ORIGIN__).trim()
+      : '';
+  if (!raw) return p;
+  const base = raw.replace(/\/$/, '');
+  return `${base}${p}`;
+}
+
+function historyReplaceAppRoot() {
+  const b = typeof window !== 'undefined' ? window.__SITE_ROOT__ : '';
+  history.replaceState({}, '', b ? `${b}/` : '/');
+}
+
+function assetUrl(path) {
+  const p = path.startsWith('/') ? path : `/${path}`;
+  const root = typeof window !== 'undefined' ? (window.__SITE_ROOT__ || '') : '';
+  return `${root}${p}`;
+}
+
 async function api(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
   if (state.accessToken) headers.Authorization = `Bearer ${state.accessToken}`;
   const fetchOpts = { method: 'GET', headers, ...options };
   if (options.body !== undefined) fetchOpts.body = options.body;
-  const res = await fetch(`/api${path}`, fetchOpts);
+  const res = await fetch(resolveApiUrl(`/api${path}`), fetchOpts);
   const payload = await res.json().catch(() => ({}));
   const errMsg = (payload && typeof payload === 'object' && payload.error) ? String(payload.error) : 'Error en la API';
   if (res.status === 401) {
@@ -275,7 +304,7 @@ function applyAuthenticatedUser(user, session) {
 }
 
 async function initAuthAndBoot() {
-  const cfg = await fetch('/api/config').then(r => r.json()).catch(() => ({}));
+  const cfg = await fetch(resolveApiUrl('/api/config')).then(r => r.json()).catch(() => ({}));
   if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) throw new Error('Config no disponible.');
   sb = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
 
@@ -427,7 +456,7 @@ function startMembersPresencePolling() {
   if (membersPresencePollTimer) clearInterval(membersPresencePollTimer);
   membersPresencePollTimer = setInterval(() => {
     if (document.visibilityState !== 'visible') return;
-    refreshMembers().catch(() => {});
+    refreshMembers({ silent: true }).catch(() => {});
   }, MEMBERS_PRESENCE_POLL_MS);
 }
 
@@ -435,6 +464,35 @@ function stopMembersPresencePolling() {
   if (!membersPresencePollTimer) return;
   clearInterval(membersPresencePollTimer);
   membersPresencePollTimer = null;
+}
+
+async function pollVoiceParticipants() {
+  if (!state.server?.id) return;
+  const data = await api(`/servers/${state.server.id}/voice-participants`);
+  const raw = data?.byChannel || {};
+  const snap = JSON.stringify(raw);
+  if (snap === state._voiceParticipantsJson) return;
+  state._voiceParticipantsJson = snap;
+  state.voiceParticipantsByChannel = raw;
+  renderChannels();
+  renderMembersSidebar();
+}
+
+function startVoiceParticipantsPolling() {
+  if (voiceParticipantsPollTimer) clearInterval(voiceParticipantsPollTimer);
+  voiceParticipantsPollTimer = setInterval(() => {
+    if (document.visibilityState !== 'visible') return;
+    if (!state.server?.id) return;
+    pollVoiceParticipants().catch(() => {});
+  }, VOICE_PARTICIPANTS_POLL_MS);
+}
+
+function stopVoiceParticipantsPolling() {
+  if (!voiceParticipantsPollTimer) return;
+  clearInterval(voiceParticipantsPollTimer);
+  voiceParticipantsPollTimer = null;
+  state.voiceParticipantsByChannel = {};
+  state._voiceParticipantsJson = '';
 }
 
 function markUserActivity() {
@@ -462,18 +520,18 @@ async function syncPresence(status, options = {}) {
   const beaconPayload = { ...payload, token: state.accessToken };
   if (beacon && status === 'offline' && navigator.sendBeacon && state.accessToken) {
     const body = new Blob([JSON.stringify(beaconPayload)], { type: 'application/json' });
-    const queued = navigator.sendBeacon('/api/presence/offline', body);
+    const queued = navigator.sendBeacon(resolveApiUrl('/api/presence/offline'), body);
     if (queued) return;
   }
 
   if (beacon && navigator.sendBeacon && state.accessToken) {
     const body = new Blob([JSON.stringify(beaconPayload)], { type: 'application/json' });
-    const queued = navigator.sendBeacon('/api/profiles/upsert', body);
+    const queued = navigator.sendBeacon(resolveApiUrl('/api/profiles/upsert'), body);
     if (queued) return;
   }
 
   if (beacon && state.accessToken) {
-    const endpoint = status === 'offline' ? '/api/presence/offline' : '/api/profiles/upsert';
+    const endpoint = resolveApiUrl(status === 'offline' ? '/api/presence/offline' : '/api/profiles/upsert');
     fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${state.accessToken}` },
@@ -602,10 +660,10 @@ function renderChannels() {
     els.textChannelList.appendChild(btn);
   });
 
-  const participants = state.room
+  const livekitParticipants = state.room
     ? [state.room.localParticipant, ...state.room.remoteParticipants.values()]
     : [];
-  const activeVoiceParticipants = participants.map((p) => ({
+  const activeVoiceParticipants = livekitParticipants.map((p) => ({
     name: p.name || p.identity || 'Usuario',
     isSelf: p === state.room?.localParticipant,
     isSpeaking: Boolean(p.isSpeaking),
@@ -645,21 +703,32 @@ function renderChannels() {
     wrap.appendChild(btn);
 
     const isConnectedToThisChannel = Boolean(state.room) && state.activeVoiceChannelId === channel.id;
+    let listRows;
     if (isConnectedToThisChannel) {
-      const inlineList = document.createElement('div');
-      inlineList.className = 'voice-participants-inline';
-      if (!activeVoiceParticipants.length) {
-        inlineList.innerHTML = '<div class="voice-user">Canal vacío</div>';
-      } else {
-        activeVoiceParticipants.forEach((p) => {
-          const row = document.createElement('div');
-          row.className = `voice-user ${p.isSpeaking ? 'online' : ''}`;
-          row.innerHTML = `<span>${p.name}${p.isSelf ? ' (tú)' : ''}</span><span class="mic-state">${p.micEnabled ? '🎤' : '🔇'}</span>`;
-          inlineList.appendChild(row);
-        });
-      }
-      wrap.appendChild(inlineList);
+      listRows = activeVoiceParticipants;
+    } else {
+      const remote = state.voiceParticipantsByChannel[channel.id] || [];
+      listRows = remote.map((p) => ({
+        name: p.name || p.identity || 'Usuario',
+        isSelf: p.identity === state.userId,
+        isSpeaking: false,
+        micEnabled: !p.micMuted,
+      }));
     }
+
+    const inlineList = document.createElement('div');
+    inlineList.className = 'voice-participants-inline';
+    if (!listRows.length) {
+      inlineList.innerHTML = '<div class="voice-user">Canal vacío</div>';
+    } else {
+      listRows.forEach((p) => {
+        const row = document.createElement('div');
+        row.className = `voice-user ${p.isSpeaking ? 'online' : ''}`;
+        row.innerHTML = `<span>${p.name}${p.isSelf ? ' (tú)' : ''}</span><span class="mic-state">${p.micEnabled ? icon('mic') : icon('micOff')}</span>`;
+        inlineList.appendChild(row);
+      });
+    }
+    wrap.appendChild(inlineList);
 
     els.voiceChannelList.appendChild(wrap);
   });
@@ -740,10 +809,10 @@ function renderMembersAdmin() {
           method: 'PATCH',
           body: JSON.stringify({ role: select.value }),
         });
-        await refreshMembers();
+        await refreshMembers({ silent: true });
       } catch (err) {
         toast(err.message, 'error');
-        await refreshMembers();
+        await refreshMembers({ silent: true });
       }
     });
     els.membersAdminList.appendChild(row);
@@ -772,13 +841,22 @@ function renderMembersSidebar() {
   els.membersList.innerHTML = '';
 
   const voiceNames = new Set();
+  const voiceUserIds = new Set();
   if (state.room) {
     const participants = [state.room.localParticipant, ...state.room.remoteParticipants.values()];
     participants.forEach((p) => {
       const name = (p.name || p.identity || '').trim().toLowerCase();
       if (name) voiceNames.add(name);
+      if (p.identity) voiceUserIds.add(String(p.identity));
     });
   }
+  Object.values(state.voiceParticipantsByChannel || {}).forEach((parts) => {
+    (parts || []).forEach((p) => {
+      if (p.identity) voiceUserIds.add(String(p.identity));
+      const n = String(p.name || '').trim().toLowerCase();
+      if (n) voiceNames.add(n);
+    });
+  });
 
   const sortedMembers = [...(state.members || []).filter(Boolean)].sort((a, b) => {
     const aName = (a.profile?.display_name || a.profile?.username || a.user_id || '').toLowerCase();
@@ -812,7 +890,9 @@ function renderMembersSidebar() {
   const renderMemberRow = (member) => {
     const displayName = member.profile?.display_name || member.profile?.username || member.user_id;
     const avatar = avatarFromProfile(member.profile || { display_name: displayName });
-    const inVoice = voiceNames.has(String(displayName || '').trim().toLowerCase());
+    const inVoice =
+      voiceUserIds.has(member.user_id) ||
+      voiceNames.has(String(displayName || '').trim().toLowerCase());
     const isSelf = member.user_id === state.userId;
     const currentStatus = resolvePresenceStatus(member.profile || {}, { forSelf: member.user_id === state.userId });
     const subStatus = inVoice ? `${statusLabel(currentStatus)} · En voz` : statusLabel(currentStatus);
@@ -1312,7 +1392,7 @@ function renderDmList() {
     if (!other) return;
     const btn = document.createElement('button');
     btn.className = `channel-item ${state.activeDmChannelId === dm.id ? 'active' : ''}`;
-    btn.innerHTML = `<span class="icon">👤</span><span>${other.display_name || other.username || 'Usuario'}</span>`;
+    btn.innerHTML = `${icon('user')}<span>${other.display_name || other.username || 'Usuario'}</span>`;
     btn.addEventListener('click', () => {
       state.activeDmChannelId = dm.id;
       state.activeTextChannelId = null;
@@ -1416,10 +1496,11 @@ function startMessagesPolling() {
   }, interval);
 }
 
-async function refreshMembers() {
+async function refreshMembers(options = {}) {
+  const silent = Boolean(options.silent);
   if (!state.server?.id) return;
   state.membersLoading = true;
-  renderMembersSkeleton();
+  if (!silent) renderMembersSkeleton();
   try {
     state.members = await api(`/servers/${state.server.id}/members`);
     renderMembersAdmin();
@@ -1985,7 +2066,7 @@ async function joinVoice() {
     })
     .on(RoomEvent.Disconnected, () => {
       state.room = null;
-      els.btnMicToggle.textContent = 'Mic ON';
+      els.btnMicToggle.innerHTML = `${icon('mic')} Mic ON`;
       els.btnMicToggle.disabled = true;
       setAudioUnlockNeeded(false);
       Object.values(state.remoteAudioElements).forEach((el) => el?.remove?.());
@@ -2012,7 +2093,7 @@ async function joinVoice() {
   state.room = room;
   localStorage.setItem(VOICE_REJOIN_KEY, '1');
   els.btnMicToggle.disabled = false;
-  els.btnMicToggle.textContent = 'Mic ON';
+  els.btnMicToggle.innerHTML = `${icon('mic')} Mic ON`;
   renderChannels();
   renderVoiceExitPanel();
   renderVoiceControls();
@@ -2026,7 +2107,7 @@ async function leaveVoice() {
   await state.room.disconnect();
   state.room = null;
   localStorage.removeItem(VOICE_REJOIN_KEY);
-  els.btnMicToggle.textContent = 'Mic ON';
+  els.btnMicToggle.innerHTML = `${icon('mic')} Mic ON`;
   els.btnMicToggle.disabled = true;
   renderChannels();
   renderVoiceExitPanel();
@@ -2038,7 +2119,8 @@ async function toggleMic() {
   if (!state.room) return;
   const enabled = state.room.localParticipant.isMicrophoneEnabled;
   await state.room.localParticipant.setMicrophoneEnabled(!enabled, !enabled ? MIC_AUDIO_CAPTURE_OPTIONS : undefined);
-  els.btnMicToggle.textContent = enabled ? 'Mic OFF' : 'Mic ON';
+  const on = state.room.localParticipant.isMicrophoneEnabled;
+  els.btnMicToggle.innerHTML = on ? `${icon('mic')} Mic ON` : `${icon('micOff')} Mic OFF`;
   renderChannels();
   renderMembersSidebar();
 }
@@ -2292,7 +2374,7 @@ function wireEvents() {
       startPresenceHeartbeat();
       startMembersPresencePolling();
       startMessagesPolling();
-      refreshMembers().catch(() => {});
+      refreshMembers({ silent: true }).catch(() => {});
       markUserActivity();
       return;
     }
@@ -2305,11 +2387,13 @@ function wireEvents() {
   window.addEventListener('pagehide', () => {
     stopPresenceHeartbeat();
     stopMembersPresencePolling();
+    stopVoiceParticipantsPolling();
     syncPresence('offline', { force: true, beacon: true });
   });
   window.addEventListener('beforeunload', () => {
     stopPresenceHeartbeat();
     stopMembersPresencePolling();
+    stopVoiceParticipantsPolling();
     syncPresence('offline', { force: true, beacon: true });
   });
   window.addEventListener('unload', () => {
@@ -2790,7 +2874,7 @@ function subscribeRealtime() {
         if (Notification.permission === 'granted') {
           new Notification(`${author} en #${channel?.name || 'general'}`, {
             body: (row.body || '').slice(0, 80) + (row.body?.length > 80 ? '…' : ''),
-            icon: '/frontend/favicon.ico',
+            icon: assetUrl('/frontend/favicon.ico'),
           });
         }
         playMessageSound();
@@ -2850,13 +2934,11 @@ function subscribeRealtime() {
   sb.channel('members-live')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'server_members' }, async ({ new: row, old }) => {
       if (row?.server_id !== state.server?.id && old?.server_id !== state.server?.id) return;
-      await refreshMembers();
+      await refreshMembers({ silent: true });
       const me = (state.members || []).find(m => m && m.user_id === state.userId);
       if (me) {
         state.role = me.role;
         renderChannels();
-        renderMembersAdmin();
-        renderMembersSidebar();
       }
     })
     .subscribe();
@@ -2886,12 +2968,14 @@ async function boot() {
   schedulePresenceIdleCheck();
   startPresenceHeartbeat();
   startMembersPresencePolling();
+  startVoiceParticipantsPolling();
+  await pollVoiceParticipants().catch(() => {});
   await loadDmChannels();
   renderDmList();
   if (state.activeDmChannelId) await loadDmMessages();
   else if (state.activeTextChannelId) await loadMessages();
   startMessagesPolling();
-  await refreshMembers();
+  await refreshMembers({ silent: true });
   subscribeRealtime();
   applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
   requestNotificationPermission();
@@ -2914,7 +2998,7 @@ function injectIcons() {
 }
 
 function checkJoinFromUrl() {
-  const m = location.pathname.match(/^\/join\/([A-Za-z0-9]+)$/);
+  const m = location.pathname.match(/\/join\/([A-Za-z0-9]+)$/);
   if (!m) return;
   state.pendingJoinCode = m[1];
 }
@@ -2930,7 +3014,7 @@ async function handleJoinFlow() {
       }
       els.btnJoinConfirm?.classList.add('hidden');
       state.pendingJoinCode = null;
-      history.replaceState({}, '', '/');
+      historyReplaceAppRoot();
       els.joinDialog?.close();
       await boot();
       return;
@@ -2944,7 +3028,7 @@ async function handleJoinFlow() {
       toast('Te has unido al servidor.', 'success');
       state.pendingJoinCode = null;
       els.joinDialog?.close();
-      history.replaceState({}, '', '/');
+      historyReplaceAppRoot();
       await boot();
     };
   } catch (err) {
@@ -2957,12 +3041,13 @@ async function handleJoinFlow() {
 
 wireEvents();
 injectIcons();
+applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
 const audioDiagEl = document.getElementById('audio-diag');
 if (audioDiagEl && !IS_DEV) audioDiagEl.style.display = 'none';
 els.btnJoinCancel?.addEventListener('click', async () => {
   els.joinDialog?.close();
   state.pendingJoinCode = null;
-  history.replaceState({}, '', '/');
+  historyReplaceAppRoot();
   if (!state.initialBootDone) {
     try {
       await boot();

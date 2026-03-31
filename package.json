@@ -4,6 +4,8 @@
   "private": true,
   "main": "electron/main.js",
   "scripts": {
+    "icons:sync": "node scripts/icons0-sync.mjs",
+    "icons:add": "npx shadcn@latest add",
     "start": "node server.js",
     "test": "start-server-and-test start http://localhost:3000/api/health test:api",
     "test:api": "node scripts/test-api.js",
