@@ -3,7 +3,9 @@ const path = require('path');
 const apiRouter = require('./routes/api');
 
 const app = express();
-const rootDir = path.join(__dirname, '..');
+// En Vercel el handler se empaqueta: __dirname no apunta al repo; cwd sí incluye includeFiles.
+const rootDir =
+  process.env.VERCEL === '1' ? process.cwd() : path.join(__dirname, '..');
 const frontendDir = path.join(rootDir, 'frontend');
 
 // Middleware específico para POST /api/dm: parsea body manualmente (fix Electron/Express body vacío)

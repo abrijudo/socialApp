@@ -6,10 +6,12 @@
     "jsx": "react-jsx",
     "strict": false,
     "skipLibCheck": true,
+    "noEmit": true,
     "baseUrl": ".",
     "paths": {
       "@/*": ["./*"]
     }
   },
-  "include": ["components/**/*", "lib/**/*"]
+  "include": ["components/**/*.ts", "components/**/*.tsx", "lib/**/*.ts", "lib/**/*.tsx"],
+  "exclude": ["node_modules"]
 }
