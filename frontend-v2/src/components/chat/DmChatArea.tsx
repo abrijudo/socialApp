@@ -1,5 +1,5 @@
-import { useCallback, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
-import { Loader2, Menu, Send, User } from 'lucide-react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { Loader2, Menu, Send, User, X } from 'lucide-react'
 import { useMobileNav } from '@/components/layout/MobileNavContext'
 import { MessageItem } from '@/components/chat/MessageItem'
 import { MessageSkeleton } from '@/components/chat/MessageSkeleton'
@@ -63,9 +63,17 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
+  const [replyTo, setReplyTo] = useState<import('@/types/models').ChannelMessage | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const isNearBottomRef = useRef(true)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const messagesById = useMemo(() => {
+    const map = new Map<string, import('@/types/models').ChannelMessage>()
+    for (const m of messages) map.set(m.id, m)
+    return map
+  }, [messages])
 
   const peer = dmChannels.find((d) => d.id === dmChannelId)?.otherUser
   const peerLabel =
@@ -96,6 +104,11 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
     )
   }
 
+  function handleReply(msg: import('@/types/models').ChannelMessage) {
+    setReplyTo(msg)
+    inputRef.current?.focus()
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     const text = draft.trim()
@@ -106,10 +119,14 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
       const created = await apiPostJson<Record<string, unknown>>(
         `/api/dm/${dmChannelId}/messages`,
         accessToken,
-        { text },
+        {
+          text,
+          ...(replyTo ? { parentMessageId: replyTo.id } : {}),
+        },
       )
       appendFromPostResponse(created)
       setDraft('')
+      setReplyTo(null)
     } catch (err) {
       setSendError((err as Error).message || 'No se pudo enviar')
     } finally {
@@ -171,7 +188,12 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
             <ul className="space-y-px">
               {messages.map((msg) => (
                 <li key={msg.id}>
-                  <MessageItem msg={msg} isDm />
+                  <MessageItem
+                    msg={msg}
+                    isDm
+                    onReply={handleReply}
+                    replyTarget={msg.parent_message_id ? messagesById.get(msg.parent_message_id) ?? null : null}
+                  />
                 </li>
               ))}
             </ul>
@@ -180,6 +202,24 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
         </div>
 
         <div className="border-border bg-background shrink-0 border-t p-3">
+          {replyTo ? (
+            <div className="bg-muted/60 border-primary/40 mb-2 flex items-center gap-2 rounded-lg border-l-2 px-3 py-1.5">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-primary/80">
+                  Respondiendo a {replyTo.profiles?.display_name || replyTo.profiles?.username || 'usuario'}
+                </p>
+                <p className="truncate text-xs text-muted-foreground">{replyTo.body.slice(0, 100)}</p>
+              </div>
+              <button
+                type="button"
+                className="text-muted-foreground hover:text-foreground shrink-0"
+                onClick={() => setReplyTo(null)}
+                title="Cancelar respuesta"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+          ) : null}
           {typingUsers.length > 0 ? (
             <p className="text-muted-foreground mb-1 truncate text-xs animate-pulse">
               {typingUsers.length === 1
@@ -195,12 +235,16 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
           <form onSubmit={handleSubmit} className="flex items-center gap-2">
             <div className="border-border/50 bg-muted flex min-w-0 flex-1 items-center gap-2 rounded-xl border px-4 py-2">
               <Input
+                ref={inputRef}
                 className="h-9 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
-                placeholder="Escribir mensaje privado…"
+                placeholder={replyTo ? 'Escribe tu respuesta…' : 'Escribir mensaje privado…'}
                 value={draft}
                 onChange={(e) => {
                   setDraft(e.target.value)
                   reportTyping()
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && replyTo) setReplyTo(null)
                 }}
                 maxLength={1000}
                 disabled={sending || !accessToken}

@@ -1,5 +1,5 @@
 import { memo, useRef, useState, type KeyboardEvent } from 'react'
-import { Pencil, Smile, Trash2, X } from 'lucide-react'
+import { CornerUpLeft, Pencil, Reply, Smile, Trash2, X } from 'lucide-react'
 import { apiDeleteJson, apiPatchJson, apiPostJson } from '@/lib/api'
 import { formatMessageTime } from '@/lib/formatMessageTime'
 import { cn } from '@/lib/utils'
@@ -66,9 +66,11 @@ export interface MessageItemProps {
   msg: ChannelMessage
   isDm?: boolean
   onAuthorClick?: (authorId: string) => void
+  onReply?: (msg: ChannelMessage) => void
+  replyTarget?: ChannelMessage | null
 }
 
-export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick }: MessageItemProps) {
+export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick, onReply, replyTarget }: MessageItemProps) {
   const userId = useAppStore((s) => s.userId)
   const accessToken = useAppStore((s) => s.accessToken)
   const isOwn = msg.author_id === userId
@@ -149,7 +151,7 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick 
 
   return (
     <article
-      className="group relative flex gap-2 rounded-md px-2 py-1.5 transition-colors duration-200 ease-in-out hover:bg-foreground/[0.04]"
+      className="group relative flex flex-col rounded-md px-2 py-1.5 transition-colors duration-200 ease-in-out hover:bg-foreground/[0.04]"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => {
         setHovered(false)
@@ -157,6 +159,15 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick 
         setConfirmDelete(false)
       }}
     >
+      {replyTarget ? (
+        <div className="mb-1 flex items-center gap-1.5 pl-4 text-xs text-muted-foreground">
+          <CornerUpLeft className="size-3 shrink-0 opacity-60" />
+          <span className="font-medium text-foreground/70">{authorName(replyTarget)}</span>
+          <span className="min-w-0 truncate opacity-70">{replyTarget.body.slice(0, 80)}{replyTarget.body.length > 80 ? '…' : ''}</span>
+        </div>
+      ) : null}
+
+      <div className="flex gap-2">
       <div
         className={cn(
           'flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
@@ -247,6 +258,7 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick 
           </div>
         ) : null}
       </div>
+      </div>
 
       {hovered && !editing ? (
         <div className="absolute -top-3 right-2 z-10 flex items-center gap-0.5 rounded-md border border-border bg-background px-1 py-0.5 shadow-md">
@@ -258,6 +270,16 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick 
           >
             <Smile className="size-4" />
           </button>
+          {onReply ? (
+            <button
+              type="button"
+              onClick={() => onReply(msg)}
+              className="inline-flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+              title="Responder"
+            >
+              <Reply className="size-4" />
+            </button>
+          ) : null}
           {isOwn ? (
             <>
               <button
