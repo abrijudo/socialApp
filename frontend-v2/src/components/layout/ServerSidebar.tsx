@@ -47,8 +47,8 @@ export function ServerSidebar({ voicePanel }: ServerSidebarProps) {
     (typeof profile?.display_name === 'string' && profile.display_name.trim()) ||
     ''
 
-  const textChannels = channels.filter((c) => c.type === 'text' && !c.is_archived)
-  const voiceChannels = channels.filter((c) => c.type === 'voice' && !c.is_archived)
+  const textChannels = useMemo(() => channels.filter((c) => c.type === 'text' && !c.is_archived), [channels])
+  const voiceChannels = useMemo(() => channels.filter((c) => c.type === 'voice' && !c.is_archived), [channels])
   const profileByUserId = useMemo(() => {
     const map = new Map<string, Profile>()
     for (const member of members) {

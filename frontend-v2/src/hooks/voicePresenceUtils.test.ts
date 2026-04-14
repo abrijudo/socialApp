@@ -34,10 +34,10 @@ describe('voicePresenceUtils', () => {
     })
 
     expect(normalized.chan1).toEqual([
-      { userId: 'u1', username: 'Ana' },
-      { userId: 'u2', username: 'Bruno' },
+      { userId: 'u1', username: 'Ana', isMuted: false, isCameraOn: false, isScreenSharing: false, isSpeaking: false },
+      { userId: 'u2', username: 'Bruno', isMuted: false, isCameraOn: false, isScreenSharing: false, isSpeaking: false },
     ])
-    expect(normalized.chan2).toEqual([{ userId: 'u3', username: 'u3' }])
+    expect(normalized.chan2).toEqual([{ userId: 'u3', username: 'u3', isMuted: false, isCameraOn: false, isScreenSharing: false, isSpeaking: false }])
   })
 
   it('convierte presence state en ocupantes por canal sin duplicar', () => {
@@ -60,7 +60,7 @@ describe('voicePresenceUtils', () => {
     })
 
     expect(byChannel.chanA).toBeUndefined()
-    expect(byChannel.chanB).toEqual([{ userId: 'u1', username: 'Ana' }])
+    expect(byChannel.chanB).toEqual([{ userId: 'u1', username: 'Ana', isMuted: false, isCameraOn: false, isScreenSharing: false, isSpeaking: false }])
   })
 
   it('prioriza presence sobre snapshot y evita un usuario en dos canales', () => {

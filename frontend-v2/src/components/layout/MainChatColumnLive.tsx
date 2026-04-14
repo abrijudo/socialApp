@@ -1,3 +1,6 @@
+import { useEffect } from 'react'
+import { useTracks } from '@livekit/components-react'
+import { Track } from 'livekit-client'
 import { PanelBottom, PanelTop } from 'lucide-react'
 import { ChatArea } from '@/components/chat/ChatArea'
 import { ChannelHeader } from '@/components/layout/MainChatColumn'
@@ -16,9 +19,24 @@ export function MainChatColumnLive() {
   const setIsVideoStageOpen = useAppStore((s) => s.setIsVideoStageOpen)
   const channels = useAppStore((s) => s.channels)
   const activeChannel = channels.find((c) => c.id === activeTextChannelId)
+  const videoTracks = useTracks(
+    [
+      { source: Track.Source.Camera, withPlaceholder: false },
+      { source: Track.Source.ScreenShare, withPlaceholder: false },
+    ],
+    { onlySubscribed: false },
+  )
+  const hasAnyVideo = videoTracks.length > 0
 
   const split = Boolean(activeVoiceChannelId) && isVideoStageOpen
   const inVoice = Boolean(activeVoiceChannelId)
+
+  useEffect(() => {
+    if (!inVoice) return
+    if (!hasAnyVideo && isVideoStageOpen) {
+      setIsVideoStageOpen(false)
+    }
+  }, [hasAnyVideo, inVoice, isVideoStageOpen, setIsVideoStageOpen])
 
   return (
     <main
@@ -26,7 +44,7 @@ export function MainChatColumnLive() {
       aria-label="Contenido principal"
     >
       <ChannelHeader activeChannel={activeChannel} />
-      {inVoice && !isVideoStageOpen ? (
+      {inVoice && !isVideoStageOpen && hasAnyVideo ? (
         <div className="border-border flex shrink-0 items-center justify-end gap-2 border-b px-2 py-1.5 sm:px-4">
           <Button
             type="button"

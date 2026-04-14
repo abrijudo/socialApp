@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { apiGetJson } from '@/lib/api'
 import { getAuthenticatedSupabase, getSupabaseBrowserClient } from '@/lib/supabase'
@@ -141,30 +141,33 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
     }
   }, [subscribe, userId, accessToken, setVoiceChannelOccupants])
 
-  useEffect(() => {
-    if (!subscribe) return
+  const doTrack = useCallback(() => {
     const ch = channelRef.current
     if (!ch || !subscribedRef.current) return
-
-    void (async () => {
-      const s = useAppStore.getState()
-      if (!s.userId) return
-      const un =
-        (typeof s.profile?.username === 'string' && s.profile.username.trim()) ||
-        (typeof s.username === 'string' && s.username.trim()) ||
-        ''
-      await ch.track({
-        user_id: s.userId,
-        username: un,
-        voiceChannelId: s.activeVoiceChannelId,
-        muted: s.localVoiceMuted === true,
-        cameraEnabled: s.localCameraEnabled === true,
-        screenShareEnabled: s.localScreenShareEnabled === true,
-        speaking: s.localVoiceSpeaking === true,
-      })
+    const s = useAppStore.getState()
+    if (!s.userId) return
+    const un =
+      (typeof s.profile?.username === 'string' && s.profile.username.trim()) ||
+      (typeof s.username === 'string' && s.username.trim()) ||
+      ''
+    void ch.track({
+      user_id: s.userId,
+      username: un,
+      voiceChannelId: s.activeVoiceChannelId,
+      muted: s.localVoiceMuted === true,
+      cameraEnabled: s.localCameraEnabled === true,
+      screenShareEnabled: s.localScreenShareEnabled === true,
+      speaking: s.localVoiceSpeaking === true,
+    }).then(() => {
       presenceRef.current = pushVoicePresence(ch)
       flushMerged()
-    })()
+    }).catch(() => {})
+  }, [])
+
+  // Track inmediato para cambios estables del usuario (canal, mute, cámara, screen share)
+  useEffect(() => {
+    if (!subscribe) return
+    doTrack()
   }, [
     subscribe,
     userId,
@@ -174,9 +177,21 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
     localVoiceMuted,
     localCameraEnabled,
     localScreenShareEnabled,
-    localVoiceSpeaking,
-    setVoiceChannelOccupants,
+    doTrack,
   ])
+
+  // Track con debounce para speaking (cambia a ~60fps, no queremos flood de red)
+  const speakingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (!subscribe) return
+    if (speakingTimerRef.current) clearTimeout(speakingTimerRef.current)
+    speakingTimerRef.current = setTimeout(() => {
+      doTrack()
+    }, 250)
+    return () => {
+      if (speakingTimerRef.current) clearTimeout(speakingTimerRef.current)
+    }
+  }, [subscribe, localVoiceSpeaking, doTrack])
 
   useEffect(() => {
     if (!subscribe) return

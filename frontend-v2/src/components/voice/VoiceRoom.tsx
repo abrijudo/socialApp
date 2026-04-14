@@ -1,7 +1,5 @@
 import type { ReactNode } from 'react'
-import { useMemo } from 'react'
 import { LiveKitRoom, RoomAudioRenderer } from '@livekit/components-react'
-import type { RoomOptions } from 'livekit-client'
 import { Loader2 } from 'lucide-react'
 import { MembersList } from '@/components/layout/MembersList'
 import { ServerRail } from '@/components/layout/ServerRail'
@@ -69,11 +67,7 @@ export function VoiceSession({
   const mdUp = useMatchMedia('(min-width: 768px)')
   const { token, serverUrl, error, isLoading } = useLiveKitVoiceToken(channelId)
 
-  /** Perfil global de calidad: mayor bitrate con enfoque en fluidez. */
-  const roomOptions = useMemo<RoomOptions>(
-    () => roomOptionsHighQuality,
-    [],
-  )
+  const roomOptions = roomOptionsHighQuality
 
   const voiceLoadingPanel = (
     <div className="text-muted-foreground flex flex-col items-center gap-2 py-3 text-xs">

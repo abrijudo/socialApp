@@ -138,13 +138,16 @@ describe('VoiceControlBar', () => {
     expect(setScreenShareEnabled).toHaveBeenCalledWith(
       true,
       expect.objectContaining({
-        contentHint: 'motion',
+        contentHint: 'detail',
+        resolution: expect.objectContaining({ width: 3840, height: 2160 }),
       }),
       expect.objectContaining({
+        videoCodec: 'vp9',
         screenShareEncoding: expect.objectContaining({
-          maxBitrate: 12_000_000,
+          maxBitrate: 20_000_000,
           maxFramerate: 30,
         }),
+        screenShareSimulcastLayers: [],
       }),
     )
   })

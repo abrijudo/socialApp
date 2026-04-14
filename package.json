@@ -12,7 +12,8 @@
     "test:e2e": "npx playwright test",
     "test:all": "node scripts/test-all.mjs",
     "test:all:run": "node scripts/run-all-tests.mjs",
-    "dev": "nodemon --watch server.js --watch backend --watch frontend-v2 server.js"
+    "dev": "npm run dev:api",
+    "dev:api": "nodemon --watch server.js --watch backend server.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.1",

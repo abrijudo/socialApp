@@ -95,7 +95,19 @@ const actionSchema = z.enum(['send_message', 'join_voice', 'use_webcam', 'share_
 
 function handleError(res, err) {
   const message = err?.message || 'Error interno';
-  return res.status(400).json({ error: message });
+  const isClientError =
+    message.includes('No autorizado') ||
+    message.includes('Solo el') ||
+    message.includes('no encontrad') ||
+    message.includes('Mensaje vacío') ||
+    message.includes('no puedes') ||
+    message.includes('Se requiere') ||
+    message.includes('al menos') ||
+    message.includes('agotada') ||
+    message.includes('expirada') ||
+    message.includes('no permitido') ||
+    message.includes('demasiado grande');
+  return res.status(isClientError ? 400 : 500).json({ error: message });
 }
 
 /** Debe ser miembro del servidor (cualquier rol). */
@@ -202,7 +214,13 @@ router.post('/presence/offline', async (req, res) => {
   }
 });
 
-router.get('/token', (req, res) => getLiveKitToken(req, res));
+router.get('/token', async (req, res) => {
+  try {
+    await getLiveKitToken(req, res);
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
 
 /** Quién está en cada canal de voz (LiveKit), sin unirse a la sala. Miembro del servidor. */
 router.get('/servers/:serverId/voice-participants', async (req, res) => {
@@ -343,8 +361,9 @@ router.get('/invitations/:code', async (req, res) => {
     if (new Date(data.expires_at) < new Date()) throw new Error('Invitación expirada.');
     if (data.max_uses != null && data.uses_count >= data.max_uses) throw new Error('Invitación agotada.');
 
-    const { data: server } = await sb.from('servers').select('id, name').eq('id', data.server_id).single();
-    const { data: member } = await sb.from('server_members').select('user_id').eq('server_id', data.server_id).eq('user_id', req.userId).single();
+    const { data: server, error: srvErr } = await sb.from('servers').select('id, name').eq('id', data.server_id).single();
+    if (srvErr) throw srvErr;
+    const { data: member } = await sb.from('server_members').select('user_id').eq('server_id', data.server_id).eq('user_id', req.userId).maybeSingle();
     return res.json({ server, code: data.code, alreadyMember: !!member });
   } catch (err) {
     return handleError(res, err);
@@ -363,7 +382,8 @@ router.post('/invitations/:code/join', async (req, res) => {
     const { error: memberErr } = await sb.from('server_members').upsert({ server_id: inv.server_id, user_id: req.userId, role: 'member' }, { onConflict: 'server_id,user_id' });
     if (memberErr) throw memberErr;
 
-    await sb.from('invitations').update({ uses_count: inv.uses_count + 1 }).eq('id', inv.id);
+    const { error: updateErr } = await sb.from('invitations').update({ uses_count: inv.uses_count + 1 }).eq('id', inv.id);
+    if (updateErr) throw updateErr;
     return res.json({ ok: true, serverId: inv.server_id });
   } catch (err) {
     return handleError(res, err);
@@ -769,12 +789,15 @@ router.post('/messages/:messageId/reactions', async (req, res) => {
     const body = z.object({ emoji: z.string().min(1).max(10) }).parse(req.body || {});
 
     const sb = getSupabaseAdmin();
-    const { data: existing } = await sb.from('message_reactions').select('user_id').eq('message_id', messageId).eq('user_id', req.userId).eq('emoji', body.emoji).maybeSingle();
+    const { data: existing, error: existErr } = await sb.from('message_reactions').select('user_id').eq('message_id', messageId).eq('user_id', req.userId).eq('emoji', body.emoji).maybeSingle();
+    if (existErr) throw existErr;
     if (existing) {
-      await sb.from('message_reactions').delete().eq('message_id', messageId).eq('user_id', req.userId).eq('emoji', body.emoji);
+      const { error: delErr } = await sb.from('message_reactions').delete().eq('message_id', messageId).eq('user_id', req.userId).eq('emoji', body.emoji);
+      if (delErr) throw delErr;
       return res.json({ action: 'removed' });
     }
-    await sb.from('message_reactions').upsert({ message_id: messageId, user_id: req.userId, emoji: body.emoji }, { onConflict: 'message_id,user_id,emoji' });
+    const { error: upsertErr } = await sb.from('message_reactions').upsert({ message_id: messageId, user_id: req.userId, emoji: body.emoji }, { onConflict: 'message_id,user_id,emoji' });
+    if (upsertErr) throw upsertErr;
     return res.json({ action: 'added' });
   } catch (err) {
     return handleError(res, err);
@@ -784,10 +807,12 @@ router.post('/messages/:messageId/reactions', async (req, res) => {
 router.get('/dm', async (req, res) => {
   try {
     const sb = getSupabaseAdmin();
-    const { data: dms } = await sb.from('dm_participants').select('dm_channel_id').eq('user_id', req.userId);
+    const { data: dms, error: dmsErr } = await sb.from('dm_participants').select('dm_channel_id').eq('user_id', req.userId);
+    if (dmsErr) throw dmsErr;
     if (!dms?.length) return res.json([]);
     const dmIds = dms.map(d => d.dm_channel_id);
-    const { data: participants } = await sb.from('dm_participants').select('dm_channel_id, user_id').in('dm_channel_id', dmIds);
+    const { data: participants, error: partErr } = await sb.from('dm_participants').select('dm_channel_id, user_id').in('dm_channel_id', dmIds);
+    if (partErr) throw partErr;
     const otherUserIds = (participants || []).filter(p => p.user_id !== req.userId).map(p => p.user_id);
     const profilesMap = await buildProfileMap(sb, otherUserIds, 'user_id, display_name, username, avatar_url, status');
     const dmMap = {};
@@ -831,8 +856,10 @@ router.post('/dm', async (req, res) => {
       const { data: match } = await sb.from('dm_participants').select('dm_channel_id').eq('user_id', otherUserId).in('dm_channel_id', myDmIds).limit(1).maybeSingle();
       if (match) return res.json({ id: match.dm_channel_id });
     }
-    const { data: created } = await sb.from('dm_channels').insert({}).select('id').single();
-    await sb.from('dm_participants').insert([{ dm_channel_id: created.id, user_id: req.userId }, { dm_channel_id: created.id, user_id: otherUserId }]);
+    const { data: created, error: createErr } = await sb.from('dm_channels').insert({}).select('id').single();
+    if (createErr) throw createErr;
+    const { error: insertErr } = await sb.from('dm_participants').insert([{ dm_channel_id: created.id, user_id: req.userId }, { dm_channel_id: created.id, user_id: otherUserId }]);
+    if (insertErr) throw insertErr;
     return res.json({ id: created.id });
   } catch (err) {
     return handleError(res, err);

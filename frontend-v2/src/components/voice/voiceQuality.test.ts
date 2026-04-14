@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { VideoPresets } from 'livekit-client'
 import {
   screenShareCaptureOptions,
   cameraPublishOptions,
@@ -11,7 +10,7 @@ describe('voiceQuality presets', () => {
   it('usa bitrate alto para cámara y pantalla', () => {
     expect(cameraPublishOptions.videoEncoding?.maxBitrate).toBeGreaterThanOrEqual(6_000_000)
     expect(screenSharePublishOptions.screenShareEncoding?.maxBitrate).toBeGreaterThanOrEqual(
-      12_000_000,
+      16_000_000,
     )
   })
 
@@ -19,14 +18,21 @@ describe('voiceQuality presets', () => {
     expect(roomOptionsHighQuality.dynacast).toBe(true)
     expect(roomOptionsHighQuality.adaptiveStream).toBe(true)
     expect(roomOptionsHighQuality.publishDefaults?.degradationPreference).toBe(
-      'maintain-resolution',
+      'maintain-framerate',
     )
+    expect(roomOptionsHighQuality.publishDefaults?.screenShareEncoding).toBeDefined()
+    expect(roomOptionsHighQuality.publishDefaults?.screenShareSimulcastLayers).toEqual([])
   })
 
-  it('usa preset de compartir pantalla 1080p a 30fps', () => {
+  it('captura pantalla a resolución nativa con contentHint detail', () => {
     const resolution = screenShareCaptureOptions.resolution!
-    expect(resolution.width).toBe(VideoPresets.h1080.resolution.width)
-    expect(resolution.height).toBe(VideoPresets.h1080.resolution.height)
-    expect((resolution as { frameRate?: number }).frameRate).toBe(30)
+    expect(resolution.width).toBe(3840)
+    expect(resolution.height).toBe(2160)
+    expect(screenShareCaptureOptions.contentHint).toBe('detail')
+  })
+
+  it('usa VP9 para screen share con fallback a VP8', () => {
+    expect(screenSharePublishOptions.videoCodec).toBe('vp9')
+    expect(screenSharePublishOptions.backupCodec).toBeDefined()
   })
 })

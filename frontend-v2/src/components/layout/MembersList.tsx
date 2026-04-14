@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { memo, useMemo } from 'react'
 import { Mic } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
@@ -37,7 +37,7 @@ function presenceLabel(presence: PresenceStatus | undefined, offline: boolean): 
   return 'No molestar'
 }
 
-function MemberRow({
+const MemberRow = memo(function MemberRow({
   member,
   presence,
   offline,
@@ -79,7 +79,7 @@ function MemberRow({
       {voiceChannelName ? <Mic className="text-primary size-3.5 shrink-0" aria-hidden /> : null}
     </div>
   )
-}
+})
 
 export function MembersList({ className }: { className?: string }) {
   const members = useAppStore((s) => s.members)

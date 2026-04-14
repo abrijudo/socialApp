@@ -4,7 +4,7 @@ import type {
   TrackPublishOptions,
   VideoCaptureOptions,
 } from 'livekit-client'
-import { AudioPresets, VideoPresets } from 'livekit-client'
+import { AudioPresets } from 'livekit-client'
 
 export const microphoneCaptureOptions: NonNullable<RoomOptions['audioCaptureDefaults']> = {
   echoCancellation: true,
@@ -38,30 +38,31 @@ export const cameraPublishOptions: TrackPublishOptions = {
 }
 
 export const screenShareCaptureOptions: ScreenShareCaptureOptions = {
-  /**
-   * Modo amplio: no forzamos una superficie concreta para que el diálogo nativo
-   * permita elegir pestaña, ventana (app) o pantalla completa según navegador/SO.
-   */
   video: true,
-  // Intentamos incluir audio del sistema cuando el navegador lo soporta.
   audio: true,
+  // Pedimos resolución nativa hasta 4K; el navegador la capa a la del monitor real.
   resolution: {
-    ...VideoPresets.h1080.resolution,
+    width: 3840,
+    height: 2160,
     frameRate: 30,
   },
-  // Vídeos en movimiento sin saturar ancho de banda.
-  contentHint: 'motion',
-  // No forzamos preferCurrentTab para no sesgar la UI de selección hacia pestañas.
+  // 'detail' prioriza nitidez de texto/UI sobre fluidez; el encoder asigna más bits
+  // por frame para mantener bordes definidos incluso con contenido estático.
+  contentHint: 'detail',
 }
 
 export const screenSharePublishOptions: TrackPublishOptions = {
   screenShareEncoding: {
-    maxBitrate: 12_000_000,
+    maxBitrate: 20_000_000,
     maxFramerate: 30,
     priority: 'high',
   },
-  // Mantener resolución evita pixelado excesivo en receptor al ajustar bitrate.
+  videoCodec: 'vp9',
+  // Sin simulcast para screen share: el receptor recibe siempre la capa máxima.
+  screenShareSimulcastLayers: [],
   degradationPreference: 'maintain-resolution',
+  // Fallback a VP8 si VP9 no está disponible (ej: Safari antiguo).
+  backupCodec: { codec: 'vp8', encoding: { maxBitrate: 16_000_000, maxFramerate: 30 } },
 }
 
 export const roomOptionsHighQuality: RoomOptions = {
@@ -70,8 +71,13 @@ export const roomOptionsHighQuality: RoomOptions = {
   audioCaptureDefaults: microphoneCaptureOptions,
   videoCaptureDefaults: cameraCaptureOptions,
   publishDefaults: {
-    ...cameraPublishOptions,
-    ...screenSharePublishOptions,
+    videoEncoding: cameraPublishOptions.videoEncoding,
+    videoCodec: cameraPublishOptions.videoCodec,
+    simulcast: cameraPublishOptions.simulcast,
+    degradationPreference: cameraPublishOptions.degradationPreference,
+    screenShareEncoding: screenSharePublishOptions.screenShareEncoding,
+    screenShareSimulcastLayers: screenSharePublishOptions.screenShareSimulcastLayers,
+    backupCodec: screenSharePublishOptions.backupCodec,
     audioPreset: AudioPresets.musicHighQuality,
     dtx: false,
     red: true,

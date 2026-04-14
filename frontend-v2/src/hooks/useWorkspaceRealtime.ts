@@ -59,7 +59,6 @@ export function useWorkspaceRealtime() {
     let channel: RealtimeChannel | null = null
     let membersRefreshTimer: ReturnType<typeof setTimeout> | null = null
     let membersRefreshInFlight = false
-    let lastMembersRefreshAt = 0
 
     const refreshMembers = async () => {
       if (cancelled || !accessToken || !activeServerId || membersRefreshInFlight) return
@@ -71,7 +70,6 @@ export function useWorkspaceRealtime() {
         )
         if (cancelled) return
         useAppStore.setState({ members: Array.isArray(members) ? members : [] })
-        lastMembersRefreshAt = Date.now()
       } catch (e) {
         console.warn('workspace realtime: fallo al resincronizar miembros', e)
       } finally {
@@ -218,7 +216,8 @@ export function useWorkspaceRealtime() {
                   : [...state.members, nextMember]
                 return { members }
               })
-              scheduleMembersRefresh(200)
+              // Nuevo miembro sin perfil: refetch para obtener profile completo
+              scheduleMembersRefresh(500)
             },
           )
           .on(
@@ -244,7 +243,6 @@ export function useWorkspaceRealtime() {
                     : m,
                 ),
               }))
-              scheduleMembersRefresh(300)
             },
           )
           .on(
@@ -261,7 +259,6 @@ export function useWorkspaceRealtime() {
               useAppStore.setState((state) => ({
                 members: state.members.filter((m) => m.user_id !== userId),
               }))
-              scheduleMembersRefresh(200)
             },
           )
           .on(
@@ -274,6 +271,10 @@ export function useWorkspaceRealtime() {
             (payload) => {
               const profile = profileFromRow(payload.new as Record<string, unknown>)
               if (!profile) return
+              // Solo actualizar si este perfil pertenece a un miembro del servidor actual
+              const isMember = useAppStore.getState().members.some((m) => m.user_id === profile.user_id)
+              const isSelf = useAppStore.getState().profile?.user_id === profile.user_id
+              if (!isMember && !isSelf) return
               useAppStore.setState((state) => ({
                 members: state.members.map((m) =>
                   m.user_id === profile.user_id ? { ...m, profile } : m,
@@ -283,10 +284,6 @@ export function useWorkspaceRealtime() {
                     ? { ...state.profile, ...profile }
                     : state.profile,
               }))
-              const now = Date.now()
-              if (now - lastMembersRefreshAt > 2_000) {
-                scheduleMembersRefresh(250)
-              }
             },
           )
           .on(
@@ -299,6 +296,9 @@ export function useWorkspaceRealtime() {
             (payload) => {
               const profile = profileFromRow(payload.new as Record<string, unknown>)
               if (!profile) return
+              const isMember = useAppStore.getState().members.some((m) => m.user_id === profile.user_id)
+              const isSelf = useAppStore.getState().profile?.user_id === profile.user_id
+              if (!isMember && !isSelf) return
               useAppStore.setState((state) => ({
                 members: state.members.map((m) =>
                   m.user_id === profile.user_id
@@ -310,10 +310,6 @@ export function useWorkspaceRealtime() {
                     ? { ...state.profile, ...profile }
                     : state.profile,
               }))
-              const now = Date.now()
-              if (now - lastMembersRefreshAt > 2_000) {
-                scheduleMembersRefresh(250)
-              }
             },
           )
 
@@ -331,7 +327,7 @@ export function useWorkspaceRealtime() {
 
     const heartbeat = setInterval(() => {
       void refreshMembers()
-    }, 20_000)
+    }, 60_000)
 
     return () => {
       cancelled = true

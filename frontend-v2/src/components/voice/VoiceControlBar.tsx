@@ -35,7 +35,8 @@ export function VoiceControlBar({ className }: { className?: string }) {
 
   // HOOK OFICIAL DE LIVEKIT (Maneja todo el estado y la inicialización de forma segura)
   const { isNoiseFilterEnabled, setNoiseFilterEnabled, isNoiseFilterPending } = useKrispNoiseFilter({
-    filterOptions: { basePath: '/krisp' } as any
+    // @ts-expect-error -- basePath no está en los tipos oficiales pero es requerido por Krisp WASM
+    filterOptions: { basePath: '/krisp' },
   });
   const isNoiseFilterSupported = isKrispNoiseFilterSupported();
   const didAutoEnableAiRef = useRef(false);
@@ -120,7 +121,6 @@ export function VoiceControlBar({ className }: { className?: string }) {
           (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)
         : undefined;
 
-    // Detección rápida local por energía RMS para reducir delay visual de "hablando".
     if (AudioContextCtor && mediaTrack && typeof MediaStream !== 'undefined') {
       let rafId = 0;
       let released = false;
@@ -129,6 +129,12 @@ export function VoiceControlBar({ className }: { className?: string }) {
       const speakingThreshold = 0.018;
       const releaseTailMs = 140;
       const context = new AudioContextCtor();
+
+      // Algunos navegadores arrancan el contexto en "suspended"; sin resume() el análisis RMS es nulo.
+      if (context.state === 'suspended') {
+        void context.resume().catch(() => {});
+      }
+
       const source = context.createMediaStreamSource(new MediaStream([mediaTrack]));
       const analyser = context.createAnalyser();
       analyser.fftSize = 512;
@@ -138,6 +144,10 @@ export function VoiceControlBar({ className }: { className?: string }) {
 
       const loop = () => {
         if (released) return;
+        if (context.state === 'suspended') {
+          rafId = window.requestAnimationFrame(loop);
+          return;
+        }
         analyser.getByteTimeDomainData(data);
         let sum = 0;
         for (let i = 0; i < data.length; i += 1) {
