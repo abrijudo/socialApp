@@ -73,6 +73,8 @@ export const screenSharePublishOptions: TrackPublishOptions = {
 export const roomOptionsHighQuality: RoomOptions = {
   adaptiveStream: true,
   dynacast: true,
+  // Enruta el audio por el altavoz multimedia (YouTube/Spotify) en vez del auricular del teléfono.
+  webAudioMix: true,
   audioCaptureDefaults: microphoneCaptureOptions,
   videoCaptureDefaults: cameraCaptureOptions,
   publishDefaults: {

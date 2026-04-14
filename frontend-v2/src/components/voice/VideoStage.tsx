@@ -103,14 +103,14 @@ export function VideoStage() {
   const [volumesByTrack, setVolumesByTrack] = useState<Record<string, number>>({})
   const [isTouchDevice, setIsTouchDevice] = useState(false)
   const [pinnedTrackKey, setPinnedTrackKey] = useState<string | null>(null)
-  const [mouseActiveByTile, setMouseActiveByTile] = useState<Record<string, boolean>>({})
+  const [controlsVisibleByTile, setControlsVisibleByTile] = useState<Record<string, boolean>>({})
   const lastNonZeroByTrackRef = useRef<Record<string, number>>({})
   const hideControlsTimerRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const screenShares = useMemo(() => tracks.filter((t) => t.source === Track.Source.ScreenShare), [tracks])
   const cameras = useMemo(() => tracks.filter((t) => t.source === Track.Source.Camera), [tracks])
   const hasScreenShare = screenShares.length > 0
-  const isMouseActiveOnAnyTile = Object.values(mouseActiveByTile).some((v) => v === true)
-  const isImmersive = !isTouchDevice && !isMouseActiveOnAnyTile
+  const isControlsActiveOnAny = Object.values(controlsVisibleByTile).some((v) => v === true)
+  const isImmersive = !isControlsActiveOnAny
   const focusTracks = hasScreenShare ? [...screenShares, ...cameras] : []
   const heroScreen = hasScreenShare
     ? focusTracks.find((t) => trackVolumeKey(t) === pinnedTrackKey) || screenShares[0]
@@ -183,13 +183,28 @@ export function VideoStage() {
 
   if (tracks.length === 0) return null
 
+  function showControlsFor(tileKey: string, durationMs: number) {
+    setControlsVisibleByTile((prev) => (prev[tileKey] ? prev : { ...prev, [tileKey]: true }))
+    const existing = hideControlsTimerRef.current[tileKey]
+    if (existing) clearTimeout(existing)
+    hideControlsTimerRef.current[tileKey] = setTimeout(() => {
+      setControlsVisibleByTile((prev) => (prev[tileKey] ? { ...prev, [tileKey]: false } : prev))
+    }, durationMs)
+  }
+
+  function hideControlsFor(tileKey: string) {
+    const existing = hideControlsTimerRef.current[tileKey]
+    if (existing) clearTimeout(existing)
+    setControlsVisibleByTile((prev) => (prev[tileKey] ? { ...prev, [tileKey]: false } : prev))
+  }
+
   const renderTile = (track: StageTrack, index: number, mode: 'hero' | 'strip' | 'grid') => {
     const volumeKey = trackVolumeKey(track)
     const volume = typeof volumesByTrack[volumeKey] === 'number' ? volumesByTrack[volumeKey] : 1
     const participantLabel = trackParticipantLabel(track)
     const isMuted = volume <= 0.001
     const key = `${trackKey(track, index)}:${mode}`
-    const isMouseActive = mouseActiveByTile[key] === true
+    const showControls = controlsVisibleByTile[key] === true
     const outerClass =
       mode === 'hero'
         ? `group relative h-full min-h-0 w-full min-w-0 overflow-hidden bg-black ${
@@ -215,29 +230,28 @@ export function VideoStage() {
         className={`${outerClass} ${immersiveMediaFitClass} lk-stage-tile`}
         onMouseMove={() => {
           if (isTouchDevice) return
-          setMouseActiveByTile((prev) => (prev[key] ? prev : { ...prev, [key]: true }))
-          const current = hideControlsTimerRef.current[key]
-          if (current) clearTimeout(current)
-          hideControlsTimerRef.current[key] = setTimeout(() => {
-            setMouseActiveByTile((prev) => (prev[key] ? { ...prev, [key]: false } : prev))
-          }, 900)
+          showControlsFor(key, 900)
         }}
         onMouseLeave={() => {
           if (isTouchDevice) return
-          const current = hideControlsTimerRef.current[key]
-          if (current) clearTimeout(current)
-          setMouseActiveByTile((prev) => (prev[key] ? { ...prev, [key]: false } : prev))
+          hideControlsFor(key)
+        }}
+        onClick={(e) => {
+          if (!isTouchDevice) return
+          if ((e.target as HTMLElement).closest('button, input')) return
+          showControlsFor(key, 3000)
         }}
       >
         <ParticipantTile trackRef={track} />
         <button
           type="button"
-          className={`absolute top-2 right-2 z-20 inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/20 bg-black/60 text-white transition-opacity ${
-            isTouchDevice ? 'opacity-100' : isMouseActive ? 'opacity-100' : 'opacity-0'
+          className={`absolute top-2 right-2 z-20 inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/20 bg-black/60 text-white transition-opacity duration-200 ${
+            showControls ? 'opacity-100' : 'pointer-events-none opacity-0'
           }`}
           aria-label="Pantalla completa"
           title="Pantalla completa"
           onClick={(e) => {
+            e.stopPropagation()
             const container = e.currentTarget.closest('.lk-stage-tile') as HTMLDivElement | null
             const keyForPin = trackVolumeKey(track)
             if (document.fullscreenEnabled) {
@@ -251,10 +265,11 @@ export function VideoStage() {
         </button>
 
         <div
-          className={`absolute right-2 bottom-2 left-2 z-20 flex items-center gap-1.5 rounded-md border border-white/20 bg-black/65 px-2 py-1 text-white transition-opacity ${
-            isTouchDevice ? 'opacity-100' : isMouseActive ? 'opacity-100' : 'opacity-0'
+          className={`absolute right-2 bottom-2 left-2 z-20 flex items-center gap-1.5 rounded-md border border-white/20 bg-black/65 px-2 py-1 text-white transition-opacity duration-200 ${
+            showControls ? 'opacity-100' : 'pointer-events-none opacity-0'
           }`}
         >
+          <span className="min-w-0 flex-1 truncate text-xs opacity-80">{participantLabel}</span>
           <button
             type="button"
             className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm"
@@ -264,7 +279,8 @@ export function VideoStage() {
                 : `Mutear audio de ${participantLabel}`
             }
             title={isMuted ? 'Activar audio' : 'Mutear audio'}
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation()
               if (isMuted) {
                 const restored = Math.max(
                   0.05,
@@ -290,10 +306,12 @@ export function VideoStage() {
             step={1}
             value={Math.round(volume * 100)}
             onChange={(e) => {
+              e.stopPropagation()
               const next = Number(e.target.value) / 100
               if (next > 0.001) lastNonZeroByTrackRef.current[volumeKey] = next
               setVolumesByTrack((prev) => ({ ...prev, [volumeKey]: next }))
             }}
+            onPointerDown={(e) => e.stopPropagation()}
             aria-label={`Volumen de transmisión de ${participantLabel}`}
             title="Volumen de transmisión"
             className="h-1.5 w-24 accent-primary"
@@ -309,8 +327,10 @@ export function VideoStage() {
         <div className={`flex-1 min-h-0 ${isImmersive ? 'p-0' : 'p-2'}`}>
           {renderTile(heroScreen, 0, 'hero')}
         </div>
-        {filmstripTracks.length > 0 && !isImmersive ? (
-          <div className="bg-background/50 h-40 shrink-0 overflow-x-auto p-2">
+        {filmstripTracks.length > 0 ? (
+          <div className={`bg-background/50 shrink-0 overflow-x-auto transition-all duration-200 ${
+            isImmersive ? 'h-0 overflow-hidden p-0 opacity-0' : 'h-40 p-2 opacity-100'
+          }`}>
             <div className="flex h-full min-w-max gap-2">
               {filmstripTracks.map((track, index) => renderTile(track, index + 1, 'strip'))}
             </div>
