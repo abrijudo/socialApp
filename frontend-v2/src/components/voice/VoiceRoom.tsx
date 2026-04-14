@@ -5,6 +5,7 @@ import { MembersList } from '@/components/layout/MembersList'
 import { ServerRail } from '@/components/layout/ServerRail'
 import { VoiceControlBar } from '@/components/voice/VoiceControlBar'
 import { roomOptionsHighQuality } from '@/components/voice/voiceQuality'
+import { useLiveKitSpeakers } from '@/hooks/useLiveKitSpeakers'
 import { useLiveKitVoiceToken } from '@/hooks/useLiveKitVoiceToken'
 import { useMatchMedia } from '@/hooks/useMatchMedia'
 import { cn } from '@/lib/utils'
@@ -25,10 +26,11 @@ export type VoiceSessionProps = {
   renderMainConnected: () => ReactNode
 }
 
-/**
- * Sesión de voz: obtiene token, monta LiveKitRoom en torno a nav + main + miembros
- * para que vídeo, audio y controles compartan contexto.
- */
+function LiveKitSpeakerSync() {
+  useLiveKitSpeakers()
+  return null
+}
+
 function VoiceStatusChrome({
   channelName,
   children,
@@ -140,6 +142,7 @@ export function VoiceSession({
       className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
     >
       <RoomAudioRenderer />
+      <LiveKitSpeakerSync />
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
         {rail}
         <div className="hidden h-full min-h-0 w-[240px] shrink-0 flex-col overflow-hidden border-r border-border bg-muted md:flex">

@@ -63,6 +63,8 @@ export interface AppState {
   localScreenShareEnabled: boolean
   /** Estado local de speaking para resaltar el nombre en lista de voz. */
   localVoiceSpeaking: boolean
+  /** IDs de participantes que hablan ahora mismo (LiveKit WebRTC, sin latencia). */
+  livekitSpeakers: Record<string, boolean>
   /** Panel de vídeo (escenario) visible cuando hay pistas de cámara/pantalla. */
   isVideoStageOpen: boolean
 }
@@ -86,6 +88,7 @@ export interface AppActions {
   setLocalCameraEnabled: (enabled: boolean) => void
   setLocalScreenShareEnabled: (enabled: boolean) => void
   setLocalVoiceSpeaking: (speaking: boolean) => void
+  setLivekitSpeakers: (speakers: Record<string, boolean>) => void
   setIsVideoStageOpen: (open: boolean) => void
   resetApp: () => void
   /** Quita un canal de la lista y limpia selección si era el activo (p. ej. DELETE en tiempo real). */
@@ -121,6 +124,7 @@ const initialState: AppState = {
   localCameraEnabled: false,
   localScreenShareEnabled: false,
   localVoiceSpeaking: false,
+  livekitSpeakers: {},
   isVideoStageOpen: true,
 }
 
@@ -246,6 +250,7 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
       dmMessages: [],
       dmChannels: [],
       voiceChannelOccupants: {},
+      livekitSpeakers: {},
       onlineUsers: {},
       localVoiceMuted: true,
       localCameraEnabled: false,
@@ -287,6 +292,7 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
   setLocalScreenShareEnabled: (localScreenShareEnabled) => set({ localScreenShareEnabled }),
   setLocalVoiceSpeaking: (localVoiceSpeaking) => set({ localVoiceSpeaking }),
 
+  setLivekitSpeakers: (livekitSpeakers) => set({ livekitSpeakers }),
   setIsVideoStageOpen: (isVideoStageOpen) => set({ isVideoStageOpen }),
 
   resetApp: () => set(initialState),

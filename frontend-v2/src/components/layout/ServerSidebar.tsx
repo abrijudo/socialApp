@@ -32,6 +32,7 @@ export function ServerSidebar({ voicePanel }: ServerSidebarProps) {
   const localCameraEnabled = useAppStore((s) => s.localCameraEnabled)
   const localScreenShareEnabled = useAppStore((s) => s.localScreenShareEnabled)
   const localVoiceSpeaking = useAppStore((s) => s.localVoiceSpeaking)
+  const livekitSpeakers = useAppStore((s) => s.livekitSpeakers)
   const channelsLoading = useAppStore((s) => s.channelsLoading)
   const voiceChannelOccupants = useAppStore((s) => s.voiceChannelOccupants)
 
@@ -249,7 +250,9 @@ export function ServerSidebar({ voicePanel }: ServerSidebarProps) {
                                 <span
                                   className={cn(
                                     'min-w-0 truncate',
-                                    u.isSpeaking ? 'text-emerald-400' : 'text-white',
+                                    (livekitSpeakers[u.userId] || (u.userId === userId && localVoiceSpeaking))
+                                      ? 'text-emerald-400'
+                                      : 'text-white',
                                   )}
                                 >
                                   {displayName}

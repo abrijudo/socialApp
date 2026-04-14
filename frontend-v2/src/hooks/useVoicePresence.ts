@@ -42,7 +42,6 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
   const localVoiceMuted = useAppStore((s) => s.localVoiceMuted)
   const localCameraEnabled = useAppStore((s) => s.localCameraEnabled)
   const localScreenShareEnabled = useAppStore((s) => s.localScreenShareEnabled)
-  const localVoiceSpeaking = useAppStore((s) => s.localVoiceSpeaking)
   const setVoiceChannelOccupants = useAppStore((s) => s.setVoiceChannelOccupants)
   const occupants = useAppStore((s) => s.voiceChannelOccupants)
 
@@ -116,7 +115,6 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
               muted: s.localVoiceMuted === true,
               cameraEnabled: s.localCameraEnabled === true,
               screenShareEnabled: s.localScreenShareEnabled === true,
-              speaking: s.localVoiceSpeaking === true,
             })
             flushPresence()
           }
@@ -157,7 +155,6 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
       muted: s.localVoiceMuted === true,
       cameraEnabled: s.localCameraEnabled === true,
       screenShareEnabled: s.localScreenShareEnabled === true,
-      speaking: s.localVoiceSpeaking === true,
     }).then(() => {
       presenceRef.current = pushVoicePresence(ch)
       flushMerged()
@@ -180,18 +177,7 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
     doTrack,
   ])
 
-  // Track con debounce para speaking (cambia a ~60fps, no queremos flood de red)
-  const speakingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(() => {
-    if (!subscribe) return
-    if (speakingTimerRef.current) clearTimeout(speakingTimerRef.current)
-    speakingTimerRef.current = setTimeout(() => {
-      doTrack()
-    }, 250)
-    return () => {
-      if (speakingTimerRef.current) clearTimeout(speakingTimerRef.current)
-    }
-  }, [subscribe, localVoiceSpeaking, doTrack])
+  // Speaking se propaga por LiveKit WebRTC (useLiveKitSpeakers), no por Presence.
 
   useEffect(() => {
     if (!subscribe) return
@@ -214,7 +200,7 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
             isMuted: localVoiceMuted,
             isCameraOn: localCameraEnabled,
             isScreenSharing: localScreenShareEnabled,
-            isSpeaking: localVoiceSpeaking,
+            isSpeaking: false,
           },
         ],
       }
@@ -231,7 +217,6 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
     localVoiceMuted,
     localCameraEnabled,
     localScreenShareEnabled,
-    localVoiceSpeaking,
     setVoiceChannelOccupants,
   ])
 
