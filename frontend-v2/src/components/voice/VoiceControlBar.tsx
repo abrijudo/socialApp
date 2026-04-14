@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
 import { useKrispNoiseFilter } from '@livekit/components-react/krisp';
 import { isKrispNoiseFilterSupported } from '@livekit/krisp-noise-filter';
 import { ParticipantEvent, Track } from 'livekit-client';
-import { Mic, MicOff, MonitorUp, PhoneOff, Video, VideoOff } from 'lucide-react';
+import { Mic, MicOff, MonitorOff, MonitorUp, PhoneOff, RefreshCw, Video, VideoOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Toggle } from '@/components/ui/toggle';
 import {
@@ -214,18 +214,61 @@ export function VoiceControlBar({ className }: { className?: string }) {
     }
   };
 
-  const toggleScreenShare = async () => {
+  const [screenShareMenuOpen, setScreenShareMenuOpen] = useState(false);
+  const screenShareMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!screenShareMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (screenShareMenuRef.current && !screenShareMenuRef.current.contains(e.target as Node)) {
+        setScreenShareMenuOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', handleClickOutside);
+    return () => document.removeEventListener('pointerdown', handleClickOutside);
+  }, [screenShareMenuOpen]);
+
+  const startScreenShare = async () => {
     try {
-      const nextScreenShareEnabled = !isScreenShareEnabled;
       await localParticipant.setScreenShareEnabled(
-        nextScreenShareEnabled,
+        true,
         screenShareCaptureOptions,
         screenSharePublishOptions,
       );
-      setLocalScreenShareEnabled(nextScreenShareEnabled);
+      setLocalScreenShareEnabled(true);
     } catch (e) {
-      console.warn('Error al alternar pantalla compartida', e);
+      console.warn('Error al iniciar pantalla compartida', e);
     }
+  };
+
+  const stopScreenShare = async () => {
+    try {
+      await localParticipant.setScreenShareEnabled(false);
+      setLocalScreenShareEnabled(false);
+    } catch (e) {
+      console.warn('Error al detener pantalla compartida', e);
+    }
+  };
+
+  const handleScreenShareButton = () => {
+    if (isScreenShareEnabled) {
+      setScreenShareMenuOpen((prev) => !prev);
+    } else {
+      void startScreenShare();
+    }
+  };
+
+  const handleStopScreenShare = () => {
+    setScreenShareMenuOpen(false);
+    void stopScreenShare();
+  };
+
+  const handleChangeScreenShare = () => {
+    setScreenShareMenuOpen(false);
+    void (async () => {
+      await stopScreenShare();
+      await startScreenShare();
+    })();
   };
 
   const handleAiToggle = async () => {
@@ -290,16 +333,42 @@ export function VoiceControlBar({ className }: { className?: string }) {
         {isCameraEnabled ? <Video className="size-4" /> : <VideoOff className="size-4" />}
       </Toggle>
 
-      <Toggle
-        variant="outline"
-        pressed={isScreenShareEnabled}
-        onPressedChange={toggleScreenShare}
-        aria-label={isScreenShareEnabled ? 'Dejar de compartir' : 'Compartir pantalla'}
-        title="Compartir pantalla"
-        className={iconToggleClass}
-      >
-        <MonitorUp className="size-4" />
-      </Toggle>
+      <div className="relative" ref={screenShareMenuRef}>
+        <button
+          type="button"
+          onClick={handleScreenShareButton}
+          aria-label={isScreenShareEnabled ? 'Opciones de transmisión' : 'Compartir pantalla'}
+          title={isScreenShareEnabled ? 'Opciones de transmisión' : 'Compartir pantalla'}
+          className={cn(
+            iconToggleClass,
+            'inline-flex items-center justify-center',
+            isScreenShareEnabled && 'bg-red-600 text-white border-red-700 hover:bg-red-700',
+          )}
+        >
+          {isScreenShareEnabled ? <MonitorOff className="size-4" /> : <MonitorUp className="size-4" />}
+        </button>
+
+        {screenShareMenuOpen && (
+          <div className="absolute bottom-full left-1/2 z-50 mb-2 w-48 -translate-x-1/2 rounded-lg border border-border bg-background shadow-lg">
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-t-lg px-3 py-2.5 text-sm text-red-400 hover:bg-muted"
+              onClick={handleStopScreenShare}
+            >
+              <MonitorOff className="size-4" />
+              Dejar de transmitir
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-b-lg px-3 py-2.5 text-sm text-white hover:bg-muted"
+              onClick={handleChangeScreenShare}
+            >
+              <RefreshCw className="size-4" />
+              Cambiar transmisión
+            </button>
+          </div>
+        )}
+      </div>
 
       <Button
         type="button"
