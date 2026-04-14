@@ -47,21 +47,21 @@ export const screenShareCaptureOptions: ScreenShareCaptureOptions = {
   audio: true,
   resolution: {
     ...VideoPresets.h1080.resolution,
-    frameRate: 30,
+    frameRate: 60,
   },
-  // En pantallas 4K priorizamos detalle/legibilidad (texto/UI).
-  contentHint: 'text',
+  // Para escenas con movimiento (videos), priorizamos fluidez.
+  contentHint: 'motion',
   // No forzamos preferCurrentTab para no sesgar la UI de selección hacia pestañas.
 }
 
 export const screenSharePublishOptions: TrackPublishOptions = {
   screenShareEncoding: {
-    maxBitrate: 20_000_000,
-    maxFramerate: 30,
+    maxBitrate: 35_000_000,
+    maxFramerate: 60,
     priority: 'high',
   },
-  // Para compartir pantalla conviene conservar resolución antes que FPS.
-  degradationPreference: 'maintain-resolution',
+  // En video en movimiento conviene conservar FPS para evitar borrosidad dinámica.
+  degradationPreference: 'maintain-framerate',
 }
 
 export const roomOptionsHighQuality: RoomOptions = {
