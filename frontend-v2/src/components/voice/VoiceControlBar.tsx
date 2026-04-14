@@ -105,17 +105,84 @@ export function VoiceControlBar({ className }: { className?: string }) {
 
   useEffect(() => {
     const participant = room.localParticipant ?? localParticipant;
+    if (!isMicrophoneEnabled) {
+      setLocalVoiceSpeaking(false);
+      return () => {};
+    }
+
+    const publication = localParticipant.getTrackPublication(Track.Source.Microphone);
+    const mediaTrack = (
+      publication?.track as unknown as { mediaStreamTrack?: MediaStreamTrack } | undefined
+    )?.mediaStreamTrack;
+    const AudioContextCtor =
+      typeof window !== 'undefined'
+        ? ((window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).AudioContext ||
+          (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)
+        : undefined;
+
+    // Detección rápida local por energía RMS para reducir delay visual de "hablando".
+    if (AudioContextCtor && mediaTrack && typeof MediaStream !== 'undefined') {
+      let rafId = 0;
+      let released = false;
+      let isSpeakingNow = false;
+      let holdSpeakingUntil = 0;
+      const speakingThreshold = 0.018;
+      const releaseTailMs = 140;
+      const context = new AudioContextCtor();
+      const source = context.createMediaStreamSource(new MediaStream([mediaTrack]));
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.08;
+      source.connect(analyser);
+      const data = new Uint8Array(analyser.fftSize);
+
+      const loop = () => {
+        if (released) return;
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i += 1) {
+          const normalized = (data[i] - 128) / 128;
+          sum += normalized * normalized;
+        }
+        const rms = Math.sqrt(sum / data.length);
+        const now = performance.now();
+        if (rms > speakingThreshold) {
+          holdSpeakingUntil = now + releaseTailMs;
+        }
+        const nextSpeaking = rms > speakingThreshold || now < holdSpeakingUntil;
+        if (nextSpeaking !== isSpeakingNow) {
+          isSpeakingNow = nextSpeaking;
+          setLocalVoiceSpeaking(nextSpeaking);
+        }
+        rafId = window.requestAnimationFrame(loop);
+      };
+
+      rafId = window.requestAnimationFrame(loop);
+      return () => {
+        released = true;
+        window.cancelAnimationFrame(rafId);
+        try {
+          source.disconnect();
+          analyser.disconnect();
+        } catch {
+          // noop
+        }
+        void context.close().catch(() => {});
+        setLocalVoiceSpeaking(false);
+      };
+    }
+
+    // Fallback si AudioContext no está disponible.
     const apply = (speaking: boolean) => {
       setLocalVoiceSpeaking(Boolean(speaking));
     };
-
     apply(Boolean((participant as { isSpeaking?: boolean })?.isSpeaking));
     participant.on(ParticipantEvent.IsSpeakingChanged, apply);
     return () => {
       participant.off(ParticipantEvent.IsSpeakingChanged, apply);
       setLocalVoiceSpeaking(false);
     };
-  }, [localParticipant, room.localParticipant, setLocalVoiceSpeaking]);
+  }, [isMicrophoneEnabled, localParticipant, room.localParticipant, setLocalVoiceSpeaking]);
 
   const toggleMicrophone = async () => {
     try {
