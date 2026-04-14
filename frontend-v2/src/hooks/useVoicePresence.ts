@@ -124,6 +124,18 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
       }
     })()
 
+    const cleanupChannel = () => {
+      if (localChannel) {
+        void localChannel.untrack()
+        const supabase = getSupabaseBrowserClient()
+        void supabase.removeChannel(localChannel)
+      }
+    }
+
+    const onBeforeUnload = () => cleanupChannel()
+    window.addEventListener('beforeunload', onBeforeUnload)
+    window.addEventListener('pagehide', onBeforeUnload)
+
     return () => {
       cancelled = true
       subscribedRef.current = false
@@ -131,10 +143,9 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
       presenceRef.current = {}
       snapshotRef.current = {}
       localSelfRef.current = {}
-      if (localChannel) {
-        const supabase = getSupabaseBrowserClient()
-        void supabase.removeChannel(localChannel)
-      }
+      window.removeEventListener('beforeunload', onBeforeUnload)
+      window.removeEventListener('pagehide', onBeforeUnload)
+      cleanupChannel()
       setVoiceChannelOccupants({})
     }
   }, [subscribe, userId, accessToken, setVoiceChannelOccupants])

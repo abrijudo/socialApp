@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react'
-import { LiveKitRoom, RoomAudioRenderer } from '@livekit/components-react'
+import { useEffect, type ReactNode } from 'react'
+import { LiveKitRoom, RoomAudioRenderer, useRoomContext } from '@livekit/components-react'
 import { Loader2 } from 'lucide-react'
 import { MembersList } from '@/components/layout/MembersList'
 import { ServerRail } from '@/components/layout/ServerRail'
@@ -28,6 +28,20 @@ export type VoiceSessionProps = {
 
 function LiveKitSpeakerSync() {
   useLiveKitSpeakers()
+  return null
+}
+
+function LiveKitPageUnloadCleanup() {
+  const room = useRoomContext()
+  useEffect(() => {
+    const handler = () => room.disconnect()
+    window.addEventListener('beforeunload', handler)
+    window.addEventListener('pagehide', handler)
+    return () => {
+      window.removeEventListener('beforeunload', handler)
+      window.removeEventListener('pagehide', handler)
+    }
+  }, [room])
   return null
 }
 
@@ -143,6 +157,7 @@ export function VoiceSession({
     >
       <RoomAudioRenderer />
       <LiveKitSpeakerSync />
+      <LiveKitPageUnloadCleanup />
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
         {rail}
         <div className="hidden h-full min-h-0 w-[240px] shrink-0 flex-col overflow-hidden border-r border-border bg-muted md:flex">
