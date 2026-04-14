@@ -24,11 +24,11 @@ describe('voiceQuality presets', () => {
     expect(roomOptionsHighQuality.publishDefaults?.screenShareSimulcastLayers).toEqual([])
   })
 
-  it('captura pantalla a resolución nativa con contentHint detail', () => {
+  it('captura pantalla a resolución nativa con contentHint motion', () => {
     const resolution = screenShareCaptureOptions.resolution!
     expect(resolution.width).toBe(3840)
     expect(resolution.height).toBe(2160)
-    expect(screenShareCaptureOptions.contentHint).toBe('detail')
+    expect(screenShareCaptureOptions.contentHint).toBe('motion')
   })
 
   it('usa VP9 para screen share con fallback a VP8', () => {

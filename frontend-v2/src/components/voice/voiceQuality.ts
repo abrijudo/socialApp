@@ -39,7 +39,6 @@ export const cameraPublishOptions: TrackPublishOptions = {
 
 export const screenShareCaptureOptions: ScreenShareCaptureOptions = {
   video: true,
-  // Audio del sistema sin filtros de voz: estéreo crudo para que música/vídeo suene natural.
   audio: {
     echoCancellation: false,
     noiseSuppression: false,
@@ -51,23 +50,21 @@ export const screenShareCaptureOptions: ScreenShareCaptureOptions = {
   resolution: {
     width: 3840,
     height: 2160,
-    frameRate: 30,
+    frameRate: 60,
   },
-  contentHint: 'detail',
+  contentHint: 'motion',
 }
 
 export const screenSharePublishOptions: TrackPublishOptions = {
   screenShareEncoding: {
-    maxBitrate: 20_000_000,
-    maxFramerate: 30,
+    maxBitrate: 24_000_000,
+    maxFramerate: 60,
     priority: 'high',
   },
   videoCodec: 'vp9',
-  // Sin simulcast para screen share: el receptor recibe siempre la capa máxima.
   screenShareSimulcastLayers: [],
-  degradationPreference: 'maintain-resolution',
-  // Fallback a VP8 si VP9 no está disponible (ej: Safari antiguo).
-  backupCodec: { codec: 'vp8', encoding: { maxBitrate: 16_000_000, maxFramerate: 30 } },
+  degradationPreference: 'balanced',
+  backupCodec: { codec: 'vp8', encoding: { maxBitrate: 18_000_000, maxFramerate: 60 } },
 }
 
 export const roomOptionsHighQuality: RoomOptions = {
