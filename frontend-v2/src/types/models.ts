@@ -82,6 +82,8 @@ export type VoiceChannelOccupant = {
   userId: string
   username: string
   isMuted?: boolean
+  isScreenSharing?: boolean
+  isCameraOn?: boolean
 }
 
 export type VoiceOccupantsByChannel = Record<string, VoiceChannelOccupant[]>
@@ -91,6 +93,8 @@ export type VoicePresenceRow = {
   username?: string
   voiceChannelId?: string | null
   muted?: boolean
+  screenShareEnabled?: boolean
+  cameraEnabled?: boolean
 }
 
 export type VoiceParticipantsSnapshot = {
@@ -99,6 +103,8 @@ export type VoiceParticipantsSnapshot = {
     Array<{
       identity?: string
       name?: string
+      hasScreenShare?: boolean
+      hasCamera?: boolean
     }>
   >
 }

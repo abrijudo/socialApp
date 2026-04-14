@@ -22,8 +22,10 @@ export function presenceRowsToByChannel(
         ? row.username.trim()
         : userId.slice(0, 8)
     const isMuted = row.muted === true
+    const isScreenSharing = row.screenShareEnabled === true
+    const isCameraOn = row.cameraEnabled === true
     if (!byChannel[vid]) byChannel[vid] = []
-    byChannel[vid].push({ userId, username, isMuted })
+    byChannel[vid].push({ userId, username, isMuted, isScreenSharing, isCameraOn })
   }
   for (const id of Object.keys(byChannel)) {
     const list = byChannel[id]
@@ -48,9 +50,25 @@ export function normalizeSnapshot(byChannelRaw: VoiceParticipantsSnapshot['byCha
         const userId = String(row?.identity || '').trim()
         if (!userId) return null
         const username = String(row?.name || row?.identity || '').trim() || userId.slice(0, 8)
-        return { userId, username, isMuted: false }
+        return {
+          userId,
+          username,
+          isMuted: false,
+          isScreenSharing: row?.hasScreenShare === true,
+          isCameraOn: row?.hasCamera === true,
+        }
       })
-      .filter((v): v is { userId: string; username: string; isMuted: boolean } => v != null)
+      .filter(
+        (
+          v,
+        ): v is {
+          userId: string
+          username: string
+          isMuted: boolean
+          isScreenSharing: boolean
+          isCameraOn: boolean
+        } => v != null,
+      )
     if (mapped.length > 0) out[channelId] = mapped
   }
   return out
@@ -63,7 +81,14 @@ export function mergeOccupants(
   const out: VoiceOccupantsByChannel = {}
   const assignmentByUser = new Map<
     string,
-    { channelId: string; username: string; isMuted?: boolean; priority: 1 | 2 }
+    {
+      channelId: string
+      username: string
+      isMuted?: boolean
+      isScreenSharing?: boolean
+      isCameraOn?: boolean
+      priority: 1 | 2
+    }
   >()
 
   const assign = (map: VoiceOccupantsByChannel, priority: 1 | 2) => {
@@ -77,6 +102,8 @@ export function mergeOccupants(
             channelId,
             username: u.username,
             isMuted: u.isMuted,
+            isScreenSharing: u.isScreenSharing,
+            isCameraOn: u.isCameraOn,
             priority,
           })
         }
@@ -94,6 +121,8 @@ export function mergeOccupants(
       userId,
       username: assignment.username,
       isMuted: assignment.isMuted,
+      isScreenSharing: assignment.isScreenSharing,
+      isCameraOn: assignment.isCameraOn,
     })
   }
 

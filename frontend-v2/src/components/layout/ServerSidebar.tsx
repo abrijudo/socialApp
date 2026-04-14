@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { useMemo, useState } from 'react'
-import { Hash, MicOff, Plus, UserPlus, Volume2 } from 'lucide-react'
+import { Hash, MicOff, Plus, UserPlus, Video, Volume2 } from 'lucide-react'
 import { CreateChannelModal } from '@/components/modals/CreateChannelModal'
 import { InviteModal } from '@/components/modals/InviteModal'
 import { Button } from '@/components/ui/button'
@@ -28,6 +28,9 @@ export function ServerSidebar({ voicePanel }: ServerSidebarProps) {
   const profile = useAppStore((s) => s.profile)
   const username = useAppStore((s) => s.username)
   const members = useAppStore((s) => s.members)
+  const localVoiceMuted = useAppStore((s) => s.localVoiceMuted)
+  const localCameraEnabled = useAppStore((s) => s.localCameraEnabled)
+  const localScreenShareEnabled = useAppStore((s) => s.localScreenShareEnabled)
   const channelsLoading = useAppStore((s) => s.channelsLoading)
   const voiceChannelOccupants = useAppStore((s) => s.voiceChannelOccupants)
 
@@ -186,6 +189,9 @@ export function ServerSidebar({ voicePanel }: ServerSidebarProps) {
                         {
                           userId,
                           username: currentUsername || userId.slice(0, 8),
+                          isMuted: localVoiceMuted,
+                          isCameraOn: localCameraEnabled,
+                          isScreenSharing: localScreenShareEnabled,
                         },
                       ]
                     : voiceOccupants
@@ -239,6 +245,17 @@ export function ServerSidebar({ voicePanel }: ServerSidebarProps) {
                                   )}
                                 </div>
                                 <span className="min-w-0 truncate">{displayName}</span>
+                                {u.isScreenSharing ? (
+                                  <span className="shrink-0 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white">
+                                    Transmitiendo
+                                  </span>
+                                ) : null}
+                                {u.isCameraOn ? (
+                                  <Video
+                                    className="text-muted-foreground size-3.5 shrink-0 opacity-90"
+                                    aria-label="Cámara activa"
+                                  />
+                                ) : null}
                                 {u.isMuted ? (
                                   <MicOff
                                     className="text-muted-foreground size-3.5 shrink-0 opacity-90"

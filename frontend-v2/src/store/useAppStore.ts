@@ -58,6 +58,10 @@ export interface AppState {
   voiceChannelOccupants: VoiceOccupantsByChannel
   /** Estado local del micro para difundir mute en Presence de voz. */
   localVoiceMuted: boolean
+  /** Estado local de cámara para difundirlo en Presence de voz. */
+  localCameraEnabled: boolean
+  /** Estado local de pantalla compartida para difundirlo en Presence de voz. */
+  localScreenShareEnabled: boolean
   /** Panel de vídeo (escenario) visible cuando hay pistas de cámara/pantalla. */
   isVideoStageOpen: boolean
 }
@@ -81,6 +85,8 @@ export interface AppActions {
   setOnlineUsers: (users: Record<string, 'online' | 'idle' | 'dnd'>) => void
   setVoiceChannelOccupants: (occupants: VoiceOccupantsByChannel) => void
   setLocalVoiceMuted: (muted: boolean) => void
+  setLocalCameraEnabled: (enabled: boolean) => void
+  setLocalScreenShareEnabled: (enabled: boolean) => void
   setIsVideoStageOpen: (open: boolean) => void
   resetApp: () => void
   /** Quita un canal de la lista y limpia selección si era el activo (p. ej. DELETE en tiempo real). */
@@ -114,6 +120,8 @@ const initialState: AppState = {
   onlineUsers: {},
   voiceChannelOccupants: {},
   localVoiceMuted: true,
+  localCameraEnabled: false,
+  localScreenShareEnabled: false,
   isVideoStageOpen: true,
 }
 
@@ -272,6 +280,8 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
   setVoiceChannelOccupants: (voiceChannelOccupants) => set({ voiceChannelOccupants }),
 
   setLocalVoiceMuted: (localVoiceMuted) => set({ localVoiceMuted }),
+  setLocalCameraEnabled: (localCameraEnabled) => set({ localCameraEnabled }),
+  setLocalScreenShareEnabled: (localScreenShareEnabled) => set({ localScreenShareEnabled }),
 
   setIsVideoStageOpen: (isVideoStageOpen) => set({ isVideoStageOpen }),
 

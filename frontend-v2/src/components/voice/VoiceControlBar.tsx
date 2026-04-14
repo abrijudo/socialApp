@@ -29,6 +29,8 @@ export function VoiceControlBar({ className }: { className?: string }) {
   const room = useRoomContext();
   const setActiveVoiceChannelId = useAppStore((s) => s.setActiveVoiceChannelId);
   const setLocalVoiceMuted = useAppStore((s) => s.setLocalVoiceMuted);
+  const setLocalCameraEnabled = useAppStore((s) => s.setLocalCameraEnabled);
+  const setLocalScreenShareEnabled = useAppStore((s) => s.setLocalScreenShareEnabled);
 
   // HOOK OFICIAL DE LIVEKIT (Maneja todo el estado y la inicialización de forma segura)
   const { isNoiseFilterEnabled, setNoiseFilterEnabled, isNoiseFilterPending } = useKrispNoiseFilter({
@@ -88,6 +90,18 @@ export function VoiceControlBar({ className }: { className?: string }) {
     isNoiseFilterSupported,
   ]);
 
+  useEffect(() => {
+    setLocalVoiceMuted(!isMicrophoneEnabled);
+  }, [isMicrophoneEnabled, setLocalVoiceMuted]);
+
+  useEffect(() => {
+    setLocalCameraEnabled(isCameraEnabled);
+  }, [isCameraEnabled, setLocalCameraEnabled]);
+
+  useEffect(() => {
+    setLocalScreenShareEnabled(isScreenShareEnabled);
+  }, [isScreenShareEnabled, setLocalScreenShareEnabled]);
+
   const toggleMicrophone = async () => {
     try {
       const nextMicEnabled = !isMicrophoneEnabled;
@@ -100,7 +114,13 @@ export function VoiceControlBar({ className }: { className?: string }) {
 
   const toggleCamera = async () => {
     try {
-      await localParticipant.setCameraEnabled(!isCameraEnabled, cameraCaptureOptions, cameraPublishOptions);
+      const nextCameraEnabled = !isCameraEnabled;
+      await localParticipant.setCameraEnabled(
+        nextCameraEnabled,
+        cameraCaptureOptions,
+        cameraPublishOptions,
+      );
+      setLocalCameraEnabled(nextCameraEnabled);
     } catch (e) {
       console.warn('Error al alternar cámara', e);
     }
@@ -108,7 +128,13 @@ export function VoiceControlBar({ className }: { className?: string }) {
 
   const toggleScreenShare = async () => {
     try {
-      await localParticipant.setScreenShareEnabled(!isScreenShareEnabled, screenShareCaptureOptions, screenSharePublishOptions);
+      const nextScreenShareEnabled = !isScreenShareEnabled;
+      await localParticipant.setScreenShareEnabled(
+        nextScreenShareEnabled,
+        screenShareCaptureOptions,
+        screenSharePublishOptions,
+      );
+      setLocalScreenShareEnabled(nextScreenShareEnabled);
     } catch (e) {
       console.warn('Error al alternar pantalla compartida', e);
     }
@@ -192,6 +218,8 @@ export function VoiceControlBar({ className }: { className?: string }) {
           room.disconnect();
           setActiveVoiceChannelId(null);
           setLocalVoiceMuted(true);
+          setLocalCameraEnabled(false);
+          setLocalScreenShareEnabled(false);
         }}
         title="Colgar"
       >

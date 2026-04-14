@@ -10,6 +10,9 @@ const unpublishTrack = vi.fn()
 const getTrackPublication = vi.fn()
 const disconnect = vi.fn()
 const setActiveVoiceChannelId = vi.fn()
+const setLocalVoiceMuted = vi.fn()
+const setLocalCameraEnabled = vi.fn()
+const setLocalScreenShareEnabled = vi.fn()
 const setNoiseFilterEnabled = vi.fn().mockResolvedValue(undefined)
 const setProcessor = vi.fn().mockResolvedValue(undefined)
 
@@ -45,8 +48,20 @@ vi.mock('@livekit/components-react', () => ({
 }))
 
 vi.mock('@/store/useAppStore', () => ({
-  useAppStore: (selector: (s: { setActiveVoiceChannelId: (id: string | null) => void }) => unknown) =>
-    selector({ setActiveVoiceChannelId }),
+  useAppStore: (
+    selector: (s: {
+      setActiveVoiceChannelId: (id: string | null) => void
+      setLocalVoiceMuted: (muted: boolean) => void
+      setLocalCameraEnabled: (enabled: boolean) => void
+      setLocalScreenShareEnabled: (enabled: boolean) => void
+    }) => unknown,
+  ) =>
+    selector({
+      setActiveVoiceChannelId,
+      setLocalVoiceMuted,
+      setLocalCameraEnabled,
+      setLocalScreenShareEnabled,
+    }),
 }))
 
 describe('VoiceControlBar', () => {

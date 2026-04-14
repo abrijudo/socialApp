@@ -40,6 +40,8 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
   const usernameFallback = useAppStore((s) => s.username)
   const activeVoiceChannelId = useAppStore((s) => s.activeVoiceChannelId)
   const localVoiceMuted = useAppStore((s) => s.localVoiceMuted)
+  const localCameraEnabled = useAppStore((s) => s.localCameraEnabled)
+  const localScreenShareEnabled = useAppStore((s) => s.localScreenShareEnabled)
   const setVoiceChannelOccupants = useAppStore((s) => s.setVoiceChannelOccupants)
   const occupants = useAppStore((s) => s.voiceChannelOccupants)
 
@@ -111,6 +113,8 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
               username: un,
               voiceChannelId: s.activeVoiceChannelId,
               muted: s.localVoiceMuted === true,
+              cameraEnabled: s.localCameraEnabled === true,
+              screenShareEnabled: s.localScreenShareEnabled === true,
             })
             flushPresence()
           }
@@ -152,6 +156,8 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
         username: un,
         voiceChannelId: s.activeVoiceChannelId,
         muted: s.localVoiceMuted === true,
+        cameraEnabled: s.localCameraEnabled === true,
+        screenShareEnabled: s.localScreenShareEnabled === true,
       })
       presenceRef.current = pushVoicePresence(ch)
       flushMerged()
@@ -163,6 +169,8 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
     usernameFallback,
     activeVoiceChannelId,
     localVoiceMuted,
+    localCameraEnabled,
+    localScreenShareEnabled,
     setVoiceChannelOccupants,
   ])
 
@@ -180,7 +188,15 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
 
     if (activeVoiceChannelId) {
       localSelfRef.current = {
-        [activeVoiceChannelId]: [{ userId, username, isMuted: localVoiceMuted }],
+        [activeVoiceChannelId]: [
+          {
+            userId,
+            username,
+            isMuted: localVoiceMuted,
+            isCameraOn: localCameraEnabled,
+            isScreenSharing: localScreenShareEnabled,
+          },
+        ],
       }
     } else {
       localSelfRef.current = {}
@@ -193,6 +209,8 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
     usernameFallback,
     activeVoiceChannelId,
     localVoiceMuted,
+    localCameraEnabled,
+    localScreenShareEnabled,
     setVoiceChannelOccupants,
   ])
 
