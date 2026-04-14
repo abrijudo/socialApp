@@ -136,7 +136,7 @@ export function VoiceSession({
       token={token}
       serverUrl={serverUrl}
       connect={true}
-      audio={true}
+      audio={false}
       video={false}
       options={roomOptions}
       className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden"

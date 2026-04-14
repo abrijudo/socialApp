@@ -51,42 +51,35 @@ export function VoiceControlBar({ className }: { className?: string }) {
     return false;
   }, [localParticipant]);
 
-  const enableAiNoiseSuppression = useCallback(async () => {
-    if (!isMicrophoneEnabled) {
-      await localParticipant.setMicrophoneEnabled(true, microphoneCaptureOptions);
-      setLocalVoiceMuted(false);
-    }
+  const applyKrispToMic = useCallback(async () => {
     const isMicReady = await waitForMicPublication();
     if (!isMicReady) {
       throw new Error('El micrófono todavía no está listo para aplicar IA.');
     }
     await setNoiseFilterEnabled(true);
-  }, [
-    isMicrophoneEnabled,
-    localParticipant,
-    setLocalVoiceMuted,
-    setNoiseFilterEnabled,
-    waitForMicPublication,
-  ]);
+  }, [setNoiseFilterEnabled, waitForMicPublication]);
 
+  // Auto-aplicar Krisp cuando el mic se activa (no al montar; el mic empieza apagado
+  // para que el audio de screen share salga por el altavoz multimedia en vez del auricular).
   useEffect(() => {
+    if (!isMicrophoneEnabled) return;
     if (!isNoiseFilterSupported || isNoiseFilterEnabled || isNoiseFilterPending) return;
     if (didAutoEnableAiRef.current || autoEnableInFlightRef.current) return;
     autoEnableInFlightRef.current = true;
 
-    void enableAiNoiseSuppression()
+    void applyKrispToMic()
       .then(() => {
         didAutoEnableAiRef.current = true;
       })
       .catch((error) => {
-        // Dejamos el botón utilizable manualmente y permitimos reintento automático posterior.
         console.error('[Krisp AI Error]', error);
       })
       .finally(() => {
         autoEnableInFlightRef.current = false;
       });
   }, [
-    enableAiNoiseSuppression,
+    isMicrophoneEnabled,
+    applyKrispToMic,
     isNoiseFilterEnabled,
     isNoiseFilterPending,
     isNoiseFilterSupported,
@@ -240,7 +233,11 @@ export function VoiceControlBar({ className }: { className?: string }) {
       if (isNoiseFilterEnabled) {
         await setNoiseFilterEnabled(false);
       } else {
-        await enableAiNoiseSuppression();
+        if (!isMicrophoneEnabled) {
+          await localParticipant.setMicrophoneEnabled(true, microphoneCaptureOptions);
+          setLocalVoiceMuted(false);
+        }
+        await applyKrispToMic();
       }
     } catch (error) {
       console.error('[Krisp AI Error]', error);
