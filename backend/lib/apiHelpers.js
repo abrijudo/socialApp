@@ -9,7 +9,11 @@ async function buildProfileMap(sb, userIds, fields = DEFAULT_PROFILE_FIELDS) {
   if (!userIds?.length) return {};
   const ids = [...new Set(userIds.filter(Boolean))];
   if (!ids.length) return {};
-  const { data: profiles } = await sb.from('profiles').select(fields).in('user_id', ids);
+  const { data: profiles, error } = await sb.from('profiles').select(fields).in('user_id', ids);
+  if (error) {
+    console.warn('buildProfileMap error:', error.message);
+    return {};
+  }
   return Object.fromEntries((profiles || []).filter(p => p && p.user_id).map(p => [p.user_id, p]));
 }
 

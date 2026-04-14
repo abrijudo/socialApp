@@ -180,7 +180,24 @@ export function useDmMessages(dmChannelId: string | null) {
             },
           )
 
-        channel.subscribe()
+        channel.subscribe((status, err) => {
+          if (status === 'SUBSCRIBED') return
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn('Realtime DM:', status, err ?? '')
+            void (async () => {
+              try {
+                const data = await apiGetJson<Record<string, unknown>[]>(
+                  `/api/dm/${dmChannelId}/messages`,
+                  accessToken,
+                )
+                if (!cancelled) {
+                  const list = Array.isArray(data) ? data : []
+                  setDmMessages(list.map((row) => normalizeApiRow(row, dmChannelId)))
+                }
+              } catch { /* retry on next event */ }
+            })()
+          }
+        })
       } catch (e) {
         console.warn('Suscripción Realtime DM:', e)
       }

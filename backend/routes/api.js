@@ -93,8 +93,21 @@ const channelTypeSchema = z.enum(['text', 'voice']);
 const roleSchema = z.enum(['owner', 'admin', 'mod', 'member']);
 const actionSchema = z.enum(['send_message', 'join_voice', 'use_webcam', 'share_screen', 'manage_channel', 'moderate_voice']);
 
+class ClientError extends Error {
+  constructor(message, statusCode = 400) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
 function handleError(res, err) {
   const message = err?.message || 'Error interno';
+  if (err instanceof ClientError) {
+    return res.status(err.statusCode).json({ error: message });
+  }
+  if (err?.code === 'PGRST116') {
+    return res.status(404).json({ error: 'Recurso no encontrado.' });
+  }
   const isClientError =
     message.includes('No autorizado') ||
     message.includes('Solo el') ||
@@ -106,7 +119,8 @@ function handleError(res, err) {
     message.includes('agotada') ||
     message.includes('expirada') ||
     message.includes('no permitido') ||
-    message.includes('demasiado grande');
+    message.includes('demasiado grande') ||
+    message.includes('No tienes acceso');
   return res.status(isClientError ? 400 : 500).json({ error: message });
 }
 
@@ -131,8 +145,9 @@ async function getUserRole(serverId, userId) {
     .select('role')
     .eq('server_id', serverId)
     .eq('user_id', userId)
-    .single();
+    .maybeSingle();
   if (error) throw error;
+  if (!data) throw new ClientError('No eres miembro de este servidor.', 403);
   return data.role;
 }
 
@@ -142,9 +157,24 @@ async function getChannelServer(channelId) {
     .from('channels')
     .select('id, server_id')
     .eq('id', channelId)
-    .single();
+    .maybeSingle();
   if (error) throw error;
+  if (!data) throw new ClientError('Canal no encontrado.', 404);
   return data.server_id;
+}
+
+async function requireMemberByChannel(channelId, userId) {
+  const serverId = await getChannelServer(channelId);
+  const role = await getUserRole(serverId, userId);
+  return { serverId, role };
+}
+
+async function requireAdminOrOwner(serverId, userId) {
+  const role = await getUserRole(serverId, userId);
+  if (role !== 'owner' && role !== 'admin') {
+    throw new ClientError('Se requiere rol de administrador o propietario.', 403);
+  }
+  return role;
 }
 
 function defaultPermission(role, action) {
@@ -453,7 +483,7 @@ router.patch('/channels/:channelId', async (req, res) => {
       isArchived: z.boolean().optional(),
     }).parse(req.body);
     const serverId = await getChannelServer(params.channelId);
-    await requireMember(serverId, req.userId);
+    await requireAdminOrOwner(serverId, req.userId);
     const sb = getSupabaseAdmin();
     const patch = {};
     if (body.name !== undefined) patch.name = body.name;
@@ -496,7 +526,7 @@ router.patch('/servers/:serverId/members/:memberUserId/role', async (req, res) =
   try {
     const params = z.object({ serverId: idSchema, memberUserId: idSchema }).parse(req.params);
     const body = z.object({ role: roleSchema }).parse(req.body);
-    const requesterRole = await requireMember(params.serverId, req.userId);
+    const requesterRole = await requireAdminOrOwner(params.serverId, req.userId);
 
     const sb = getSupabaseAdmin();
     const { data: target, error: targetErr } = await sb
@@ -504,14 +534,17 @@ router.patch('/servers/:serverId/members/:memberUserId/role', async (req, res) =
       .select('role')
       .eq('server_id', params.serverId)
       .eq('user_id', params.memberUserId)
-      .single();
-    if (targetErr || !target) throw new Error('Miembro no encontrado.');
+      .maybeSingle();
+    if (targetErr || !target) throw new ClientError('Miembro no encontrado.', 404);
 
     if (body.role === 'owner' && requesterRole !== 'owner') {
-      throw new Error('Solo el propietario puede asignar el rol owner.');
+      throw new ClientError('Solo el propietario puede asignar el rol owner.', 403);
     }
     if (target.role === 'owner' && requesterRole !== 'owner') {
-      throw new Error('Solo el propietario puede cambiar el rol del propietario.');
+      throw new ClientError('Solo el propietario puede cambiar el rol del propietario.', 403);
+    }
+    if (requesterRole === 'admin' && (target.role === 'admin' || target.role === 'owner')) {
+      throw new ClientError('Un admin no puede cambiar el rol de otro admin o del propietario.', 403);
     }
 
     const { data, error } = await sb
@@ -550,6 +583,7 @@ router.get('/permissions/check', async (req, res) => {
 router.get('/channels/:channelId/permissions', async (req, res) => {
   try {
     const params = z.object({ channelId: idSchema }).parse(req.params);
+    await requireMemberByChannel(params.channelId, req.userId);
     const sb = getSupabaseAdmin();
     const { data, error } = await sb
       .from('channel_permissions')
@@ -577,7 +611,7 @@ router.patch('/channels/:channelId/permissions', async (req, res) => {
     }).parse(req.body);
 
     const serverId = await getChannelServer(params.channelId);
-    await requireMember(serverId, req.userId);
+    await requireAdminOrOwner(serverId, req.userId);
 
     const patch = {
       channel_id: params.channelId,
@@ -610,6 +644,7 @@ router.get('/messages/search', async (req, res) => {
       channelId: idSchema,
       q: z.string().min(1).max(100),
     }).parse(req.query);
+    await requireMemberByChannel(q.channelId, req.userId);
     const sb = getSupabaseAdmin();
     const { data, error } = await sb
       .from('messages')
@@ -630,6 +665,7 @@ router.get('/messages/search', async (req, res) => {
 router.get('/messages/:channelId', async (req, res) => {
   try {
     const params = z.object({ channelId: idSchema }).parse(req.params);
+    await requireMemberByChannel(params.channelId, req.userId);
     const before = req.query.before;
     const limit = Math.min(100, parseInt(req.query.limit, 10) || 50);
     const sb = getSupabaseAdmin();
@@ -694,10 +730,12 @@ router.post('/messages', async (req, res) => {
       mediaDurationMs: z.number().int().nonnegative().optional(),
     }).parse(req.body);
 
+    await requireMemberByChannel(body.channelId, req.userId);
+
     const text = (body.text || '').trim();
     const mediaSource = body.mediaUrl || body.mediaData;
     const hasMedia = Boolean(mediaSource);
-    if (!text && !hasMedia) throw new Error('Mensaje vacío.');
+    if (!text && !hasMedia) throw new ClientError('Mensaje vacío.');
     if (body.messageType !== 'text' && !hasMedia) throw new Error('Falta contenido multimedia.');
     if (body.mediaData && body.mediaData.length > 14_000_000) throw new Error('Media demasiado grande.');
 
@@ -917,6 +955,7 @@ router.post('/dm/:dmChannelId/messages', async (req, res) => {
 router.get('/messages/:channelId/thread/:parentId', async (req, res) => {
   try {
     const { channelId, parentId } = z.object({ channelId: idSchema, parentId: z.string().uuid() }).parse(req.params);
+    await requireMemberByChannel(channelId, req.userId);
     const sb = getSupabaseAdmin();
     const { data, error } = await sb.from('messages').select('id, channel_id, author_id, body, created_at, edited_at, message_type, media_data, media_name, media_duration_ms, parent_message_id').eq('channel_id', channelId).eq('parent_message_id', parentId).order('created_at', { ascending: true });
     if (error) throw error;

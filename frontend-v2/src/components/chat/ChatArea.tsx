@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { Hash, Loader2, Send } from 'lucide-react'
 import { useChannelMessages } from '@/hooks/useChannelMessages'
 import { apiPostJson } from '@/lib/api'
@@ -94,13 +94,28 @@ export function ChatArea({ channelId }: ChatAreaProps) {
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const isNearBottomRef = useRef(true)
 
   const activeChannel = channelId ? channels.find((c) => c.id === channelId) : undefined
   const channelName = activeChannel?.name?.trim() || 'canal'
 
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+  }, [])
+
   useLayoutEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, channelId])
+    if (isNearBottomRef.current) {
+      endRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [messages])
+
+  useLayoutEffect(() => {
+    isNearBottomRef.current = true
+    endRef.current?.scrollIntoView({ behavior: 'instant' })
+  }, [channelId])
 
   if (!channelId) {
     return (
@@ -133,6 +148,8 @@ export function ChatArea({ channelId }: ChatAreaProps) {
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
         className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3"
         role="log"
         aria-label="Mensajes del canal"

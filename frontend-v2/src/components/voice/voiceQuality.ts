@@ -39,15 +39,20 @@ export const cameraPublishOptions: TrackPublishOptions = {
 
 export const screenShareCaptureOptions: ScreenShareCaptureOptions = {
   video: true,
-  audio: true,
-  // Pedimos resolución nativa hasta 4K; el navegador la capa a la del monitor real.
+  // Audio del sistema sin filtros de voz: estéreo crudo para que música/vídeo suene natural.
+  audio: {
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false,
+    channelCount: 2,
+    sampleRate: 48000,
+    sampleSize: 16,
+  },
   resolution: {
     width: 3840,
     height: 2160,
     frameRate: 30,
   },
-  // 'detail' prioriza nitidez de texto/UI sobre fluidez; el encoder asigna más bits
-  // por frame para mantener bordes definidos incluso con contenido estático.
   contentHint: 'detail',
 }
 

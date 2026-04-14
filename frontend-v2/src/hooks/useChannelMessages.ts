@@ -154,6 +154,15 @@ export function useChannelMessages(channelId: string | null) {
           if (status === 'SUBSCRIBED') return
           if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
             console.warn('Realtime messages:', status, err ?? '')
+            void (async () => {
+              try {
+                const fresh = await apiGetJson<ChannelMessagesResponse>(
+                  `/api/messages/${channelId}?limit=50`,
+                  accessToken,
+                )
+                if (!cancelled) setMessages(fresh.messages ?? [])
+              } catch { /* silently retry on next event */ }
+            })()
           }
         })
       } catch (e) {

@@ -4,7 +4,8 @@ const path = require('path');
 const apiRouter = require('./routes/api');
 
 const app = express();
-// En Vercel el handler se empaqueta: __dirname no apunta al repo; cwd sí incluye includeFiles.
+app.set('trust proxy', 1);
+
 const rootDir =
   process.env.VERCEL === '1' ? process.cwd() : path.join(__dirname, '..');
 const frontendV2Dist = path.join(rootDir, 'frontend-v2', 'dist');
@@ -65,6 +66,14 @@ app.get('/dashboard', (_req, res) => {
 app.get(/.*/, (req, res, next) => {
   if (req.path.startsWith('/api')) return next();
   sendSpaOr503(res);
+});
+
+// eslint-disable-next-line no-unused-vars
+app.use((err, _req, res, _next) => {
+  console.error('Unhandled error:', err);
+  const status = err.statusCode || 500;
+  const message = status < 500 ? err.message : 'Error interno del servidor';
+  res.status(status).json({ error: message });
 });
 
 module.exports = app;

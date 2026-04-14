@@ -34,16 +34,18 @@ async function ensureProfile({ userId, username }) {
 async function ensureDefaultServer(userId) {
   const sb = getSupabaseAdmin();
 
-  const { data: existingMember } = await sb
+  const { data: existingMember, error: emErr } = await sb
     .from('server_members')
     .select('server_id, role')
     .eq('user_id', userId)
     .limit(1)
     .maybeSingle();
+  if (emErr) throw emErr;
 
   if (existingMember?.server_id) return existingMember.server_id;
 
-  const { data: anyServer } = await sb.from('servers').select('id').limit(1).maybeSingle();
+  const { data: anyServer, error: asErr } = await sb.from('servers').select('id').limit(1).maybeSingle();
+  if (asErr) throw asErr;
   let serverId = anyServer?.id;
 
   if (!serverId) {
@@ -67,11 +69,12 @@ async function ensureDefaultServer(userId) {
     if (channelError) throw channelError;
   }
 
-  const { data: currentMembers } = await sb
+  const { data: currentMembers, error: cmErr } = await sb
     .from('server_members')
     .select('user_id')
     .eq('server_id', serverId)
     .limit(1);
+  if (cmErr) throw cmErr;
 
   const role = currentMembers?.length ? 'member' : 'owner';
   const { error: memberError } = await sb

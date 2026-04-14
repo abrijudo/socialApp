@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { Loader2, Menu, Send, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useMobileNav } from '@/components/layout/MobileNavContext'
@@ -82,14 +82,29 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const isNearBottomRef = useRef(true)
 
   const peer = dmChannels.find((d) => d.id === dmChannelId)?.otherUser
   const peerLabel =
     peer?.display_name?.trim() || peer?.username || (peer ? `Usuario ${peer.user_id.slice(0, 6)}` : '')
 
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+  }, [])
+
   useLayoutEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, dmChannelId])
+    if (isNearBottomRef.current) {
+      endRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [messages])
+
+  useLayoutEffect(() => {
+    isNearBottomRef.current = true
+    endRef.current?.scrollIntoView({ behavior: 'instant' })
+  }, [dmChannelId])
 
   if (!dmChannelId) {
     return (
@@ -149,6 +164,8 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
 
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
           className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3"
           role="log"
           aria-label="Mensajes privados"

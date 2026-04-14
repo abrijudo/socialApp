@@ -45,7 +45,6 @@ export interface AppState {
   dmChannels: DmChannelSummary[]
   messages: ChannelMessage[]
   dmMessages: ChannelMessage[]
-  messagesLoading: boolean
   channelsLoading: boolean
   membersLoading: boolean
   initialBootDone: boolean
@@ -79,11 +78,8 @@ export interface AppActions {
   setDmChannels: (list: DmChannelSummary[]) => void
   setMessages: (messages: ChannelMessage[]) => void
   setDmMessages: (messages: ChannelMessage[]) => void
-  appendMessage: (message: ChannelMessage) => void
-  setMessagesLoading: (v: boolean) => void
   setChannelsLoading: (v: boolean) => void
   setMembersLoading: (v: boolean) => void
-  setInitialBootDone: (v: boolean) => void
   setOnlineUsers: (users: Record<string, 'online' | 'idle' | 'dnd'>) => void
   setVoiceChannelOccupants: (occupants: VoiceOccupantsByChannel) => void
   setLocalVoiceMuted: (muted: boolean) => void
@@ -113,7 +109,6 @@ const initialState: AppState = {
   dmChannels: [],
   messages: [],
   dmMessages: [],
-  messagesLoading: false,
   channelsLoading: false,
   membersLoading: false,
   initialBootDone: false,
@@ -247,7 +242,10 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
       activeTextChannelId: pickDefaultTextChannelId(channels),
       activeVoiceChannelId: null,
       activeDmChannelId: null,
+      messages: [],
       dmMessages: [],
+      dmChannels: [],
+      voiceChannelOccupants: {},
       onlineUsers: {},
       localVoiceMuted: true,
       localCameraEnabled: false,
@@ -277,15 +275,8 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
   setMessages: (messages) => set({ messages }),
   setDmMessages: (dmMessages) => set({ dmMessages }),
 
-  appendMessage: (message) =>
-    set((s) => ({
-      messages: [...s.messages, message],
-    })),
-
-  setMessagesLoading: (messagesLoading) => set({ messagesLoading }),
   setChannelsLoading: (channelsLoading) => set({ channelsLoading }),
   setMembersLoading: (membersLoading) => set({ membersLoading }),
-  setInitialBootDone: (initialBootDone) => set({ initialBootDone }),
 
   setOnlineUsers: (onlineUsers) => set({ onlineUsers }),
 
@@ -303,6 +294,7 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
   pruneDeletedChannel: (channelId) =>
     set((s) => ({
       channels: s.channels.filter((c) => c.id !== channelId),
+      messages: s.activeTextChannelId === channelId ? [] : s.messages,
       activeTextChannelId: s.activeTextChannelId === channelId ? null : s.activeTextChannelId,
       activeVoiceChannelId: s.activeVoiceChannelId === channelId ? null : s.activeVoiceChannelId,
     })),
