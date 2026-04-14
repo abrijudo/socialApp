@@ -224,10 +224,14 @@ export function VideoStage() {
         : '[&_video]:h-full [&_video]:w-full [&_video]:object-cover [&_canvas]:h-full [&_canvas]:w-full [&_canvas]:object-cover'
       : ''
 
+    const hideLkOverlayClass = showControls
+      ? '[&_.lk-participant-metadata]:opacity-100 [&_.lk-participant-metadata]:transition-opacity [&_.lk-participant-metadata]:duration-200'
+      : '[&_.lk-participant-metadata]:opacity-0 [&_.lk-participant-metadata]:pointer-events-none [&_.lk-participant-metadata]:transition-opacity [&_.lk-participant-metadata]:duration-200'
+
     return (
       <div
         key={key}
-        className={`${outerClass} ${immersiveMediaFitClass} lk-stage-tile`}
+        className={`${outerClass} ${immersiveMediaFitClass} ${hideLkOverlayClass} lk-stage-tile`}
         onMouseMove={() => {
           if (isTouchDevice) return
           showControlsFor(key, 900)
