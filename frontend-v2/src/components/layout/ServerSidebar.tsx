@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { useMemo, useState } from 'react'
-import { Hash, Plus, UserPlus, Volume2 } from 'lucide-react'
+import { Hash, MicOff, Plus, UserPlus, Volume2 } from 'lucide-react'
 import { CreateChannelModal } from '@/components/modals/CreateChannelModal'
 import { InviteModal } from '@/components/modals/InviteModal'
 import { Button } from '@/components/ui/button'
@@ -239,6 +239,12 @@ export function ServerSidebar({ voicePanel }: ServerSidebarProps) {
                                   )}
                                 </div>
                                 <span className="min-w-0 truncate">{displayName}</span>
+                                {u.isMuted ? (
+                                  <MicOff
+                                    className="text-muted-foreground size-3.5 shrink-0 opacity-90"
+                                    aria-label="Usuario muteado"
+                                  />
+                                ) : null}
                                 {isSelf ? (
                                   <span className="text-primary/90 shrink-0 text-[10px] font-semibold uppercase">
                                     tú

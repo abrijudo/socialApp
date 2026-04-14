@@ -56,6 +56,8 @@ export interface AppState {
   onlineUsers: Record<string, 'online' | 'idle' | 'dnd'>
   /** Usuarios conectados por canal de voz (Supabase Presence `global_voice_presence`). */
   voiceChannelOccupants: VoiceOccupantsByChannel
+  /** Estado local del micro para difundir mute en Presence de voz. */
+  localVoiceMuted: boolean
   /** Panel de vídeo (escenario) visible cuando hay pistas de cámara/pantalla. */
   isVideoStageOpen: boolean
 }
@@ -78,6 +80,7 @@ export interface AppActions {
   setInitialBootDone: (v: boolean) => void
   setOnlineUsers: (users: Record<string, 'online' | 'idle' | 'dnd'>) => void
   setVoiceChannelOccupants: (occupants: VoiceOccupantsByChannel) => void
+  setLocalVoiceMuted: (muted: boolean) => void
   setIsVideoStageOpen: (open: boolean) => void
   resetApp: () => void
   /** Quita un canal de la lista y limpia selección si era el activo (p. ej. DELETE en tiempo real). */
@@ -110,6 +113,7 @@ const initialState: AppState = {
   needsUsername: false,
   onlineUsers: {},
   voiceChannelOccupants: {},
+  localVoiceMuted: true,
   isVideoStageOpen: true,
 }
 
@@ -266,6 +270,8 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
   setOnlineUsers: (onlineUsers) => set({ onlineUsers }),
 
   setVoiceChannelOccupants: (voiceChannelOccupants) => set({ voiceChannelOccupants }),
+
+  setLocalVoiceMuted: (localVoiceMuted) => set({ localVoiceMuted }),
 
   setIsVideoStageOpen: (isVideoStageOpen) => set({ isVideoStageOpen }),
 

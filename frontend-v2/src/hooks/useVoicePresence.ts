@@ -39,6 +39,7 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
   const usernameFromProfile = useAppStore((s) => s.profile?.username)
   const usernameFallback = useAppStore((s) => s.username)
   const activeVoiceChannelId = useAppStore((s) => s.activeVoiceChannelId)
+  const localVoiceMuted = useAppStore((s) => s.localVoiceMuted)
   const setVoiceChannelOccupants = useAppStore((s) => s.setVoiceChannelOccupants)
   const occupants = useAppStore((s) => s.voiceChannelOccupants)
 
@@ -109,6 +110,7 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
               user_id: s.userId,
               username: un,
               voiceChannelId: s.activeVoiceChannelId,
+              muted: s.localVoiceMuted === true,
             })
             flushPresence()
           }
@@ -149,6 +151,7 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
         user_id: s.userId,
         username: un,
         voiceChannelId: s.activeVoiceChannelId,
+        muted: s.localVoiceMuted === true,
       })
       presenceRef.current = pushVoicePresence(ch)
       flushMerged()
@@ -159,6 +162,7 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
     usernameFromProfile,
     usernameFallback,
     activeVoiceChannelId,
+    localVoiceMuted,
     setVoiceChannelOccupants,
   ])
 
@@ -176,7 +180,7 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
 
     if (activeVoiceChannelId) {
       localSelfRef.current = {
-        [activeVoiceChannelId]: [{ userId, username }],
+        [activeVoiceChannelId]: [{ userId, username, isMuted: localVoiceMuted }],
       }
     } else {
       localSelfRef.current = {}
@@ -188,6 +192,7 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
     usernameFromProfile,
     usernameFallback,
     activeVoiceChannelId,
+    localVoiceMuted,
     setVoiceChannelOccupants,
   ])
 

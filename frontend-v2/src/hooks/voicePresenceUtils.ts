@@ -21,8 +21,9 @@ export function presenceRowsToByChannel(
       typeof row.username === 'string' && row.username.trim().length > 0
         ? row.username.trim()
         : userId.slice(0, 8)
+    const isMuted = row.muted === true
     if (!byChannel[vid]) byChannel[vid] = []
-    byChannel[vid].push({ userId, username })
+    byChannel[vid].push({ userId, username, isMuted })
   }
   for (const id of Object.keys(byChannel)) {
     const list = byChannel[id]
@@ -47,9 +48,9 @@ export function normalizeSnapshot(byChannelRaw: VoiceParticipantsSnapshot['byCha
         const userId = String(row?.identity || '').trim()
         if (!userId) return null
         const username = String(row?.name || row?.identity || '').trim() || userId.slice(0, 8)
-        return { userId, username }
+        return { userId, username, isMuted: false }
       })
-      .filter((v): v is { userId: string; username: string } => v != null)
+      .filter((v): v is { userId: string; username: string; isMuted: boolean } => v != null)
     if (mapped.length > 0) out[channelId] = mapped
   }
   return out
@@ -62,7 +63,7 @@ export function mergeOccupants(
   const out: VoiceOccupantsByChannel = {}
   const assignmentByUser = new Map<
     string,
-    { channelId: string; username: string; priority: 1 | 2 }
+    { channelId: string; username: string; isMuted?: boolean; priority: 1 | 2 }
   >()
 
   const assign = (map: VoiceOccupantsByChannel, priority: 1 | 2) => {
@@ -75,6 +76,7 @@ export function mergeOccupants(
           assignmentByUser.set(u.userId, {
             channelId,
             username: u.username,
+            isMuted: u.isMuted,
             priority,
           })
         }
@@ -88,7 +90,11 @@ export function mergeOccupants(
 
   for (const [userId, assignment] of assignmentByUser.entries()) {
     if (!out[assignment.channelId]) out[assignment.channelId] = []
-    out[assignment.channelId].push({ userId, username: assignment.username })
+    out[assignment.channelId].push({
+      userId,
+      username: assignment.username,
+      isMuted: assignment.isMuted,
+    })
   }
 
   for (const id of Object.keys(out)) {

@@ -28,6 +28,7 @@ export function VoiceControlBar({ className }: { className?: string }) {
   } = useLocalParticipant();
   const room = useRoomContext();
   const setActiveVoiceChannelId = useAppStore((s) => s.setActiveVoiceChannelId);
+  const setLocalVoiceMuted = useAppStore((s) => s.setLocalVoiceMuted);
 
   // HOOK OFICIAL DE LIVEKIT (Maneja todo el estado y la inicialización de forma segura)
   const { isNoiseFilterEnabled, setNoiseFilterEnabled, isNoiseFilterPending } = useKrispNoiseFilter({
@@ -49,6 +50,7 @@ export function VoiceControlBar({ className }: { className?: string }) {
   const enableAiNoiseSuppression = useCallback(async () => {
     if (!isMicrophoneEnabled) {
       await localParticipant.setMicrophoneEnabled(true, microphoneCaptureOptions);
+      setLocalVoiceMuted(false);
     }
     const isMicReady = await waitForMicPublication();
     if (!isMicReady) {
@@ -58,6 +60,7 @@ export function VoiceControlBar({ className }: { className?: string }) {
   }, [
     isMicrophoneEnabled,
     localParticipant,
+    setLocalVoiceMuted,
     setNoiseFilterEnabled,
     waitForMicPublication,
   ]);
@@ -87,7 +90,9 @@ export function VoiceControlBar({ className }: { className?: string }) {
 
   const toggleMicrophone = async () => {
     try {
-      await localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled, microphoneCaptureOptions);
+      const nextMicEnabled = !isMicrophoneEnabled;
+      await localParticipant.setMicrophoneEnabled(nextMicEnabled, microphoneCaptureOptions);
+      setLocalVoiceMuted(!nextMicEnabled);
     } catch (e) {
       console.warn('Error al alternar micrófono', e);
     }
@@ -186,6 +191,7 @@ export function VoiceControlBar({ className }: { className?: string }) {
         onClick={() => {
           room.disconnect();
           setActiveVoiceChannelId(null);
+          setLocalVoiceMuted(true);
         }}
         title="Colgar"
       >

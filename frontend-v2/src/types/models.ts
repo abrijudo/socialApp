@@ -81,6 +81,7 @@ export type PresencePayload = {
 export type VoiceChannelOccupant = {
   userId: string
   username: string
+  isMuted?: boolean
 }
 
 export type VoiceOccupantsByChannel = Record<string, VoiceChannelOccupant[]>
@@ -89,6 +90,7 @@ export type VoicePresenceRow = {
   user_id?: string
   username?: string
   voiceChannelId?: string | null
+  muted?: boolean
 }
 
 export type VoiceParticipantsSnapshot = {
