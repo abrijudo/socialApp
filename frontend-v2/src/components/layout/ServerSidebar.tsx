@@ -35,6 +35,7 @@ export function ServerSidebar({ voicePanel }: ServerSidebarProps) {
   const livekitSpeakers = useAppStore((s) => s.livekitSpeakers)
   const channelsLoading = useAppStore((s) => s.channelsLoading)
   const voiceChannelOccupants = useAppStore((s) => s.voiceChannelOccupants)
+  const unreadCounts = useAppStore((s) => s.unreadCounts)
 
   const [isCreateChannelOpen, setIsCreateChannelOpen] = useState(false)
   const [channelTypeToCreate, setChannelTypeToCreate] = useState<'text' | 'voice'>('text')
@@ -128,6 +129,7 @@ export function ServerSidebar({ voicePanel }: ServerSidebarProps) {
               <ul className="space-y-px">
                 {textChannels.map((ch) => {
                   const active = ch.id === activeTextChannelId
+                  const unread = unreadCounts[ch.id] ?? 0
                   return (
                     <li key={ch.id}>
                       <button
@@ -137,14 +139,21 @@ export function ServerSidebar({ voicePanel }: ServerSidebarProps) {
                           closeNavSheet()
                         }}
                         className={cn(
-                          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-medium transition-colors duration-200 ease-in-out',
+                          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors duration-200 ease-in-out',
                           active
-                            ? 'bg-background/80 text-foreground'
-                            : 'text-muted-foreground hover:bg-background/40 hover:text-foreground',
+                            ? 'bg-background/80 text-foreground font-medium'
+                            : unread > 0
+                              ? 'text-foreground font-bold hover:bg-background/40'
+                              : 'text-muted-foreground font-medium hover:bg-background/40 hover:text-foreground',
                         )}
                       >
                         <Hash className="size-4 shrink-0 opacity-70" aria-hidden />
-                        <span className="truncate">{ch.name}</span>
+                        <span className="min-w-0 flex-1 truncate">{ch.name}</span>
+                        {unread > 0 && !active ? (
+                          <span className="bg-primary text-primary-foreground flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold">
+                            {unread > 99 ? '99+' : unread}
+                          </span>
+                        ) : null}
                       </button>
                     </li>
                   )

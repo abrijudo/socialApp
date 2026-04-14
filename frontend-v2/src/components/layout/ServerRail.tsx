@@ -1,6 +1,7 @@
 import { MessageCircle } from 'lucide-react'
 import { useMobileNav } from '@/components/layout/MobileNavContext'
 import { cn } from '@/lib/utils'
+import { useAppStore } from '@/store/useAppStore'
 import type { Server } from '@/types/models'
 
 function serverInitials(name: string): string {
@@ -30,6 +31,14 @@ export function ServerRail({
   className,
 }: ServerRailProps) {
   const mobile = useMobileNav()
+  const unreadCounts = useAppStore((s) => s.unreadCounts)
+  const channels = useAppStore((s) => s.channels)
+
+  const serverHasUnread = (serverId: string) => {
+    return channels.some(
+      (ch) => ch.server_id === serverId && (unreadCounts[ch.id] ?? 0) > 0,
+    )
+  }
 
   return (
     <aside
@@ -65,24 +74,29 @@ export function ServerRail({
 
         {servers.map((srv) => {
           const active = srv.id === activeServerId
+          const hasUnread = !active && serverHasUnread(srv.id)
           return (
-            <button
-              key={srv.id}
-              type="button"
-              title={srv.name}
-              onClick={() => {
-                onSelectServer(srv.id)
-                mobile?.setNavSheetOpen(false)
-              }}
-              className={cn(
-                'flex size-12 shrink-0 items-center justify-center rounded-[20px] text-xs font-semibold transition-colors',
-                active
-                  ? 'bg-primary text-primary-foreground ring-2 ring-ring'
-                  : 'bg-muted text-muted-foreground hover:bg-muted/80',
-              )}
-            >
-              {serverInitials(srv.name)}
-            </button>
+            <div key={srv.id} className="relative">
+              <button
+                type="button"
+                title={srv.name}
+                onClick={() => {
+                  onSelectServer(srv.id)
+                  mobile?.setNavSheetOpen(false)
+                }}
+                className={cn(
+                  'flex size-12 shrink-0 items-center justify-center rounded-[20px] text-xs font-semibold transition-colors',
+                  active
+                    ? 'bg-primary text-primary-foreground ring-2 ring-ring'
+                    : 'bg-muted text-muted-foreground hover:bg-muted/80',
+                )}
+              >
+                {serverInitials(srv.name)}
+              </button>
+              {hasUnread ? (
+                <span className="bg-primary absolute -top-0.5 -right-0.5 size-3 rounded-full ring-2 ring-card" />
+              ) : null}
+            </div>
           )
         })}
         {servers.length === 0 && (

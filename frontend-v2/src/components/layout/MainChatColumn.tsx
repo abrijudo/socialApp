@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { Hash, Menu, Users } from 'lucide-react'
 import { ChatArea } from '@/components/chat/ChatArea'
 import { useMobileNav } from '@/components/layout/MobileNavContext'
+import { UserProfilePopup } from '@/components/modals/UserProfilePopup'
 import { Button } from '@/components/ui/button'
 import { useAppStore } from '@/store/useAppStore'
 import type { Channel } from '@/types/models'
@@ -53,6 +55,7 @@ export function MainChatColumnPlain() {
   const activeTextChannelId = useAppStore((s) => s.activeTextChannelId)
   const channels = useAppStore((s) => s.channels)
   const activeChannel = channels.find((c) => c.id === activeTextChannelId)
+  const [profileUserId, setProfileUserId] = useState<string | null>(null)
 
   return (
     <main
@@ -60,7 +63,14 @@ export function MainChatColumnPlain() {
       aria-label="Contenido principal"
     >
       <ChannelHeader activeChannel={activeChannel} />
-      <ChatArea channelId={activeTextChannelId} />
+      <ChatArea channelId={activeTextChannelId} onAuthorClick={setProfileUserId} />
+      {profileUserId ? (
+        <UserProfilePopup
+          open
+          onOpenChange={(open) => { if (!open) setProfileUserId(null) }}
+          userId={profileUserId}
+        />
+      ) : null}
     </main>
   )
 }

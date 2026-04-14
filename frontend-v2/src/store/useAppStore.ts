@@ -67,6 +67,8 @@ export interface AppState {
   livekitSpeakers: Record<string, boolean>
   /** Panel de vídeo (escenario) visible cuando hay pistas de cámara/pantalla. */
   isVideoStageOpen: boolean
+  unreadCounts: Record<string, number>
+  lastReadTimestamps: Record<string, string>
 }
 
 export interface AppActions {
@@ -80,6 +82,10 @@ export interface AppActions {
   setDmChannels: (list: DmChannelSummary[]) => void
   setMessages: (messages: ChannelMessage[]) => void
   setDmMessages: (messages: ChannelMessage[]) => void
+  updateMessage: (id: string, patch: Partial<ChannelMessage>) => void
+  removeMessage: (id: string) => void
+  updateDmMessage: (id: string, patch: Partial<ChannelMessage>) => void
+  removeDmMessage: (id: string) => void
   setChannelsLoading: (v: boolean) => void
   setMembersLoading: (v: boolean) => void
   setOnlineUsers: (users: Record<string, 'online' | 'idle' | 'dnd'>) => void
@@ -90,6 +96,8 @@ export interface AppActions {
   setLocalVoiceSpeaking: (speaking: boolean) => void
   setLivekitSpeakers: (speakers: Record<string, boolean>) => void
   setIsVideoStageOpen: (open: boolean) => void
+  markChannelAsRead: (channelId: string) => void
+  incrementUnread: (channelId: string) => void
   resetApp: () => void
   /** Quita un canal de la lista y limpia selección si era el activo (p. ej. DELETE en tiempo real). */
   pruneDeletedChannel: (channelId: string) => void
@@ -126,6 +134,25 @@ const initialState: AppState = {
   localVoiceSpeaking: false,
   livekitSpeakers: {},
   isVideoStageOpen: true,
+  unreadCounts: {},
+  lastReadTimestamps: loadLastReadTimestamps(),
+}
+
+function loadLastReadTimestamps(): Record<string, string> {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('sc_last_read') : null
+    return raw ? (JSON.parse(raw) as Record<string, string>) : {}
+  } catch {
+    return {}
+  }
+}
+
+function persistLastReadTimestamps(ts: Record<string, string>) {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('sc_last_read', JSON.stringify(ts))
+    }
+  } catch { /* quota exceeded or unavailable */ }
 }
 
 function pickDefaultTextChannelId(channels: Channel[]): string | null {
@@ -260,25 +287,37 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
     })
   },
 
-  setActiveTextChannelId: (activeTextChannelId) =>
+  setActiveTextChannelId: (activeTextChannelId) => {
     set({
       activeTextChannelId,
       ...(activeTextChannelId != null ? { activeDmChannelId: null } : {}),
-    }),
+    })
+    if (activeTextChannelId) get().markChannelAsRead(activeTextChannelId)
+  },
   setActiveVoiceChannelId: (activeVoiceChannelId) => set({ activeVoiceChannelId }),
   setActiveServerId: (activeServerId) =>
     set({
       activeServerId,
       ...(activeServerId != null ? { activeDmChannelId: null } : {}),
     }),
-  setActiveDmChannelId: (activeDmChannelId) =>
+  setActiveDmChannelId: (activeDmChannelId) => {
     set({
       activeDmChannelId,
       ...(activeDmChannelId != null ? { activeTextChannelId: null } : {}),
-    }),
+    })
+    if (activeDmChannelId) get().markChannelAsRead(activeDmChannelId)
+  },
   setDmChannels: (dmChannels) => set({ dmChannels }),
   setMessages: (messages) => set({ messages }),
   setDmMessages: (dmMessages) => set({ dmMessages }),
+  updateMessage: (id, patch) =>
+    set((s) => ({ messages: s.messages.map((m) => (m.id === id ? { ...m, ...patch } : m)) })),
+  removeMessage: (id) =>
+    set((s) => ({ messages: s.messages.filter((m) => m.id !== id) })),
+  updateDmMessage: (id, patch) =>
+    set((s) => ({ dmMessages: s.dmMessages.map((m) => (m.id === id ? { ...m, ...patch } : m)) })),
+  removeDmMessage: (id) =>
+    set((s) => ({ dmMessages: s.dmMessages.filter((m) => m.id !== id) })),
 
   setChannelsLoading: (channelsLoading) => set({ channelsLoading }),
   setMembersLoading: (membersLoading) => set({ membersLoading }),
@@ -294,6 +333,19 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
 
   setLivekitSpeakers: (livekitSpeakers) => set({ livekitSpeakers }),
   setIsVideoStageOpen: (isVideoStageOpen) => set({ isVideoStageOpen }),
+
+  markChannelAsRead: (channelId) =>
+    set((s) => {
+      const ts = { ...s.lastReadTimestamps, [channelId]: new Date().toISOString() }
+      persistLastReadTimestamps(ts)
+      const counts = { ...s.unreadCounts }
+      delete counts[channelId]
+      return { unreadCounts: counts, lastReadTimestamps: ts }
+    }),
+  incrementUnread: (channelId) =>
+    set((s) => ({
+      unreadCounts: { ...s.unreadCounts, [channelId]: (s.unreadCounts[channelId] ?? 0) + 1 },
+    })),
 
   resetApp: () => set(initialState),
 

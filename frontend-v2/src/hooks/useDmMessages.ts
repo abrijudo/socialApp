@@ -139,6 +139,10 @@ export function useDmMessages(dmChannelId: string | null) {
                 const preview =
                   msg.body.length > 160 ? `${msg.body.slice(0, 157)}…` : msg.body
                 toast('Nuevo mensaje privado', { description: preview })
+                const state = useAppStore.getState()
+                if (dmChannelId !== state.activeDmChannelId) {
+                  state.incrementUnread(dmChannelId)
+                }
               }
             },
           )
@@ -158,9 +162,7 @@ export function useDmMessages(dmChannelId: string | null) {
               const authorId = String(row.author_id)
               const profile = profileForDmAuthor(dmChannelId, authorId)
               const msg = rowToMessage(row, profile, dmChannelId)
-              useAppStore.setState((state) => ({
-                dmMessages: state.dmMessages.map((m) => (m.id === msg.id ? { ...m, ...msg } : m)),
-              }))
+              useAppStore.getState().updateDmMessage(String(row.id), msg)
             },
           )
           .on(
@@ -174,9 +176,7 @@ export function useDmMessages(dmChannelId: string | null) {
             (payload) => {
               const oldRow = payload.old as { id?: string }
               if (!oldRow?.id) return
-              useAppStore.setState((state) => ({
-                dmMessages: state.dmMessages.filter((m) => m.id !== oldRow.id),
-              }))
+              useAppStore.getState().removeDmMessage(oldRow.id)
             },
           )
 

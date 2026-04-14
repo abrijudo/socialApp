@@ -1,9 +1,10 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useTracks } from '@livekit/components-react'
 import { Track } from 'livekit-client'
 import { PanelBottom, PanelTop } from 'lucide-react'
 import { ChatArea } from '@/components/chat/ChatArea'
 import { ChannelHeader } from '@/components/layout/MainChatColumn'
+import { UserProfilePopup } from '@/components/modals/UserProfilePopup'
 import { VideoStage } from '@/components/voice/VideoStage'
 import { Button } from '@/components/ui/button'
 import { useAppStore } from '@/store/useAppStore'
@@ -28,6 +29,7 @@ export function MainChatColumnLive() {
   )
   const hasAnyVideo = videoTracks.length > 0
 
+  const [profileUserId, setProfileUserId] = useState<string | null>(null)
   const split = Boolean(activeVoiceChannelId) && isVideoStageOpen
   const inVoice = Boolean(activeVoiceChannelId)
 
@@ -78,14 +80,21 @@ export function MainChatColumnLive() {
             </div>
           </div>
           <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col">
-            <ChatArea channelId={activeTextChannelId} />
+            <ChatArea channelId={activeTextChannelId} onAuthorClick={setProfileUserId} />
           </div>
         </>
       ) : (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <ChatArea channelId={activeTextChannelId} />
+          <ChatArea channelId={activeTextChannelId} onAuthorClick={setProfileUserId} />
         </div>
       )}
+      {profileUserId ? (
+        <UserProfilePopup
+          open
+          onOpenChange={(open) => { if (!open) setProfileUserId(null) }}
+          userId={profileUserId}
+        />
+      ) : null}
     </main>
   )
 }

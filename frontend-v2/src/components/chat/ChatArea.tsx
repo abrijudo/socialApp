@@ -1,69 +1,17 @@
 import { useCallback, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { Hash, Loader2, Send } from 'lucide-react'
 import { useChannelMessages } from '@/hooks/useChannelMessages'
+import { useTypingIndicator } from '@/hooks/useTypingIndicator'
 import { apiPostJson } from '@/lib/api'
-import { formatMessageTime } from '@/lib/formatMessageTime'
-import { cn } from '@/lib/utils'
+import { MessageItem } from '@/components/chat/MessageItem'
 import { MessageSkeleton } from '@/components/chat/MessageSkeleton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAppStore } from '@/store/useAppStore'
-import type { ChannelMessage } from '@/types/models'
-
-function authorInitials(msg: ChannelMessage): string {
-  const p = msg.profiles
-  const label = p?.display_name || p?.username || msg.author_id.slice(0, 6)
-  const t = label.trim()
-  if (!t) return '?'
-  const parts = t.split(/\s+/).filter(Boolean)
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[1][0]).toUpperCase().slice(0, 2)
-  }
-  return t.slice(0, 2).toUpperCase()
-}
-
-function authorName(msg: ChannelMessage): string {
-  return (
-    msg.profiles?.display_name || msg.profiles?.username || `Usuario ${msg.author_id.slice(0, 6)}`
-  )
-}
-
-function looksLikeImageUrl(text: string): boolean {
-  if (!/^https?:\/\//i.test(text)) return false
-  try {
-    const u = new URL(text)
-    return /\.(png|jpe?g|gif|webp|avif)$/i.test(u.pathname.split('?')[0] ?? '')
-  } catch {
-    return false
-  }
-}
-
-function MessageAttachment({ msg }: { msg: ChannelMessage }) {
-  const fromMedia =
-    msg.media_data && msg.media_mime?.startsWith('image/') ? msg.media_data : null
-  const fromBody =
-    !fromMedia && msg.body.trim() && looksLikeImageUrl(msg.body.trim()) ? msg.body.trim() : null
-  const src = fromMedia || fromBody
-  if (!src) return null
-  return (
-    <a
-      href={src}
-      target="_blank"
-      rel="noreferrer"
-      className="border-border/50 bg-muted/20 mt-2 block max-w-md overflow-hidden rounded-xl border"
-    >
-      <img
-        src={src}
-        alt=""
-        className="max-h-80 w-full object-contain"
-        loading="lazy"
-      />
-    </a>
-  )
-}
 
 export interface ChatAreaProps {
   channelId: string | null
+  onAuthorClick?: (authorId: string) => void
 }
 
 function ChannelEmptyWelcome({ channelName }: { channelName: string }) {
@@ -85,11 +33,12 @@ function ChannelEmptyWelcome({ channelName }: { channelName: string }) {
   )
 }
 
-export function ChatArea({ channelId }: ChatAreaProps) {
+export function ChatArea({ channelId, onAuthorClick }: ChatAreaProps) {
   const messages = useAppStore((s) => s.messages)
   const channels = useAppStore((s) => s.channels)
   const accessToken = useAppStore((s) => s.accessToken)
   const { isLoading } = useChannelMessages(channelId)
+  const { typingUsers, reportTyping } = useTypingIndicator(channelId)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
@@ -168,52 +117,24 @@ export function ChatArea({ channelId }: ChatAreaProps) {
           <ChannelEmptyWelcome channelName={channelName} />
         ) : (
           <ul className="space-y-px">
-            {messages.map((msg) => {
-              const bodyIsOnlyImageUrl =
-                msg.body.trim() && looksLikeImageUrl(msg.body.trim()) && !msg.media_data
-              return (
-                <li key={msg.id}>
-                  <article className="flex gap-2 rounded-md px-2 py-1.5 transition-colors duration-200 ease-in-out hover:bg-foreground/[0.04]">
-                    <div
-                      className={cn(
-                        'flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
-                        'bg-primary/12 text-primary',
-                      )}
-                      aria-hidden
-                    >
-                      {authorInitials(msg)}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <header className="flex flex-wrap items-baseline gap-x-2 gap-y-0">
-                        <span className="text-foreground text-sm font-medium">{authorName(msg)}</span>
-                        <time
-                          className="text-muted-foreground text-xs"
-                          dateTime={msg.created_at}
-                          title={new Date(msg.created_at).toLocaleString('es')}
-                        >
-                          {formatMessageTime(msg.created_at)}
-                        </time>
-                        {msg.edited_at ? (
-                          <span className="text-muted-foreground text-[11px]">(editado)</span>
-                        ) : null}
-                      </header>
-                      {bodyIsOnlyImageUrl ? null : (
-                        <p className="text-foreground mt-0.5 whitespace-pre-wrap break-words text-sm">
-                          {msg.body}
-                        </p>
-                      )}
-                      <MessageAttachment msg={msg} />
-                    </div>
-                  </article>
-                </li>
-              )
-            })}
+            {messages.map((msg) => (
+              <li key={msg.id}>
+                <MessageItem msg={msg} onAuthorClick={onAuthorClick} />
+              </li>
+            ))}
           </ul>
         )}
         <div ref={endRef} aria-hidden />
       </div>
 
       <div className="border-border bg-background shrink-0 border-t p-3">
+        {typingUsers.length > 0 ? (
+          <p className="text-muted-foreground mb-1 truncate text-xs animate-pulse">
+            {typingUsers.length === 1
+              ? `${typingUsers[0].username || 'Alguien'} está escribiendo…`
+              : `${typingUsers.map((u) => u.username || 'Alguien').join(', ')} están escribiendo…`}
+          </p>
+        ) : null}
         {sendError ? (
           <p className="text-destructive mb-2 text-xs" role="alert">
             {sendError}
@@ -225,7 +146,10 @@ export function ChatArea({ channelId }: ChatAreaProps) {
               className="h-9 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
               placeholder="Escribir en el canal…"
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => {
+                setDraft(e.target.value)
+                reportTyping()
+              }}
               maxLength={1000}
               disabled={sending || !accessToken}
               autoComplete="off"

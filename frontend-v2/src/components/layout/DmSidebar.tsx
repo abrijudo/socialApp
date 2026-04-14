@@ -44,6 +44,7 @@ export function DmSidebar() {
   const profile = useAppStore((s) => s.profile)
   const dmChannels = useAppStore((s) => s.dmChannels)
   const activeDmChannelId = useAppStore((s) => s.activeDmChannelId)
+  const unreadCounts = useAppStore((s) => s.unreadCounts)
   const setDmChannels = useAppStore((s) => s.setDmChannels)
   const setActiveDmChannelId = useAppStore((s) => s.setActiveDmChannelId)
   const [listLoading, setListLoading] = useState(false)
@@ -136,6 +137,7 @@ export function DmSidebar() {
           <ul className="space-y-0.5">
             {dmChannels.map((dm) => {
               const active = dm.id === activeDmChannelId
+              const unread = unreadCounts[dm.id] ?? 0
               return (
                 <li key={dm.id}>
                   <button
@@ -148,7 +150,9 @@ export function DmSidebar() {
                       'flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors duration-200 ease-in-out',
                       active
                         ? 'bg-muted text-foreground font-medium'
-                        : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                        : unread > 0
+                          ? 'text-foreground font-bold hover:bg-muted/60'
+                          : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
                     )}
                   >
                     <div
@@ -157,7 +161,12 @@ export function DmSidebar() {
                     >
                       {otherInitials(dm)}
                     </div>
-                    <span className="truncate">{otherName(dm)}</span>
+                    <span className="min-w-0 flex-1 truncate">{otherName(dm)}</span>
+                    {unread > 0 && !active ? (
+                      <span className="bg-primary text-primary-foreground flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold">
+                        {unread > 99 ? '99+' : unread}
+                      </span>
+                    ) : null}
                   </button>
                 </li>
               )

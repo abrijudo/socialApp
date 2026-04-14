@@ -1,33 +1,14 @@
 import { useCallback, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { Loader2, Menu, Send, User } from 'lucide-react'
-import { cn } from '@/lib/utils'
 import { useMobileNav } from '@/components/layout/MobileNavContext'
+import { MessageItem } from '@/components/chat/MessageItem'
 import { MessageSkeleton } from '@/components/chat/MessageSkeleton'
 import { Button } from '@/components/ui/button'
 import { useDmMessages } from '@/hooks/useDmMessages'
+import { useTypingIndicator } from '@/hooks/useTypingIndicator'
 import { apiPostJson } from '@/lib/api'
-import { formatMessageTime } from '@/lib/formatMessageTime'
 import { Input } from '@/components/ui/input'
 import { useAppStore } from '@/store/useAppStore'
-import type { ChannelMessage } from '@/types/models'
-
-function authorInitials(msg: ChannelMessage): string {
-  const p = msg.profiles
-  const label = p?.display_name || p?.username || msg.author_id.slice(0, 6)
-  const t = label.trim()
-  if (!t) return '?'
-  const parts = t.split(/\s+/).filter(Boolean)
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[1][0]).toUpperCase().slice(0, 2)
-  }
-  return t.slice(0, 2).toUpperCase()
-}
-
-function authorName(msg: ChannelMessage): string {
-  return (
-    msg.profiles?.display_name || msg.profiles?.username || `Usuario ${msg.author_id.slice(0, 6)}`
-  )
-}
 
 function peerWelcomeInitials(displayName: string, username: string | undefined): string {
   const label = displayName.trim() || username || '?'
@@ -78,6 +59,7 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
   const dmChannels = useAppStore((s) => s.dmChannels)
   const messages = useAppStore((s) => s.dmMessages)
   const { isLoading, appendFromPostResponse } = useDmMessages(dmChannelId)
+  const { typingUsers, reportTyping } = useTypingIndicator(dmChannelId)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
@@ -189,37 +171,7 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
             <ul className="space-y-px">
               {messages.map((msg) => (
                 <li key={msg.id}>
-              <article
-                className="flex gap-2 rounded-md px-2 py-1.5 transition-colors duration-200 ease-in-out hover:bg-foreground/[0.04]"
-              >
-                <div
-                  className={cn(
-                    'flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
-                    'bg-primary/12 text-primary',
-                  )}
-                  aria-hidden
-                >
-                  {authorInitials(msg)}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <header className="flex flex-wrap items-baseline gap-x-2 gap-y-0">
-                    <span className="text-foreground text-sm font-medium">{authorName(msg)}</span>
-                    <time
-                      className="text-muted-foreground text-xs"
-                      dateTime={msg.created_at}
-                      title={new Date(msg.created_at).toLocaleString('es')}
-                    >
-                      {formatMessageTime(msg.created_at)}
-                    </time>
-                    {msg.edited_at ? (
-                      <span className="text-muted-foreground text-[11px]">(editado)</span>
-                    ) : null}
-                  </header>
-                  <p className="text-foreground mt-0.5 whitespace-pre-wrap break-words text-sm">
-                    {msg.body}
-                  </p>
-                </div>
-              </article>
+                  <MessageItem msg={msg} isDm />
                 </li>
               ))}
             </ul>
@@ -228,6 +180,13 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
         </div>
 
         <div className="border-border bg-background shrink-0 border-t p-3">
+          {typingUsers.length > 0 ? (
+            <p className="text-muted-foreground mb-1 truncate text-xs animate-pulse">
+              {typingUsers.length === 1
+                ? `${typingUsers[0].username || 'Alguien'} está escribiendo…`
+                : `${typingUsers.map((u) => u.username || 'Alguien').join(', ')} están escribiendo…`}
+            </p>
+          ) : null}
           {sendError ? (
             <p className="text-destructive mb-2 text-xs" role="alert">
               {sendError}
@@ -239,7 +198,10 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
                 className="h-9 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
                 placeholder="Escribir mensaje privado…"
                 value={draft}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(e) => {
+                  setDraft(e.target.value)
+                  reportTyping()
+                }}
                 maxLength={1000}
                 disabled={sending || !accessToken}
                 autoComplete="off"

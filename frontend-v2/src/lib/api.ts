@@ -60,18 +60,17 @@ export async function fetchBootstrap(
   return apiGetJson<BootstrapPayload>(`/api/bootstrap?username=${q}`, accessToken)
 }
 
-export async function apiPostJson<T>(
+async function apiFetch<T>(
+  method: string,
   path: string,
   accessToken: string | null,
-  body: unknown,
+  body?: unknown,
 ): Promise<T> {
   const headers: HeadersInit = { 'Content-Type': 'application/json' }
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`
-  const res = await fetch(resolveApiUrl(path), {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-  })
+  const init: RequestInit = { method, headers }
+  if (body !== undefined) init.body = JSON.stringify(body)
+  const res = await fetch(resolveApiUrl(path), init)
   const payload = (await res.json().catch(() => ({}))) as T & { error?: string }
   if (!res.ok) {
     throw new Error(
@@ -81,4 +80,27 @@ export async function apiPostJson<T>(
     )
   }
   return payload as T
+}
+
+export async function apiPostJson<T>(
+  path: string,
+  accessToken: string | null,
+  body: unknown,
+): Promise<T> {
+  return apiFetch<T>('POST', path, accessToken, body)
+}
+
+export async function apiPatchJson<T>(
+  path: string,
+  accessToken: string | null,
+  body: unknown,
+): Promise<T> {
+  return apiFetch<T>('PATCH', path, accessToken, body)
+}
+
+export async function apiDeleteJson<T>(
+  path: string,
+  accessToken: string | null,
+): Promise<T> {
+  return apiFetch<T>('DELETE', path, accessToken)
 }

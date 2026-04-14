@@ -101,10 +101,12 @@ export function useChannelMessages(channelId: string | null) {
 
               const profile = profileForAuthor(membersRef.current, String(row.author_id))
               const msg = rowToMessage(row, profile)
-              useAppStore.setState((state) => {
-                if (state.messages.some((m) => m.id === msg.id)) return state
-                return { messages: [...state.messages, msg] }
-              })
+              const state = useAppStore.getState()
+              if (state.messages.some((m) => m.id === msg.id)) return
+              useAppStore.setState({ messages: [...state.messages, msg] })
+              if (channelId !== state.activeTextChannelId) {
+                state.incrementUnread(channelId)
+              }
             },
           )
           .on(
@@ -122,9 +124,7 @@ export function useChannelMessages(channelId: string | null) {
 
               const profile = profileForAuthor(membersRef.current, String(row.author_id))
               const msg = rowToMessage(row, profile)
-              useAppStore.setState((state) => ({
-                messages: state.messages.map((m) => (m.id === msg.id ? { ...m, ...msg } : m)),
-              }))
+              useAppStore.getState().updateMessage(String(row.id), msg)
             },
           )
           .on(
@@ -138,9 +138,7 @@ export function useChannelMessages(channelId: string | null) {
             (payload) => {
               const oldRow = payload.old as { id?: string }
               if (!oldRow?.id) return
-              useAppStore.setState((state) => ({
-                messages: state.messages.filter((m) => m.id !== oldRow.id),
-              }))
+              useAppStore.getState().removeMessage(oldRow.id)
             },
           )
 

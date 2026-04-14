@@ -1,5 +1,6 @@
-import { memo, useMemo } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { Mic } from 'lucide-react'
+import { UserProfilePopup } from '@/components/modals/UserProfilePopup'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/useAppStore'
@@ -42,14 +43,19 @@ const MemberRow = memo(function MemberRow({
   presence,
   offline,
   voiceChannelName,
+  onClick,
 }: {
   member: ServerMember
   presence: PresenceStatus | undefined
   offline: boolean
   voiceChannelName?: string
+  onClick?: () => void
 }) {
   return (
-    <div className="flex items-center gap-2 rounded-md px-2 py-1 transition-colors duration-200 ease-in-out hover:bg-background/40">
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left transition-colors duration-200 ease-in-out hover:bg-background/40">
       <div className="relative shrink-0">
         <div
           className={cn(
@@ -77,7 +83,7 @@ const MemberRow = memo(function MemberRow({
         </div>
       </div>
       {voiceChannelName ? <Mic className="text-primary size-3.5 shrink-0" aria-hidden /> : null}
-    </div>
+    </button>
   )
 })
 
@@ -87,6 +93,7 @@ export function MembersList({ className }: { className?: string }) {
   const onlineUsers = useAppStore((s) => s.onlineUsers)
   const channels = useAppStore((s) => s.channels)
   const voiceChannelOccupants = useAppStore((s) => s.voiceChannelOccupants)
+  const [profileUserId, setProfileUserId] = useState<string | null>(null)
 
   const voiceChannelByUserId = useMemo(() => {
     const channelNameById = new Map(
@@ -154,6 +161,7 @@ export function MembersList({ className }: { className?: string }) {
                   presence={onlineUsers[m.user_id]}
                   offline={false}
                   voiceChannelName={voiceChannelByUserId.get(m.user_id)}
+                  onClick={() => setProfileUserId(m.user_id)}
                 />
               </li>
             ))}
@@ -175,6 +183,7 @@ export function MembersList({ className }: { className?: string }) {
                   presence={undefined}
                   offline
                   voiceChannelName={voiceChannelByUserId.get(m.user_id)}
+                  onClick={() => setProfileUserId(m.user_id)}
                 />
               </li>
             ))}
@@ -183,6 +192,14 @@ export function MembersList({ className }: { className?: string }) {
           </>
         )}
       </div>
+
+      {profileUserId ? (
+        <UserProfilePopup
+          open
+          onOpenChange={(open) => { if (!open) setProfileUserId(null) }}
+          userId={profileUserId}
+        />
+      ) : null}
     </aside>
   )
 }
