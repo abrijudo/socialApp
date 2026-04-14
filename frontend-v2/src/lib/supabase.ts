@@ -28,10 +28,26 @@ export async function createSupabaseBrowserClient(): Promise<SupabaseClient> {
 
   const base = resolveApiOrigin()
   const res = await fetch(`${base}/api/config`)
-  const cfg = (await res.json()) as {
+  if (!res.ok) {
+    throw new Error(
+      `No se pudo cargar /api/config (HTTP ${res.status}). Verifica que el backend esté activo.`,
+    )
+  }
+
+  const raw = await res.text()
+  let cfg: {
     supabaseUrl?: string
     supabaseAnonKey?: string
   }
+  try {
+    cfg = (raw ? JSON.parse(raw) : {}) as {
+      supabaseUrl?: string
+      supabaseAnonKey?: string
+    }
+  } catch {
+    throw new Error('Respuesta inválida en /api/config (JSON malformado o vacío).')
+  }
+
   if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) {
     throw new Error('Config Supabase no disponible (VITE_* o /api/config).')
   }
