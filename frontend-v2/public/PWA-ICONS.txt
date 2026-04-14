@@ -1,0 +1,7 @@
+Iconos PWA (instalación en móvil/escritorio)
+===========================================
+
+Los archivos pwa-192x192.png y pwa-512x512.png en esta carpeta son placeholders.
+Sustitúyelos por los logos definitivos de marca (mismos nombres y tamaños) para
+que el prompt de instalación y la pantalla de inicio muestren la identidad
+correcta de SocialApp Pro.

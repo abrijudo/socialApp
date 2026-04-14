@@ -1,46 +1,50 @@
-# SocialApp Pro — Base profesional (Fase 1)
+# SocialApp Pro
 
-Aplicación estilo Discord con arquitectura separada `frontend/backend`, perfiles personalizables, canales dinámicos de texto/voz y voz en tiempo real con LiveKit.
+Backend Express con API para mensajer�a/servidores/voz y despliegue como SPA servida desde `frontend-v2/dist`.
 
 ## Stack
 
-- **Frontend SPA:** HTML/CSS/JS modular en `frontend/`
-- **Backend API:** Express + Zod en `backend/`
-- **Realtime y persistencia:** Supabase
-- **Media:** LiveKit (voz, webcam, compartir pantalla)
+- Node.js + Express
+- Supabase (auth, DB, storage)
+- LiveKit (voz/video)
+- Playwright (E2E)
 
-## Requisitos
+## Estructura actual
 
-- Node.js 20+
-- Proyecto Supabase
-- Proyecto LiveKit Cloud
+```txt
+backend/
+  app.js
+  middleware/
+  routes/
+  services/
+frontend-v2/         # SPA (Vite/React)
+supabase/
+  schema.sql
+  migrations/
+scripts/
+  test-api.js
+  run-all-tests.mjs
+server.js
+playwright.config.js
+```
 
 ## Variables de entorno
 
-1. Copia `.env.example` a `.env`.
-2. Configura:
+Copia `.env.example` a `.env` y completa:
 
 ```bash
 LIVEKIT_URL=wss://tu-proyecto.livekit.cloud
 LIVEKIT_API_KEY=APIxxxxxxxxxxxxx
 LIVEKIT_API_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 SUPABASE_URL=https://tu-proyecto.supabase.co
+SUPABASE_ANON_KEY=eyJ...
 SUPABASE_SERVICE_ROLE_KEY=eyJ...
 ```
 
-## Supabase: esquema inicial
+## Base de datos
 
-Ejecuta en SQL Editor el archivo:
-
-- `supabase/schema.sql`
-
-Incluye tablas:
-
-- `servers`
-- `profiles`
-- `server_members`
-- `channels`
-- `messages`
+- Base inicial: `supabase/schema.sql`
+- Evoluci�n incremental: `supabase/migrations/*.sql`
 
 ## Desarrollo local
 
@@ -49,51 +53,24 @@ npm install
 npm run dev
 ```
 
-Abrir:
+App/API en [http://localhost:3000](http://localhost:3000).
 
-- [http://localhost:3000](http://localhost:3000)
+## Tests
 
-## Funcionalidades Fase 1
-
-- Perfil de usuario editable (nombre visible, avatar, bio, estado).
-- Crear/renombrar/archivar canales de texto y voz.
-- Renombrar servidor (rol admin).
-- Chat por canal en tiempo real (Supabase Realtime).
-- Conexión de voz por canal (`roomName = serverId:channelId`).
-- Webcam y compartir pantalla dentro del canal de voz activo.
-
-## Avances Fase 2
-
-- Permisos reforzados en backend para acciones de administración (servidor/canales).
-- Layout de streams con modo **grilla** y **foco**.
-- Tiles de video con acciones de **pin** y **fullscreen**.
-- Resaltado visual de hablantes activos en voz.
-- Compartir pantalla optimizado con codec automático y adaptación dinámica de bitrate/fps.
-
-## Estructura del proyecto
-
-```txt
-backend/
-  app.js
-  routes/api.js
-  services/
-    bootstrapService.js
-    supabaseAdmin.js
-frontend/
-  index.html
-  styles.css
-  app.js
-api/token.js
-supabase/schema.sql
-server.js
+```bash
+npm run test       # API
+npm run test:e2e   # Playwright
+npm run test:all   # API + E2E
 ```
 
-## QA manual (end-to-end)
+## Build frontend
 
-1. Abrir app y crear usuario.
-2. Verificar creación automática de servidor + canales base.
-3. Crear canal de texto y enviar mensajes.
-4. Crear canal de voz, conectarse y cambiar entre canales.
-5. Editar perfil y comprobar actualización en UI.
-6. Renombrar servidor (como admin).
-7. Activar webcam y compartir pantalla dentro del canal de voz.
+Si quieres servir la SPA real, debe existir build en `frontend-v2/dist`.
+
+```bash
+cd frontend-v2
+npm install
+npm run build
+```
+
+Sin build, el servidor devuelve `503` en rutas web.

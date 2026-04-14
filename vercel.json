@@ -5,19 +5,12 @@
       "src": "server.js",
       "use": "@vercel/node",
       "config": {
-        "includeFiles": [
-          "frontend/index.html",
-          "frontend/styles.css",
-          "livekit-client.js"
-        ]
+        "includeFiles": ["backend/**", "frontend-v2/dist/**"]
       }
-    },
-    { "src": "client/app.js", "use": "@vercel/static" },
-    { "src": "client/constants.js", "use": "@vercel/static" },
-    { "src": "client/utils.js", "use": "@vercel/static" }
+    }
   ],
   "routes": [
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "server.js" }
+    { "src": "/api/(.*)", "dest": "/server.js" },
+    { "src": "/(.*)", "dest": "/server.js" }
   ]
 }

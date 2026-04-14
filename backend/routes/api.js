@@ -22,6 +22,27 @@ router.get('/config', (_req, res) => {
   });
 });
 
+/**
+ * Comprueba si un username está libre en profiles (minúsculas, mismo criterio que ensureProfile).
+ * Público, sin auth — usado antes de signInAnonymously en el cliente.
+ */
+router.get('/auth/username-available', async (req, res) => {
+  try {
+    const raw = String(req.query.username ?? '').trim();
+    const cleaned = raw.replace(/\s+/g, '').replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 20);
+    if (cleaned.length < 2) {
+      return res.status(400).json({ error: 'El nombre debe tener al menos 2 caracteres válidos.', available: false });
+    }
+    const key = cleaned.toLowerCase();
+    const sb = getSupabaseAdmin();
+    const { data, error } = await sb.from('profiles').select('user_id').eq('username', key).maybeSingle();
+    if (error) throw error;
+    return res.json({ available: !data });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'No se pudo comprobar el nombre.', available: false });
+  }
+});
+
 const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),

@@ -1,3 +1,4 @@
+const fs = require('fs');
 const express = require('express');
 const path = require('path');
 const apiRouter = require('./routes/api');
@@ -6,10 +7,11 @@ const app = express();
 // En Vercel el handler se empaqueta: __dirname no apunta al repo; cwd sí incluye includeFiles.
 const rootDir =
   process.env.VERCEL === '1' ? process.cwd() : path.join(__dirname, '..');
-const frontendDir = path.join(rootDir, 'frontend');
-const clientDir = path.join(rootDir, 'client');
+const frontendV2Dist = path.join(rootDir, 'frontend-v2', 'dist');
+const frontendV2Index = path.join(frontendV2Dist, 'index.html');
+const serveFrontendV2 = fs.existsSync(frontendV2Index);
 
-// Middleware específico para POST /api/dm: parsea body manualmente (fix Electron/Express body vacío)
+// Middleware específico para POST /api/dm: parsea body manualmente (cuerpo vacío con algunos clientes)
 app.use((req, res, next) => {
   if (req.method === 'POST' && req.originalUrl === '/api/dm') {
     const chunks = [];
@@ -29,24 +31,40 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json({ limit: '1mb', type: (req) => req.originalUrl !== '/api/dm' }));
-// Módulos ESM del navegador (no deben pasar por el bundler de @vercel/node).
-app.use('/client', express.static(clientDir));
-app.use('/frontend', express.static(frontendDir));
+
+if (serveFrontendV2) {
+  app.use(express.static(frontendV2Dist));
+}
 app.use('/api', apiRouter);
 
-app.get('/livekit-client.js', (_req, res) => {
-  res.sendFile(path.join(rootDir, 'livekit-client.js'));
-});
+function sendSpaOr503(res) {
+  if (serveFrontendV2) {
+    return res.sendFile(frontendV2Index);
+  }
+  return res
+    .status(503)
+    .type('text/plain')
+    .send(
+      'No hay build del frontend. Ejecuta: cd frontend-v2 && npm run build',
+    );
+}
 
 app.get('/', (_req, res) => {
-  res.sendFile(path.join(frontendDir, 'index.html'));
+  sendSpaOr503(res);
 });
+
 app.get('/join/:code', (_req, res) => {
-  res.sendFile(path.join(frontendDir, 'index.html'));
+  sendSpaOr503(res);
 });
 
 app.get('/dashboard', (_req, res) => {
-  res.sendFile(path.join(frontendDir, 'dashboard-creative.html'));
+  sendSpaOr503(res);
+});
+
+// SPA: recargas y rutas futuras del cliente (tras static y rutas explícitas)
+app.get(/.*/, (req, res, next) => {
+  if (req.path.startsWith('/api')) return next();
+  sendSpaOr503(res);
 });
 
 module.exports = app;

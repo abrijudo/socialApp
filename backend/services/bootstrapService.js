@@ -20,7 +20,14 @@ async function ensureProfile({ userId, username }) {
     .select('*')
     .single();
 
-  if (error) throw error;
+  if (error) {
+    const code = error.code;
+    const msg = String(error.message || '');
+    if (code === '23505' || /profiles_username|duplicate key.*username/i.test(msg)) {
+      throw new Error('El nombre está escogido, elige otro.');
+    }
+    throw error;
+  }
   return data;
 }
 

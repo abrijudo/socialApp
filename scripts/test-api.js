@@ -10,7 +10,16 @@ const FAKE_UUID = '00000000-0000-0000-0000-000000000001';
 const FAKE_ID = 'test-server-id';
 
 async function fetchJson(url, options = {}) {
-  const res = await fetch(url, { ...options, headers: { 'Content-Type': 'application/json', ...options.headers } });
+  const headers = { ...options.headers };
+  if (
+    options.body &&
+    typeof options.body === 'string' &&
+    !headers['Content-Type'] &&
+    !headers['content-type']
+  ) {
+    headers['Content-Type'] = 'application/json';
+  }
+  const res = await fetch(url, { ...options, headers });
   const data = await res.json().catch(() => ({}));
   return { ok: res.ok, status: res.status, data };
 }
@@ -41,6 +50,72 @@ async function runTests() {
     log('GET /api/config', false, e.message);
   }
 
+  try {
+    const { status, data } = await fetchJson(`${BASE}/auth/username-available?username=a`);
+    log(
+      'GET /api/auth/username-available (nombre corto) → 400',
+      status === 400 && data?.available === false,
+      status !== 400 ? `status=${status}` : '',
+    );
+  } catch (e) {
+    log('GET /api/auth/username-available (nombre corto) → 400', false, e.message);
+  }
+
+  try {
+    const { status, data } = await fetchJson(`${BASE}/auth/username-available?username=ab`);
+    const coherent =
+      (status === 200 && typeof data?.available === 'boolean') ||
+      (status === 500 && typeof data?.error === 'string');
+    log(
+      'GET /api/auth/username-available (válido): 200+available o 500+error (Supabase)',
+      coherent,
+      !coherent ? `status=${status}` : '',
+    );
+  } catch (e) {
+    log('GET /api/auth/username-available (válido)', false, e.message);
+  }
+
+  try {
+    const { status, data } = await fetchJson(`${BASE}/register`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    log(
+      'POST /api/register (cuerpo vacío) → 400',
+      status === 400 && typeof data?.error === 'string',
+      status !== 400 ? `status=${status}` : '',
+    );
+  } catch (e) {
+    log('POST /api/register (cuerpo vacío) → 400', false, e.message);
+  }
+
+  try {
+    const { status, data } = await fetchJson(`${BASE}/register`, {
+      method: 'POST',
+      body: JSON.stringify({ email: 'no-es-email', password: '123456' }),
+    });
+    log(
+      'POST /api/register (email inválido) → 400',
+      status === 400 && typeof data?.error === 'string',
+      status !== 400 ? `status=${status}` : '',
+    );
+  } catch (e) {
+    log('POST /api/register (email inválido) → 400', false, e.message);
+  }
+
+  try {
+    const { status, data } = await fetchJson(`${BASE}/bootstrap?username=test`, {
+      headers: { Authorization: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.invalid' },
+    });
+    log(
+      'GET /api/bootstrap con JWT inválido → 401',
+      status === 401 && typeof data?.error === 'string',
+      status !== 401 ? `status=${status}` : '',
+    );
+  } catch (e) {
+    log('GET /api/bootstrap con JWT inválido → 401', false, e.message);
+  }
+
   // --- Rutas con auth (verificar 401 sin token) ---
   console.log('\n--- Con auth (401 sin token) ---');
 
@@ -50,6 +125,7 @@ async function runTests() {
     { method: 'GET', path: '/dm', name: 'GET /api/dm' },
     { method: 'POST', path: '/profiles/upsert', body: { username: 'testuser' }, name: 'POST /api/profiles/upsert' },
     { method: 'GET', path: `/servers/${FAKE_ID}/members`, name: 'GET /api/servers/:serverId/members' },
+    { method: 'GET', path: `/servers/${FAKE_ID}/voice-participants`, name: 'GET /api/servers/:serverId/voice-participants' },
     { method: 'POST', path: `/servers/${FAKE_ID}/invitations`, body: {}, name: 'POST /api/servers/:serverId/invitations' },
     { method: 'GET', path: '/invitations/FAKECODE', name: 'GET /api/invitations/:code' },
     { method: 'POST', path: '/invitations/FAKECODE/join', body: {}, name: 'POST /api/invitations/:code/join' },
