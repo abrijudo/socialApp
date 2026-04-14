@@ -41,7 +41,6 @@ export function VoiceControlBar({ className }: { className?: string }) {
   const isNoiseFilterSupported = isKrispNoiseFilterSupported();
   const didAutoEnableAiRef = useRef(false);
   const autoEnableInFlightRef = useRef(false);
-  const didAutoUnmuteRef = useRef(false);
 
   const waitForMicPublication = useCallback(async (maxAttempts = 30, waitMs = 120) => {
     for (let i = 0; i < maxAttempts; i += 1) {
@@ -85,24 +84,6 @@ export function VoiceControlBar({ className }: { className?: string }) {
     isNoiseFilterPending,
     isNoiseFilterSupported,
   ]);
-
-  // Auto-desmutear el micro tras un breve delay. El room arranca con audio={false}
-  // para que webAudioMix establezca el contexto de audio multimedia (altavoz) antes
-  // de que la captura del mic fuerce al OS a modo "llamada" (auricular).
-  useEffect(() => {
-    if (didAutoUnmuteRef.current || isMicrophoneEnabled) return;
-    const timer = setTimeout(async () => {
-      if (didAutoUnmuteRef.current) return;
-      didAutoUnmuteRef.current = true;
-      try {
-        await localParticipant.setMicrophoneEnabled(true, microphoneCaptureOptions);
-        setLocalVoiceMuted(false);
-      } catch (e) {
-        console.warn('Error al auto-activar micrófono', e);
-      }
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, [localParticipant, isMicrophoneEnabled, setLocalVoiceMuted]);
 
   useEffect(() => {
     setLocalVoiceMuted(!isMicrophoneEnabled);
