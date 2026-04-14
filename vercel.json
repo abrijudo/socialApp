@@ -2,19 +2,19 @@
   "version": 2,
   "rewrites": [
     {
-      "source": "/api/(.*)",
+      "source": "/api/:path*",
       "destination": "/api/index.js"
     },
     {
-      "source": "/assets/(.*)",
-      "destination": "/frontend-v2/dist/assets/$1"
+      "source": "/assets/:path*",
+      "destination": "/frontend-v2/dist/assets/:path*"
     },
     {
-      "source": "/(.*\\.(js|css|map|png|jpg|jpeg|gif|svg|ico|webp|woff|woff2|ttf|eot|json|txt))",
-      "destination": "/frontend-v2/dist/$1"
+      "source": "/krisp/:path*",
+      "destination": "/frontend-v2/dist/krisp/:path*"
     },
     {
-      "source": "/(.*)",
+      "source": "/:path*",
       "destination": "/frontend-v2/dist/index.html"
     }
   ]
