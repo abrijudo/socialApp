@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
 import { useKrispNoiseFilter } from '@livekit/components-react/krisp';
 import { isKrispNoiseFilterSupported } from '@livekit/krisp-noise-filter';
+import { Track } from 'livekit-client';
 import { Mic, MicOff, MonitorUp, PhoneOff, Video, VideoOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Toggle } from '@/components/ui/toggle';
@@ -34,14 +35,55 @@ export function VoiceControlBar({ className }: { className?: string }) {
   });
   const isNoiseFilterSupported = isKrispNoiseFilterSupported();
   const didAutoEnableAiRef = useRef(false);
+  const autoEnableInFlightRef = useRef(false);
+
+  const waitForMicPublication = useCallback(async (maxAttempts = 30, waitMs = 120) => {
+    for (let i = 0; i < maxAttempts; i += 1) {
+      const publication = localParticipant.getTrackPublication(Track.Source.Microphone);
+      if (publication?.track) return true;
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+    return false;
+  }, [localParticipant]);
+
+  const enableAiNoiseSuppression = useCallback(async () => {
+    if (!isMicrophoneEnabled) {
+      await localParticipant.setMicrophoneEnabled(true, microphoneCaptureOptions);
+    }
+    const isMicReady = await waitForMicPublication();
+    if (!isMicReady) {
+      throw new Error('El micrófono todavía no está listo para aplicar IA.');
+    }
+    await setNoiseFilterEnabled(true);
+  }, [
+    isMicrophoneEnabled,
+    localParticipant,
+    setNoiseFilterEnabled,
+    waitForMicPublication,
+  ]);
 
   useEffect(() => {
-    if (!isNoiseFilterSupported || isNoiseFilterEnabled || didAutoEnableAiRef.current) return;
-    didAutoEnableAiRef.current = true;
-    void setNoiseFilterEnabled(true).catch((error) => {
-      console.error('[Krisp AI Error]', error);
-    });
-  }, [isNoiseFilterSupported, isNoiseFilterEnabled, setNoiseFilterEnabled]);
+    if (!isNoiseFilterSupported || isNoiseFilterEnabled || isNoiseFilterPending) return;
+    if (didAutoEnableAiRef.current || autoEnableInFlightRef.current) return;
+    autoEnableInFlightRef.current = true;
+
+    void enableAiNoiseSuppression()
+      .then(() => {
+        didAutoEnableAiRef.current = true;
+      })
+      .catch((error) => {
+        // Dejamos el botón utilizable manualmente y permitimos reintento automático posterior.
+        console.error('[Krisp AI Error]', error);
+      })
+      .finally(() => {
+        autoEnableInFlightRef.current = false;
+      });
+  }, [
+    enableAiNoiseSuppression,
+    isNoiseFilterEnabled,
+    isNoiseFilterPending,
+    isNoiseFilterSupported,
+  ]);
 
   const toggleMicrophone = async () => {
     try {
@@ -69,11 +111,11 @@ export function VoiceControlBar({ className }: { className?: string }) {
 
   const handleAiToggle = async () => {
     try {
-      // Si el micro está apagado, LiveKit necesita que esté encendido antes de activar el filtro
-      if (!isMicrophoneEnabled) {
-        await localParticipant.setMicrophoneEnabled(true, microphoneCaptureOptions);
+      if (isNoiseFilterEnabled) {
+        await setNoiseFilterEnabled(false);
+      } else {
+        await enableAiNoiseSuppression();
       }
-      await setNoiseFilterEnabled(!isNoiseFilterEnabled);
     } catch (error) {
       console.error('[Krisp AI Error]', error);
     }

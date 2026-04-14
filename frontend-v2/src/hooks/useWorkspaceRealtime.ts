@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import type { RealtimeChannel } from '@supabase/supabase-js'
+import { apiGetJson } from '@/lib/api'
 import { getAuthenticatedSupabase, getSupabaseBrowserClient } from '@/lib/supabase'
 import { useAppStore } from '@/store/useAppStore'
 import type { Channel, Profile, Server, ServerMember } from '@/types/models'
@@ -56,6 +57,35 @@ export function useWorkspaceRealtime() {
 
     let cancelled = false
     let channel: RealtimeChannel | null = null
+    let membersRefreshTimer: ReturnType<typeof setTimeout> | null = null
+    let membersRefreshInFlight = false
+    let lastMembersRefreshAt = 0
+
+    const refreshMembers = async () => {
+      if (cancelled || !accessToken || !activeServerId || membersRefreshInFlight) return
+      membersRefreshInFlight = true
+      try {
+        const members = await apiGetJson<ServerMember[]>(
+          `/api/servers/${encodeURIComponent(activeServerId)}/members`,
+          accessToken,
+        )
+        if (cancelled) return
+        useAppStore.setState({ members: Array.isArray(members) ? members : [] })
+        lastMembersRefreshAt = Date.now()
+      } catch (e) {
+        console.warn('workspace realtime: fallo al resincronizar miembros', e)
+      } finally {
+        membersRefreshInFlight = false
+      }
+    }
+
+    const scheduleMembersRefresh = (delayMs = 250) => {
+      if (cancelled) return
+      if (membersRefreshTimer) clearTimeout(membersRefreshTimer)
+      membersRefreshTimer = setTimeout(() => {
+        void refreshMembers()
+      }, delayMs)
+    }
 
     void (async () => {
       try {
@@ -188,6 +218,7 @@ export function useWorkspaceRealtime() {
                   : [...state.members, nextMember]
                 return { members }
               })
+              scheduleMembersRefresh(200)
             },
           )
           .on(
@@ -213,6 +244,7 @@ export function useWorkspaceRealtime() {
                     : m,
                 ),
               }))
+              scheduleMembersRefresh(300)
             },
           )
           .on(
@@ -229,6 +261,7 @@ export function useWorkspaceRealtime() {
               useAppStore.setState((state) => ({
                 members: state.members.filter((m) => m.user_id !== userId),
               }))
+              scheduleMembersRefresh(200)
             },
           )
           .on(
@@ -250,6 +283,10 @@ export function useWorkspaceRealtime() {
                     ? { ...state.profile, ...profile }
                     : state.profile,
               }))
+              const now = Date.now()
+              if (now - lastMembersRefreshAt > 2_000) {
+                scheduleMembersRefresh(250)
+              }
             },
           )
           .on(
@@ -273,21 +310,33 @@ export function useWorkspaceRealtime() {
                     ? { ...state.profile, ...profile }
                     : state.profile,
               }))
+              const now = Date.now()
+              if (now - lastMembersRefreshAt > 2_000) {
+                scheduleMembersRefresh(250)
+              }
             },
           )
 
         channel.subscribe((status, err) => {
           if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
             console.warn('workspace realtime:', status, err ?? '')
+            scheduleMembersRefresh(350)
           }
         })
       } catch (e) {
         console.warn('No se pudo iniciar workspace realtime:', e)
+        scheduleMembersRefresh(400)
       }
     })()
 
+    const heartbeat = setInterval(() => {
+      void refreshMembers()
+    }, 20_000)
+
     return () => {
       cancelled = true
+      clearInterval(heartbeat)
+      if (membersRefreshTimer) clearTimeout(membersRefreshTimer)
       const ch = channel
       if (!ch) return
       const supabase = getSupabaseBrowserClient()

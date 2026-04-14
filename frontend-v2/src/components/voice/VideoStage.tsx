@@ -101,13 +101,31 @@ export function VideoStage() {
     { onlySubscribed: false },
   )
   const [volumesByTrack, setVolumesByTrack] = useState<Record<string, number>>({})
+  const [isTouchDevice, setIsTouchDevice] = useState(false)
+  const [pinnedTrackKey, setPinnedTrackKey] = useState<string | null>(null)
   const lastNonZeroByTrackRef = useRef<Record<string, number>>({})
   const screenShares = tracks.filter((t) => t.source === Track.Source.ScreenShare)
   const cameras = tracks.filter((t) => t.source === Track.Source.Camera)
   const hasScreenShare = screenShares.length > 0
-  const heroScreen = hasScreenShare ? screenShares[0] : null
-  const filmstripTracks = hasScreenShare ? [...cameras, ...screenShares.slice(1)] : []
+  const focusTracks = hasScreenShare ? [...screenShares, ...cameras] : []
+  const heroScreen = hasScreenShare
+    ? focusTracks.find((t) => trackVolumeKey(t) === pinnedTrackKey) || screenShares[0]
+    : null
+  const filmstripTracks = hasScreenShare
+    ? focusTracks.filter((t) => trackVolumeKey(t) !== trackVolumeKey(heroScreen))
+    : []
   type StageTrack = (typeof tracks)[number]
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mql = window.matchMedia('(hover: none), (pointer: coarse)')
+    const apply = () => setIsTouchDevice(mql.matches)
+    apply()
+    mql.addEventListener?.('change', apply)
+    return () => {
+      mql.removeEventListener?.('change', apply)
+    }
+  }, [])
 
   useEffect(() => {
     setVolumesByTrack((prev) => {
@@ -139,6 +157,14 @@ export function VideoStage() {
     }
   }, [tracks, volumesByTrack])
 
+  useEffect(() => {
+    if (!pinnedTrackKey) return
+    const stillExists = tracks.some((track) => trackVolumeKey(track) === pinnedTrackKey)
+    if (!stillExists) {
+      setPinnedTrackKey(null)
+    }
+  }, [tracks, pinnedTrackKey])
+
   if (tracks.length === 0) return null
 
   const renderTile = (track: StageTrack, index: number, mode: 'hero' | 'strip' | 'grid') => {
@@ -155,22 +181,33 @@ export function VideoStage() {
           : 'group relative min-h-0 min-w-0 overflow-hidden rounded-lg border border-border/20 bg-black'
 
     return (
-      <div key={key} className={outerClass}>
+      <div key={key} className={`${outerClass} lk-stage-tile`}>
         <ParticipantTile trackRef={track} />
         <button
           type="button"
-          className="absolute top-2 right-2 z-20 inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/20 bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100"
+          className={`absolute top-2 right-2 z-20 inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/20 bg-black/60 text-white transition-opacity ${
+            isTouchDevice ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          }`}
           aria-label="Pantalla completa"
           title="Pantalla completa"
           onClick={(e) => {
-            const container = e.currentTarget.closest('div')
-            void requestTileFullscreen(container as HTMLDivElement | null)
+            const container = e.currentTarget.closest('.lk-stage-tile') as HTMLDivElement | null
+            const keyForPin = trackVolumeKey(track)
+            if (document.fullscreenEnabled) {
+              void requestTileFullscreen(container)
+            } else {
+              setPinnedTrackKey((prev) => (prev === keyForPin ? null : keyForPin))
+            }
           }}
         >
           <Maximize2 className="size-4" aria-hidden />
         </button>
 
-        <div className="absolute right-2 bottom-2 left-2 z-20 flex items-center gap-1.5 rounded-md border border-white/20 bg-black/65 px-2 py-1 text-white opacity-0 transition-opacity group-hover:opacity-100">
+        <div
+          className={`absolute right-2 bottom-2 left-2 z-20 flex items-center gap-1.5 rounded-md border border-white/20 bg-black/65 px-2 py-1 text-white transition-opacity ${
+            isTouchDevice ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          }`}
+        >
           <button
             type="button"
             className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm"
