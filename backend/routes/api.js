@@ -677,7 +677,6 @@ router.get('/messages/:channelId', async (req, res) => {
       .order('created_at', { ascending: false })
       .limit(limit);
     if (parentId) q = q.eq('parent_message_id', parentId);
-    else q = q.is('parent_message_id', null);
     if (before) q = q.lt('created_at', before);
     const { data: raw, error } = await q;
     if (error) throw error;

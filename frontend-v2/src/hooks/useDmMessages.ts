@@ -129,7 +129,6 @@ export function useDmMessages(dmChannelId: string | null) {
             (payload) => {
               const row = payload.new as Record<string, unknown>
               if (!row?.id) return
-              if (row.parent_message_id != null) return
 
               const authorId = String(row.author_id)
               const profile = profileForDmAuthor(dmChannelId, authorId)
@@ -157,7 +156,6 @@ export function useDmMessages(dmChannelId: string | null) {
             (payload) => {
               const row = payload.new as Record<string, unknown>
               if (!row?.id) return
-              if (row.parent_message_id != null) return
 
               const authorId = String(row.author_id)
               const profile = profileForDmAuthor(dmChannelId, authorId)
