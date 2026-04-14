@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { VideoPresets } from 'livekit-client'
 import {
+  screenShareCaptureOptions,
   cameraPublishOptions,
   roomOptionsHighQuality,
   screenSharePublishOptions,
@@ -19,5 +21,12 @@ describe('voiceQuality presets', () => {
     expect(roomOptionsHighQuality.publishDefaults?.degradationPreference).toBe(
       'maintain-resolution',
     )
+  })
+
+  it('usa preset de compartir pantalla 1080p a 30fps', () => {
+    const resolution = screenShareCaptureOptions.resolution!
+    expect(resolution.width).toBe(VideoPresets.h1080.resolution.width)
+    expect(resolution.height).toBe(VideoPresets.h1080.resolution.height)
+    expect((resolution as { frameRate?: number }).frameRate).toBe(30)
   })
 })

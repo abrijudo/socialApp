@@ -1,14 +1,14 @@
 import type { ReactNode } from 'react'
-import { useState } from 'react'
-import { Hash, Mic, Plus, UserPlus, Volume2 } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Hash, Plus, UserPlus, Volume2 } from 'lucide-react'
 import { CreateChannelModal } from '@/components/modals/CreateChannelModal'
 import { InviteModal } from '@/components/modals/InviteModal'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useMobileNav } from '@/components/layout/MobileNavContext'
 import { cn } from '@/lib/utils'
-import { useVoicePresence } from '@/hooks/useVoicePresence'
 import { useAppStore } from '@/store/useAppStore'
+import type { Profile } from '@/types/models'
 
 export interface ServerSidebarProps {
   voicePanel: ReactNode | null
@@ -27,8 +27,9 @@ export function ServerSidebar({ voicePanel }: ServerSidebarProps) {
   const userId = useAppStore((s) => s.userId)
   const profile = useAppStore((s) => s.profile)
   const username = useAppStore((s) => s.username)
+  const members = useAppStore((s) => s.members)
   const channelsLoading = useAppStore((s) => s.channelsLoading)
-  const voiceByChannel = useVoicePresence()
+  const voiceChannelOccupants = useAppStore((s) => s.voiceChannelOccupants)
 
   const [isCreateChannelOpen, setIsCreateChannelOpen] = useState(false)
   const [channelTypeToCreate, setChannelTypeToCreate] = useState<'text' | 'voice'>('text')
@@ -44,6 +45,17 @@ export function ServerSidebar({ voicePanel }: ServerSidebarProps) {
 
   const textChannels = channels.filter((c) => c.type === 'text' && !c.is_archived)
   const voiceChannels = channels.filter((c) => c.type === 'voice' && !c.is_archived)
+  const profileByUserId = useMemo(() => {
+    const map = new Map<string, Profile>()
+    for (const member of members) {
+      if (!member?.user_id || !member.profile) continue
+      map.set(member.user_id, member.profile)
+    }
+    if (profile?.user_id) {
+      map.set(profile.user_id, profile)
+    }
+    return map
+  }, [members, profile])
 
   function openCreateChannel(type: 'text' | 'voice') {
     setChannelTypeToCreate(type)
@@ -160,21 +172,21 @@ export function ServerSidebar({ voicePanel }: ServerSidebarProps) {
               <ul className="space-y-px">
                 {voiceChannels.map((ch) => {
                   const voiceActive = ch.id === activeVoiceChannelId
-                  const inChannel = voiceByChannel[ch.id] ?? []
+                  const voiceOccupants = voiceChannelOccupants?.[ch.id] || []
                   const showLocalInActive =
                     voiceActive &&
                     typeof userId === 'string' &&
                     userId.length > 0 &&
-                    !inChannel.some((u) => u.userId === userId)
+                    !voiceOccupants.some((u) => u.userId === userId)
                   const visibleUsers = showLocalInActive
                     ? [
-                        ...inChannel,
+                        ...voiceOccupants,
                         {
                           userId,
                           username: currentUsername || userId.slice(0, 8),
                         },
                       ]
-                    : inChannel
+                    : voiceOccupants
                   return (
                     <li key={ch.id}>
                       <button
@@ -194,19 +206,37 @@ export function ServerSidebar({ voicePanel }: ServerSidebarProps) {
                         <span className="truncate">{ch.name}</span>
                       </button>
                       {visibleUsers.length > 0 ? (
-                        <ul className="mt-px space-y-px" aria-label={`En voz: ${ch.name}`}>
+                        <ul className="mt-0.5 flex flex-col gap-0.5 pr-2 pl-6" aria-label={`En voz: ${ch.name}`}>
                           {visibleUsers.map((u) => {
                             const isSelf = u.userId === userId
+                            const userProfile = profileByUserId.get(u.userId)
+                            const displayName =
+                              (typeof userProfile?.username === 'string' && userProfile.username.trim()) ||
+                              u.username ||
+                              'Usuario'
                             return (
                             <li key={u.userId}>
                               <div
                                 className={cn(
-                                  'text-muted-foreground flex items-center gap-2 rounded-md py-0.5 pr-2 pl-6 text-xs font-medium',
-                                  'transition-colors duration-150 ease-in-out hover:bg-background/40 hover:text-foreground',
+                                  'text-muted-foreground flex items-center gap-2 rounded-md px-2 py-1 text-sm font-medium',
+                                  'transition-colors duration-150 ease-in-out hover:bg-background/50 hover:text-foreground',
                                 )}
                               >
-                                <Mic className="size-3 shrink-0 opacity-60" aria-hidden />
-                                <span className="min-w-0 truncate">{u.username}</span>
+                                <div className="bg-primary/20 flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full">
+                                  {userProfile?.avatar_url ? (
+                                    <img
+                                      src={userProfile.avatar_url}
+                                      alt=""
+                                      className="h-full w-full object-cover"
+                                      loading="lazy"
+                                    />
+                                  ) : (
+                                    <span className="text-primary text-[10px] font-semibold uppercase">
+                                      {displayName.slice(0, 1)}
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="min-w-0 truncate">{displayName}</span>
                                 {isSelf ? (
                                   <span className="text-primary/90 shrink-0 text-[10px] font-semibold uppercase">
                                     tú

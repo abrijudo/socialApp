@@ -10,9 +10,9 @@ import { ServerRail } from '@/components/layout/ServerRail'
 import { ServerSidebar } from '@/components/layout/ServerSidebar'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
-import { useChannelDeletedRealtime } from '@/hooks/useChannelDeletedRealtime'
 import { useServerPresence } from '@/hooks/useServerPresence'
 import { useVoicePresence } from '@/hooks/useVoicePresence'
+import { useWorkspaceRealtime } from '@/hooks/useWorkspaceRealtime'
 import { useAppStore } from '@/store/useAppStore'
 import type { Server } from '@/types/models'
 
@@ -163,7 +163,7 @@ export function AppLayout() {
 
   useServerPresence(activeServerId, userId)
   useVoicePresence({ subscribe: true })
-  useChannelDeletedRealtime(activeServerId)
+  useWorkspaceRealtime()
 
   function goHome() {
     setActiveVoiceChannelId(null)

@@ -4,7 +4,7 @@ import type {
   TrackPublishOptions,
   VideoCaptureOptions,
 } from 'livekit-client'
-import { AudioPresets } from 'livekit-client'
+import { AudioPresets, VideoPresets } from 'livekit-client'
 
 export const microphoneCaptureOptions: NonNullable<RoomOptions['audioCaptureDefaults']> = {
   echoCancellation: true,
@@ -46,8 +46,7 @@ export const screenShareCaptureOptions: ScreenShareCaptureOptions = {
   // Intentamos incluir audio del sistema cuando el navegador lo soporta.
   audio: true,
   resolution: {
-    width: 3840,
-    height: 2160,
+    ...VideoPresets.h1080.resolution,
     frameRate: 30,
   },
   // En pantallas 4K priorizamos detalle/legibilidad (texto/UI).
