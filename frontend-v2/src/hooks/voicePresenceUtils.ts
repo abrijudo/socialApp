@@ -24,8 +24,9 @@ export function presenceRowsToByChannel(
     const isMuted = row.muted === true
     const isScreenSharing = row.screenShareEnabled === true
     const isCameraOn = row.cameraEnabled === true
+    const isSpeaking = row.speaking === true
     if (!byChannel[vid]) byChannel[vid] = []
-    byChannel[vid].push({ userId, username, isMuted, isScreenSharing, isCameraOn })
+    byChannel[vid].push({ userId, username, isMuted, isScreenSharing, isCameraOn, isSpeaking })
   }
   for (const id of Object.keys(byChannel)) {
     const list = byChannel[id]
@@ -56,6 +57,7 @@ export function normalizeSnapshot(byChannelRaw: VoiceParticipantsSnapshot['byCha
           isMuted: false,
           isScreenSharing: row?.hasScreenShare === true,
           isCameraOn: row?.hasCamera === true,
+          isSpeaking: row?.isSpeaking === true,
         }
       })
       .filter(
@@ -67,6 +69,7 @@ export function normalizeSnapshot(byChannelRaw: VoiceParticipantsSnapshot['byCha
           isMuted: boolean
           isScreenSharing: boolean
           isCameraOn: boolean
+          isSpeaking: boolean
         } => v != null,
       )
     if (mapped.length > 0) out[channelId] = mapped
@@ -87,6 +90,7 @@ export function mergeOccupants(
       isMuted?: boolean
       isScreenSharing?: boolean
       isCameraOn?: boolean
+      isSpeaking?: boolean
       priority: 1 | 2
     }
   >()
@@ -104,6 +108,7 @@ export function mergeOccupants(
             isMuted: u.isMuted,
             isScreenSharing: u.isScreenSharing,
             isCameraOn: u.isCameraOn,
+            isSpeaking: u.isSpeaking,
             priority,
           })
         }
@@ -123,6 +128,7 @@ export function mergeOccupants(
       isMuted: assignment.isMuted,
       isScreenSharing: assignment.isScreenSharing,
       isCameraOn: assignment.isCameraOn,
+      isSpeaking: assignment.isSpeaking,
     })
   }
 

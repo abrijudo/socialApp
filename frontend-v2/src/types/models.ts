@@ -84,6 +84,7 @@ export type VoiceChannelOccupant = {
   isMuted?: boolean
   isScreenSharing?: boolean
   isCameraOn?: boolean
+  isSpeaking?: boolean
 }
 
 export type VoiceOccupantsByChannel = Record<string, VoiceChannelOccupant[]>
@@ -95,6 +96,7 @@ export type VoicePresenceRow = {
   muted?: boolean
   screenShareEnabled?: boolean
   cameraEnabled?: boolean
+  speaking?: boolean
 }
 
 export type VoiceParticipantsSnapshot = {
@@ -105,6 +107,7 @@ export type VoiceParticipantsSnapshot = {
       name?: string
       hasScreenShare?: boolean
       hasCamera?: boolean
+      isSpeaking?: boolean
     }>
   >
 }

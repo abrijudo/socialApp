@@ -57,13 +57,14 @@ function mapParticipant(p) {
     micMuted,
     hasCamera,
     hasScreenShare,
+    isSpeaking: Boolean(p.isSpeaking),
   };
 }
 
 /**
  * @param {string} serverId
  * @param {string[]} voiceChannelIds
- * @returns {Promise<Record<string, Array<{ identity: string, name: string, micMuted: boolean, hasCamera: boolean, hasScreenShare: boolean }>>>}
+ * @returns {Promise<Record<string, Array<{ identity: string, name: string, micMuted: boolean, hasCamera: boolean, hasScreenShare: boolean, isSpeaking: boolean }>>>}
  */
 async function listParticipantsByVoiceChannels(serverId, voiceChannelIds) {
   const apiKey = process.env.LIVEKIT_API_KEY;

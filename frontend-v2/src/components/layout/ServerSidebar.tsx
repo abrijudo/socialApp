@@ -31,6 +31,7 @@ export function ServerSidebar({ voicePanel }: ServerSidebarProps) {
   const localVoiceMuted = useAppStore((s) => s.localVoiceMuted)
   const localCameraEnabled = useAppStore((s) => s.localCameraEnabled)
   const localScreenShareEnabled = useAppStore((s) => s.localScreenShareEnabled)
+  const localVoiceSpeaking = useAppStore((s) => s.localVoiceSpeaking)
   const channelsLoading = useAppStore((s) => s.channelsLoading)
   const voiceChannelOccupants = useAppStore((s) => s.voiceChannelOccupants)
 
@@ -192,6 +193,7 @@ export function ServerSidebar({ voicePanel }: ServerSidebarProps) {
                           isMuted: localVoiceMuted,
                           isCameraOn: localCameraEnabled,
                           isScreenSharing: localScreenShareEnabled,
+                          isSpeaking: localVoiceSpeaking,
                         },
                       ]
                     : voiceOccupants
@@ -244,7 +246,14 @@ export function ServerSidebar({ voicePanel }: ServerSidebarProps) {
                                     </span>
                                   )}
                                 </div>
-                                <span className="min-w-0 truncate">{displayName}</span>
+                                <span
+                                  className={cn(
+                                    'min-w-0 truncate',
+                                    u.isSpeaking ? 'text-emerald-400' : 'text-white',
+                                  )}
+                                >
+                                  {displayName}
+                                </span>
                                 {u.isScreenSharing ? (
                                   <span className="shrink-0 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white">
                                     Transmitiendo

@@ -42,6 +42,7 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
   const localVoiceMuted = useAppStore((s) => s.localVoiceMuted)
   const localCameraEnabled = useAppStore((s) => s.localCameraEnabled)
   const localScreenShareEnabled = useAppStore((s) => s.localScreenShareEnabled)
+  const localVoiceSpeaking = useAppStore((s) => s.localVoiceSpeaking)
   const setVoiceChannelOccupants = useAppStore((s) => s.setVoiceChannelOccupants)
   const occupants = useAppStore((s) => s.voiceChannelOccupants)
 
@@ -115,6 +116,7 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
               muted: s.localVoiceMuted === true,
               cameraEnabled: s.localCameraEnabled === true,
               screenShareEnabled: s.localScreenShareEnabled === true,
+              speaking: s.localVoiceSpeaking === true,
             })
             flushPresence()
           }
@@ -158,6 +160,7 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
         muted: s.localVoiceMuted === true,
         cameraEnabled: s.localCameraEnabled === true,
         screenShareEnabled: s.localScreenShareEnabled === true,
+        speaking: s.localVoiceSpeaking === true,
       })
       presenceRef.current = pushVoicePresence(ch)
       flushMerged()
@@ -171,6 +174,7 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
     localVoiceMuted,
     localCameraEnabled,
     localScreenShareEnabled,
+    localVoiceSpeaking,
     setVoiceChannelOccupants,
   ])
 
@@ -195,6 +199,7 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
             isMuted: localVoiceMuted,
             isCameraOn: localCameraEnabled,
             isScreenSharing: localScreenShareEnabled,
+            isSpeaking: localVoiceSpeaking,
           },
         ],
       }
@@ -211,6 +216,7 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
     localVoiceMuted,
     localCameraEnabled,
     localScreenShareEnabled,
+    localVoiceSpeaking,
     setVoiceChannelOccupants,
   ])
 

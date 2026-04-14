@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
 import { useKrispNoiseFilter } from '@livekit/components-react/krisp';
 import { isKrispNoiseFilterSupported } from '@livekit/krisp-noise-filter';
-import { Track } from 'livekit-client';
+import { ParticipantEvent, Track } from 'livekit-client';
 import { Mic, MicOff, MonitorUp, PhoneOff, Video, VideoOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Toggle } from '@/components/ui/toggle';
@@ -31,6 +31,7 @@ export function VoiceControlBar({ className }: { className?: string }) {
   const setLocalVoiceMuted = useAppStore((s) => s.setLocalVoiceMuted);
   const setLocalCameraEnabled = useAppStore((s) => s.setLocalCameraEnabled);
   const setLocalScreenShareEnabled = useAppStore((s) => s.setLocalScreenShareEnabled);
+  const setLocalVoiceSpeaking = useAppStore((s) => s.setLocalVoiceSpeaking);
 
   // HOOK OFICIAL DE LIVEKIT (Maneja todo el estado y la inicialización de forma segura)
   const { isNoiseFilterEnabled, setNoiseFilterEnabled, isNoiseFilterPending } = useKrispNoiseFilter({
@@ -102,11 +103,28 @@ export function VoiceControlBar({ className }: { className?: string }) {
     setLocalScreenShareEnabled(isScreenShareEnabled);
   }, [isScreenShareEnabled, setLocalScreenShareEnabled]);
 
+  useEffect(() => {
+    const participant = room.localParticipant ?? localParticipant;
+    const apply = (speaking: boolean) => {
+      setLocalVoiceSpeaking(Boolean(speaking));
+    };
+
+    apply(Boolean((participant as { isSpeaking?: boolean })?.isSpeaking));
+    participant.on(ParticipantEvent.IsSpeakingChanged, apply);
+    return () => {
+      participant.off(ParticipantEvent.IsSpeakingChanged, apply);
+      setLocalVoiceSpeaking(false);
+    };
+  }, [localParticipant, room.localParticipant, setLocalVoiceSpeaking]);
+
   const toggleMicrophone = async () => {
     try {
       const nextMicEnabled = !isMicrophoneEnabled;
       await localParticipant.setMicrophoneEnabled(nextMicEnabled, microphoneCaptureOptions);
       setLocalVoiceMuted(!nextMicEnabled);
+      if (!nextMicEnabled) {
+        setLocalVoiceSpeaking(false);
+      }
     } catch (e) {
       console.warn('Error al alternar micrófono', e);
     }
@@ -220,6 +238,7 @@ export function VoiceControlBar({ className }: { className?: string }) {
           setLocalVoiceMuted(true);
           setLocalCameraEnabled(false);
           setLocalScreenShareEnabled(false);
+          setLocalVoiceSpeaking(false);
         }}
         title="Colgar"
       >

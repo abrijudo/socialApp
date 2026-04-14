@@ -47,21 +47,21 @@ export const screenShareCaptureOptions: ScreenShareCaptureOptions = {
   audio: true,
   resolution: {
     ...VideoPresets.h1080.resolution,
-    frameRate: 60,
+    frameRate: 30,
   },
-  // Para escenas con movimiento (videos), priorizamos fluidez.
+  // Vídeos en movimiento sin saturar ancho de banda.
   contentHint: 'motion',
   // No forzamos preferCurrentTab para no sesgar la UI de selección hacia pestañas.
 }
 
 export const screenSharePublishOptions: TrackPublishOptions = {
   screenShareEncoding: {
-    maxBitrate: 35_000_000,
-    maxFramerate: 60,
+    maxBitrate: 12_000_000,
+    maxFramerate: 30,
     priority: 'high',
   },
-  // En video en movimiento conviene conservar FPS para evitar borrosidad dinámica.
-  degradationPreference: 'maintain-framerate',
+  // Mantener resolución evita pixelado excesivo en receptor al ajustar bitrate.
+  degradationPreference: 'maintain-resolution',
 }
 
 export const roomOptionsHighQuality: RoomOptions = {

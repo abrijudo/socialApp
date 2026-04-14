@@ -13,8 +13,11 @@ const setActiveVoiceChannelId = vi.fn()
 const setLocalVoiceMuted = vi.fn()
 const setLocalCameraEnabled = vi.fn()
 const setLocalScreenShareEnabled = vi.fn()
+const setLocalVoiceSpeaking = vi.fn()
 const setNoiseFilterEnabled = vi.fn().mockResolvedValue(undefined)
 const setProcessor = vi.fn().mockResolvedValue(undefined)
+const on = vi.fn()
+const off = vi.fn()
 
 const localParticipantMock = {
   setMicrophoneEnabled,
@@ -22,6 +25,9 @@ const localParticipantMock = {
   setCameraEnabled,
   unpublishTrack,
   getTrackPublication,
+  on,
+  off,
+  isSpeaking: false,
 }
 
 vi.mock('@livekit/krisp-noise-filter', () => ({
@@ -54,6 +60,7 @@ vi.mock('@/store/useAppStore', () => ({
       setLocalVoiceMuted: (muted: boolean) => void
       setLocalCameraEnabled: (enabled: boolean) => void
       setLocalScreenShareEnabled: (enabled: boolean) => void
+      setLocalVoiceSpeaking: (speaking: boolean) => void
     }) => unknown,
   ) =>
     selector({
@@ -61,6 +68,7 @@ vi.mock('@/store/useAppStore', () => ({
       setLocalVoiceMuted,
       setLocalCameraEnabled,
       setLocalScreenShareEnabled,
+      setLocalVoiceSpeaking,
     }),
 }))
 
@@ -130,11 +138,11 @@ describe('VoiceControlBar', () => {
     expect(setScreenShareEnabled).toHaveBeenCalledWith(
       true,
       expect.objectContaining({
-        contentHint: 'text',
+        contentHint: 'motion',
       }),
       expect.objectContaining({
         screenShareEncoding: expect.objectContaining({
-          maxBitrate: 20_000_000,
+          maxBitrate: 12_000_000,
           maxFramerate: 30,
         }),
       }),

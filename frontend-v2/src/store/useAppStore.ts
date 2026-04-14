@@ -62,6 +62,8 @@ export interface AppState {
   localCameraEnabled: boolean
   /** Estado local de pantalla compartida para difundirlo en Presence de voz. */
   localScreenShareEnabled: boolean
+  /** Estado local de speaking para resaltar el nombre en lista de voz. */
+  localVoiceSpeaking: boolean
   /** Panel de vídeo (escenario) visible cuando hay pistas de cámara/pantalla. */
   isVideoStageOpen: boolean
 }
@@ -87,6 +89,7 @@ export interface AppActions {
   setLocalVoiceMuted: (muted: boolean) => void
   setLocalCameraEnabled: (enabled: boolean) => void
   setLocalScreenShareEnabled: (enabled: boolean) => void
+  setLocalVoiceSpeaking: (speaking: boolean) => void
   setIsVideoStageOpen: (open: boolean) => void
   resetApp: () => void
   /** Quita un canal de la lista y limpia selección si era el activo (p. ej. DELETE en tiempo real). */
@@ -122,6 +125,7 @@ const initialState: AppState = {
   localVoiceMuted: true,
   localCameraEnabled: false,
   localScreenShareEnabled: false,
+  localVoiceSpeaking: false,
   isVideoStageOpen: true,
 }
 
@@ -195,6 +199,10 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
             needsUsername: true,
             sessionError: 'Ese nombre ya está en uso. Elige otro.',
             onlineUsers: {},
+            localVoiceMuted: true,
+            localCameraEnabled: false,
+            localScreenShareEnabled: false,
+            localVoiceSpeaking: false,
             isVideoStageOpen: true,
             channelsLoading: false,
             membersLoading: false,
@@ -241,6 +249,10 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
       activeDmChannelId: null,
       dmMessages: [],
       onlineUsers: {},
+      localVoiceMuted: true,
+      localCameraEnabled: false,
+      localScreenShareEnabled: false,
+      localVoiceSpeaking: false,
       isVideoStageOpen: true,
     })
   },
@@ -282,6 +294,7 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
   setLocalVoiceMuted: (localVoiceMuted) => set({ localVoiceMuted }),
   setLocalCameraEnabled: (localCameraEnabled) => set({ localCameraEnabled }),
   setLocalScreenShareEnabled: (localScreenShareEnabled) => set({ localScreenShareEnabled }),
+  setLocalVoiceSpeaking: (localVoiceSpeaking) => set({ localVoiceSpeaking }),
 
   setIsVideoStageOpen: (isVideoStageOpen) => set({ isVideoStageOpen }),
 
