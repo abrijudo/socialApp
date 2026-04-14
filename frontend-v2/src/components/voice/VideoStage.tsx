@@ -102,6 +102,12 @@ export function VideoStage() {
   )
   const [volumesByTrack, setVolumesByTrack] = useState<Record<string, number>>({})
   const lastNonZeroByTrackRef = useRef<Record<string, number>>({})
+  const screenShares = tracks.filter((t) => t.source === Track.Source.ScreenShare)
+  const cameras = tracks.filter((t) => t.source === Track.Source.Camera)
+  const hasScreenShare = screenShares.length > 0
+  const heroScreen = hasScreenShare ? screenShares[0] : null
+  const filmstripTracks = hasScreenShare ? [...cameras, ...screenShares.slice(1)] : []
+  type StageTrack = (typeof tracks)[number]
 
   useEffect(() => {
     setVolumesByTrack((prev) => {
@@ -110,7 +116,18 @@ export function VideoStage() {
         const key = trackVolumeKey(track)
         next[key] = typeof prev[key] === 'number' ? prev[key] : 1
       }
-      return next
+
+      const prevKeys = Object.keys(prev)
+      const nextKeys = Object.keys(next)
+      if (prevKeys.length !== nextKeys.length) return next
+
+      for (const key of nextKeys) {
+        if (prev[key] !== next[key]) return next
+      }
+
+      // Evita re-render infinito cuando useTracks devuelve nuevas referencias
+      // pero el contenido efectivo de volúmenes no cambió.
+      return prev
     })
   }, [tracks])
 
@@ -124,82 +141,107 @@ export function VideoStage() {
 
   if (tracks.length === 0) return null
 
-  return (
-    <div className="flex h-full min-h-0 min-w-0 w-full flex-1 bg-black p-2">
-      <div className="grid h-full min-h-0 w-full min-w-0 auto-rows-fr grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-        {tracks.map((track, index) => {
-          const volumeKey = trackVolumeKey(track)
-          const volume = typeof volumesByTrack[volumeKey] === 'number' ? volumesByTrack[volumeKey] : 1
-          const participantLabel = trackParticipantLabel(track)
-          const isMuted = volume <= 0.001
+  const renderTile = (track: StageTrack, index: number, mode: 'hero' | 'strip' | 'grid') => {
+    const volumeKey = trackVolumeKey(track)
+    const volume = typeof volumesByTrack[volumeKey] === 'number' ? volumesByTrack[volumeKey] : 1
+    const participantLabel = trackParticipantLabel(track)
+    const isMuted = volume <= 0.001
+    const key = `${trackKey(track, index)}:${mode}`
+    const outerClass =
+      mode === 'hero'
+        ? 'group relative h-full min-h-0 w-full min-w-0 overflow-hidden rounded-lg border border-border/20 bg-black'
+        : mode === 'strip'
+          ? 'group relative h-full w-56 shrink-0 overflow-hidden rounded-lg border border-border/20 bg-black sm:w-64'
+          : 'group relative min-h-0 min-w-0 overflow-hidden rounded-lg border border-border/20 bg-black'
 
-          return (
-            <div
-              key={trackKey(track, index)}
-              className="group relative min-h-0 min-w-0 overflow-hidden rounded-lg border border-white/10 bg-black"
-            >
-              <ParticipantTile trackRef={track} />
-              <button
-                type="button"
-                className="absolute top-2 right-2 z-20 inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/20 bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100"
-                aria-label="Pantalla completa"
-                title="Pantalla completa"
-                onClick={(e) => {
-                  const container = e.currentTarget.closest('div')
-                  void requestTileFullscreen(container as HTMLDivElement | null)
-                }}
-              >
-                <Maximize2 className="size-4" aria-hidden />
-              </button>
+    return (
+      <div key={key} className={outerClass}>
+        <ParticipantTile trackRef={track} />
+        <button
+          type="button"
+          className="absolute top-2 right-2 z-20 inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/20 bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100"
+          aria-label="Pantalla completa"
+          title="Pantalla completa"
+          onClick={(e) => {
+            const container = e.currentTarget.closest('div')
+            void requestTileFullscreen(container as HTMLDivElement | null)
+          }}
+        >
+          <Maximize2 className="size-4" aria-hidden />
+        </button>
 
-              <div className="absolute right-2 bottom-2 left-2 z-20 flex items-center gap-1.5 rounded-md border border-white/20 bg-black/65 px-2 py-1 text-white opacity-0 transition-opacity group-hover:opacity-100">
-                <button
-                  type="button"
-                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm"
-                  aria-label={
-                    isMuted
-                      ? `Activar audio de ${participantLabel}`
-                      : `Mutear audio de ${participantLabel}`
-                  }
-                  title={isMuted ? 'Activar audio' : 'Mutear audio'}
-                  onClick={() => {
-                    if (isMuted) {
-                      const restored = Math.max(
-                        0.05,
-                        Math.min(1, lastNonZeroByTrackRef.current[volumeKey] || 1),
-                      )
-                      setVolumesByTrack((prev) => ({ ...prev, [volumeKey]: restored }))
-                      return
-                    }
-                    lastNonZeroByTrackRef.current[volumeKey] = volume
-                    setVolumesByTrack((prev) => ({ ...prev, [volumeKey]: 0 }))
-                  }}
-                >
-                  {isMuted ? (
-                    <VolumeX className="size-4" aria-hidden />
-                  ) : (
-                    <Volume2 className="size-4" aria-hidden />
-                  )}
-                </button>
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={Math.round(volume * 100)}
-                  onChange={(e) => {
-                    const next = Number(e.target.value) / 100
-                    if (next > 0.001) lastNonZeroByTrackRef.current[volumeKey] = next
-                    setVolumesByTrack((prev) => ({ ...prev, [volumeKey]: next }))
-                  }}
-                  aria-label={`Volumen de transmisión de ${participantLabel}`}
-                  title="Volumen de transmisión"
-                  className="h-1.5 w-24 accent-primary"
-                />
-              </div>
+        <div className="absolute right-2 bottom-2 left-2 z-20 flex items-center gap-1.5 rounded-md border border-white/20 bg-black/65 px-2 py-1 text-white opacity-0 transition-opacity group-hover:opacity-100">
+          <button
+            type="button"
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm"
+            aria-label={
+              isMuted
+                ? `Activar audio de ${participantLabel}`
+                : `Mutear audio de ${participantLabel}`
+            }
+            title={isMuted ? 'Activar audio' : 'Mutear audio'}
+            onClick={() => {
+              if (isMuted) {
+                const restored = Math.max(
+                  0.05,
+                  Math.min(1, lastNonZeroByTrackRef.current[volumeKey] || 1),
+                )
+                setVolumesByTrack((prev) => ({ ...prev, [volumeKey]: restored }))
+                return
+              }
+              lastNonZeroByTrackRef.current[volumeKey] = volume
+              setVolumesByTrack((prev) => ({ ...prev, [volumeKey]: 0 }))
+            }}
+          >
+            {isMuted ? (
+              <VolumeX className="size-4" aria-hidden />
+            ) : (
+              <Volume2 className="size-4" aria-hidden />
+            )}
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={1}
+            value={Math.round(volume * 100)}
+            onChange={(e) => {
+              const next = Number(e.target.value) / 100
+              if (next > 0.001) lastNonZeroByTrackRef.current[volumeKey] = next
+              setVolumesByTrack((prev) => ({ ...prev, [volumeKey]: next }))
+            }}
+            aria-label={`Volumen de transmisión de ${participantLabel}`}
+            title="Volumen de transmisión"
+            className="h-1.5 w-24 accent-primary"
+          />
+        </div>
+      </div>
+    )
+  }
+
+  if (hasScreenShare && heroScreen) {
+    return (
+      <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-black">
+        <div className="flex-1 min-h-0 p-2">
+          {renderTile(heroScreen, 0, 'hero')}
+        </div>
+        {filmstripTracks.length > 0 ? (
+          <div className="bg-background/50 h-40 shrink-0 overflow-x-auto p-2">
+            <div className="flex h-full min-w-max gap-2">
+              {filmstripTracks.map((track, index) => renderTile(track, index + 1, 'strip'))}
             </div>
-          )
-        })}
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
+  const galleryTracks = cameras.length > 0 ? cameras : tracks
+
+  return (
+    <div className="flex h-full min-h-0 w-full flex-1 overflow-hidden bg-black p-2">
+      <div className="grid h-full min-h-0 w-full min-w-0 auto-rows-fr grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        {galleryTracks.map((track, index) => renderTile(track, index, 'grid'))}
       </div>
     </div>
   )

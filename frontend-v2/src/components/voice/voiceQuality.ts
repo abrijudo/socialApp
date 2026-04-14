@@ -8,7 +8,7 @@ import { AudioPresets, VideoPresets } from 'livekit-client'
 
 export const microphoneCaptureOptions: NonNullable<RoomOptions['audioCaptureDefaults']> = {
   echoCancellation: true,
-  noiseSuppression: true,
+  noiseSuppression: false,
   autoGainControl: true,
   voiceIsolation: true,
   channelCount: 1,

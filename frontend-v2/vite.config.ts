@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
+import { viteStaticCopy } from 'vite-plugin-static-copy'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -11,7 +12,18 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    viteStaticCopy({
+      targets: [
+        {
+          src: 'node_modules/@livekit/krisp-noise-filter/dist/*',
+          dest: 'krisp',
+        },
+      ],
+    }),
   ],
+  optimizeDeps: {
+    exclude: ['@livekit/krisp-noise-filter', 'livekit-client'],
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

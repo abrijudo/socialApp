@@ -1,5 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { Track } from 'livekit-client'
 import { VoiceControlBar } from '@/components/voice/VoiceControlBar'
 
 const setMicrophoneEnabled = vi.fn()
@@ -9,6 +10,8 @@ const unpublishTrack = vi.fn()
 const getTrackPublication = vi.fn()
 const disconnect = vi.fn()
 const setActiveVoiceChannelId = vi.fn()
+const setNoiseFilterEnabled = vi.fn().mockResolvedValue(undefined)
+const setProcessor = vi.fn().mockResolvedValue(undefined)
 
 const localParticipantMock = {
   setMicrophoneEnabled,
@@ -17,6 +20,19 @@ const localParticipantMock = {
   unpublishTrack,
   getTrackPublication,
 }
+
+vi.mock('@livekit/krisp-noise-filter', () => ({
+  isKrispNoiseFilterSupported: () => true,
+}))
+
+vi.mock('@livekit/components-react/krisp', () => ({
+  useKrispNoiseFilter: () => ({
+    setNoiseFilterEnabled,
+    isNoiseFilterEnabled: false,
+    isNoiseFilterPending: false,
+    processor: undefined,
+  }),
+}))
 
 vi.mock('@livekit/components-react', () => ({
   useLocalParticipant: () => ({
@@ -36,6 +52,17 @@ vi.mock('@/store/useAppStore', () => ({
 describe('VoiceControlBar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    getTrackPublication.mockImplementation((source: unknown) => {
+      if (source === Track.Source.Microphone) {
+        return {
+          track: {
+            mediaStreamTrack: {} as MediaStreamTrack,
+            setProcessor,
+          },
+        }
+      }
+      return undefined
+    })
   })
 
   it('activa micrófono con perfil fuerte de cancelación de ruido', async () => {
@@ -46,7 +73,7 @@ describe('VoiceControlBar', () => {
       true,
       expect.objectContaining({
         echoCancellation: true,
-        noiseSuppression: true,
+        noiseSuppression: false,
         autoGainControl: true,
         voiceIsolation: true,
         channelCount: 1,
@@ -97,6 +124,15 @@ describe('VoiceControlBar', () => {
         }),
       }),
     )
+  })
+
+  it('activa supresión de ruido IA con Krisp en micrófono local', async () => {
+    render(<VoiceControlBar />)
+    await act(async () => {
+      fireEvent.click(screen.getByTitle('Supresión de ruido IA'))
+    })
+
+    expect(setNoiseFilterEnabled).toHaveBeenCalledWith(true)
   })
 
 })

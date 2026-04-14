@@ -173,6 +173,8 @@ export function ServerSidebar({ voicePanel }: ServerSidebarProps) {
                 {voiceChannels.map((ch) => {
                   const voiceActive = ch.id === activeVoiceChannelId
                   const voiceOccupants = voiceChannelOccupants?.[ch.id] || []
+                  // Lógica optimista: si estoy en este canal pero Presence aún no me listó,
+                  // me agrego localmente para feedback inmediato en el sidebar.
                   const showLocalInActive =
                     voiceActive &&
                     typeof userId === 'string' &&
