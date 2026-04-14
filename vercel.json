@@ -1,12 +1,21 @@
 {
   "version": 2,
-  "functions": {
-    "server.js": {
-      "includeFiles": "{backend/**,frontend-v2/dist/**}"
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/assets/(.*)",
+      "destination": "/frontend-v2/dist/assets/$1"
+    },
+    {
+      "source": "/(.*\\.(js|css|map|png|jpg|jpeg|gif|svg|ico|webp|woff|woff2|ttf|eot|json|txt))",
+      "destination": "/frontend-v2/dist/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/frontend-v2/dist/index.html"
     }
-  },
-  "routes": [
-    { "src": "/api/(.*)", "dest": "/server.js" },
-    { "src": "/(.*)", "dest": "/server.js" }
   ]
 }
