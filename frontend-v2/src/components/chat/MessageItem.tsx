@@ -1,4 +1,4 @@
-import { memo, useRef, useState, type KeyboardEvent } from 'react'
+import { memo, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { CornerUpLeft, Pencil, Reply, Smile, Trash2, X } from 'lucide-react'
 import { apiDeleteJson, apiPatchJson, apiPostJson } from '@/lib/api'
 import { formatMessageTime } from '@/lib/formatMessageTime'
@@ -34,7 +34,8 @@ function looksLikeImageUrl(text: string): boolean {
 
 function MessageAttachment({ msg }: { msg: ChannelMessage }) {
   const fromMedia = msg.media_data && msg.media_mime?.startsWith('image/') ? msg.media_data : null
-  const fromBody = !fromMedia && msg.body.trim() && looksLikeImageUrl(msg.body.trim()) ? msg.body.trim() : null
+  const body = msg.body.trim()
+  const fromBody = !fromMedia && body && looksLikeImageUrl(body) ? body : null
   const src = fromMedia || fromBody
   if (!src) return null
   return (
@@ -73,7 +74,6 @@ export interface MessageItemProps {
 export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick, onReply, replyTarget }: MessageItemProps) {
   const userId = useAppStore((s) => s.userId)
   const accessToken = useAppStore((s) => s.accessToken)
-  const isOwn = msg.author_id === userId
   const [hovered, setHovered] = useState(false)
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -82,17 +82,36 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
   const [confirmDelete, setConfirmDelete] = useState(false)
   const editInputRef = useRef<HTMLInputElement>(null)
 
-  const bodyIsOnlyImageUrl = msg.body.trim() && looksLikeImageUrl(msg.body.trim()) && !msg.media_data
-  const reactions = msg.reactions ?? []
-  const grouped = groupReactions(reactions, userId)
+  const isOwn = msg.author_id === userId
+
+  const bodyTrimmed = useMemo(() => msg.body.trim(), [msg.body])
+  const bodyIsOnlyImageUrl = useMemo(
+    () => Boolean(bodyTrimmed) && looksLikeImageUrl(bodyTrimmed) && !msg.media_data,
+    [bodyTrimmed, msg.media_data],
+  )
+
+  const reactions = msg.reactions
+  const grouped = useMemo(
+    () => groupReactions(reactions ?? [], userId),
+    [reactions, userId],
+  )
 
   const updateMsg = isDm ? useAppStore.getState().updateDmMessage : useAppStore.getState().updateMessage
   const removeMsg = isDm ? useAppStore.getState().removeDmMessage : useAppStore.getState().removeMessage
 
+  // Los DMs viven en la tabla `dm_messages` y usan rutas específicas
+  // (`/api/dm-messages/:id`). Sin esto, la edición/borrado apuntaba a la tabla
+  // `messages` y el backend respondía 500 "Mensaje no encontrado".
+  const messageMutationBase = isDm ? '/api/dm-messages' : '/api/messages'
+  // Las reacciones solo están implementadas para mensajes de canal; los DM no
+  // tienen tabla `dm_message_reactions`. Ocultamos el picker en DMs para
+  // evitar un endpoint inexistente y no perder la reacción optimista.
+  const supportsReactions = !isDm
+
   async function handleReaction(emoji: string) {
-    if (!accessToken) return
+    if (!accessToken || !supportsReactions) return
     setEmojiPickerOpen(false)
-    const prev = [...reactions]
+    const prev = [...(reactions ?? [])]
     const hasOwn = prev.some((r) => r.userId === userId && r.emoji === emoji)
     const optimistic = hasOwn
       ? prev.filter((r) => !(r.userId === userId && r.emoji === emoji))
@@ -122,7 +141,7 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
     const prevEdited = msg.edited_at
     updateMsg(msg.id, { body: text, edited_at: new Date().toISOString() })
     try {
-      await apiPatchJson(`/api/messages/${msg.id}`, accessToken, { text })
+      await apiPatchJson(`${messageMutationBase}/${msg.id}`, accessToken, { text })
     } catch {
       updateMsg(msg.id, { body: prevBody, edited_at: prevEdited })
     } finally {
@@ -145,7 +164,7 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
     removeMsg(msg.id)
     setConfirmDelete(false)
     try {
-      await apiDeleteJson(`/api/messages/${msg.id}`, accessToken)
+      await apiDeleteJson(`${messageMutationBase}/${msg.id}`, accessToken)
     } catch { /* Realtime will reconcile */ }
   }
 
@@ -229,7 +248,7 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
           </>
         )}
 
-        {grouped.length > 0 && !editing ? (
+        {grouped.length > 0 && !editing && supportsReactions ? (
           <div className="mt-1 flex flex-wrap gap-1">
             {grouped.map((g) => (
               <button
@@ -262,14 +281,16 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
 
       {hovered && !editing ? (
         <div className="absolute -top-3 right-2 z-10 flex items-center gap-0.5 rounded-md border border-border bg-background px-1 py-0.5 shadow-md">
-          <button
-            type="button"
-            onClick={() => setEmojiPickerOpen((p) => !p)}
-            className="inline-flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-            title="Reaccionar"
-          >
-            <Smile className="size-4" />
-          </button>
+          {supportsReactions ? (
+            <button
+              type="button"
+              onClick={() => setEmojiPickerOpen((p) => !p)}
+              className="inline-flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+              title="Reaccionar"
+            >
+              <Smile className="size-4" />
+            </button>
+          ) : null}
           {onReply ? (
             <button
               type="button"
@@ -303,7 +324,7 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
         </div>
       ) : null}
 
-      {emojiPickerOpen ? (
+      {emojiPickerOpen && supportsReactions ? (
         <div className="absolute -top-10 right-2 z-20 flex items-center gap-0.5 rounded-lg border border-border bg-background px-1.5 py-1 shadow-lg">
           {QUICK_EMOJIS.map((emoji) => (
             <button

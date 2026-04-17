@@ -266,8 +266,32 @@ export function VoiceControlBar({ className }: { className?: string }) {
   const handleChangeScreenShare = () => {
     setScreenShareMenuOpen(false);
     void (async () => {
-      await stopScreenShare();
-      await startScreenShare();
+      // Creamos los NUEVOS tracks antes de soltar los actuales. Si el usuario
+      // cancela el diálogo del navegador, conservamos la transmisión en curso
+      // en vez de dejarle sin nada (bug previo: stop -> start; al cancelar el
+      // segundo prompt se quedaba sin transmisión).
+      const lk = await import('livekit-client');
+      let newTracks: Awaited<ReturnType<typeof lk.createLocalScreenTracks>> | null = null;
+      try {
+        newTracks = await lk.createLocalScreenTracks(screenShareCaptureOptions);
+      } catch {
+        return;
+      }
+      if (!newTracks || newTracks.length === 0) return;
+      try {
+        // Primero paramos la anterior (unpublish + stop de MediaStreamTrack).
+        await localParticipant.setScreenShareEnabled(false);
+        // Luego publicamos los nuevos tracks directamente, sin volver a pedir
+        // permiso al usuario. La source (ScreenShare/ScreenShareAudio) la
+        // infiere LiveKit del propio LocalTrack.
+        for (const track of newTracks) {
+          await localParticipant.publishTrack(track, screenSharePublishOptions);
+        }
+        setLocalScreenShareEnabled(true);
+      } catch (e) {
+        console.warn('Error al cambiar pantalla compartida', e);
+        for (const track of newTracks) track.stop();
+      }
     })();
   };
 
@@ -304,7 +328,7 @@ export function VoiceControlBar({ className }: { className?: string }) {
         {isMicrophoneEnabled ? <Mic className="size-4" /> : <MicOff className="size-4" />}
       </Toggle>
 
-      {/* BOTÓN DE IA RESTAURADO Y SEGURO */}
+      {/* BOT��N DE IA RESTAURADO Y SEGURO */}
       <button
         type="button"
         onClick={handleAiToggle}

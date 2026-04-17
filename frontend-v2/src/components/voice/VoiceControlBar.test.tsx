@@ -147,7 +147,6 @@ describe('VoiceControlBar', () => {
           maxBitrate: 24_000_000,
           maxFramerate: 60,
         }),
-        screenShareSimulcastLayers: [],
       }),
     )
   })

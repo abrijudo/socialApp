@@ -1,10 +1,18 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect } from 'react'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { getAuthenticatedSupabase, getSupabaseBrowserClient } from '@/lib/supabase'
 import { apiGetJson } from '@/lib/api'
 import { toast } from 'sonner'
 import { useAppStore } from '@/store/useAppStore'
 import type { ChannelMessage, Profile } from '@/types/models'
+
+/**
+ * TTL para evitar refetches redundantes cuando el componente se desmonta y
+ * se remonta en pocos segundos (p. ej. al entrar/salir de voz o por
+ * StrictMode en desarrollo). Mismo patrón que `useChannelMessages`.
+ */
+const lastFetchedAt = new Map<string, number>()
+const FETCH_TTL_MS = 30_000
 
 function profileForDmAuthor(dmChannelId: string, authorId: string): Profile | null {
   const s = useAppStore.getState()
@@ -63,60 +71,75 @@ function normalizeApiRow(
 }
 
 /**
- * Historial vía GET /api/dm/:dmChannelId/messages y Supabase Realtime sobre `dm_messages`.
+ * Historial vía `GET /api/dm/:dmChannelId/messages` y actualizaciones vía
+ * Supabase Realtime sobre `dm_messages`.
+ *
+ * Los mensajes se cachean en `dmMessagesByChannel` del store, así que al
+ * desmontar/remontar el componente (por ejemplo al entrar/salir de voz, o al
+ * cambiar de DM y volver) NO se vuelve a mostrar el spinner ni se reinicia
+ * la lista: se revalidan en background.
+ *
+ * Pensado para invocarse UNA vez desde `AppLayout` con el DM activo; así la
+ * suscripción realtime sigue viva aunque el componente `DmChatArea` entre y
+ * salga del árbol (p. ej. al activar un canal de voz).
  */
 export function useDmMessages(dmChannelId: string | null) {
-  const [isLoading, setIsLoading] = useState(false)
   const accessToken = useAppStore((s) => s.accessToken)
   const userId = useAppStore((s) => s.userId)
-  const setDmMessages = useAppStore((s) => s.setDmMessages)
-
-  const appendMessage = useCallback((msg: ChannelMessage) => {
-    useAppStore.setState((state) => {
-      if (state.dmMessages.some((m) => m.id === msg.id)) return state
-      return { dmMessages: [...state.dmMessages, msg] }
-    })
-  }, [])
 
   useEffect(() => {
-    if (!dmChannelId || !accessToken) {
-      setDmMessages([])
-      setIsLoading(false)
-      return
-    }
+    if (!dmChannelId || !accessToken) return
 
     let cancelled = false
-    const realtimeName = `dm-messages-${dmChannelId}`
+    let realtimeChannel: RealtimeChannel | null = null
+    const realtimeName = `dm-messages-${dmChannelId}-${Date.now()}`
 
-    setDmMessages([])
-    setIsLoading(true)
+    const store = useAppStore.getState()
+    const alreadyLoaded = dmChannelId in store.dmMessagesByChannel
+    const lastAt = lastFetchedAt.get(dmChannelId) ?? 0
+    const isFresh = alreadyLoaded && Date.now() - lastAt < FETCH_TTL_MS
+
+    if (!alreadyLoaded) {
+      useAppStore.getState().setDmChannelMessagesLoading(dmChannelId, true)
+    }
 
     void (async () => {
       try {
-        const data = await apiGetJson<Record<string, unknown>[]>(
-          `/api/dm/${dmChannelId}/messages`,
-          accessToken,
-        )
-        if (!cancelled) {
-          const list = Array.isArray(data) ? data : []
-          setDmMessages(list.map((row) => normalizeApiRow(row, dmChannelId)))
+        if (!isFresh) {
+          const data = await apiGetJson<Record<string, unknown>[]>(
+            `/api/dm/${dmChannelId}/messages`,
+            accessToken,
+          )
+          if (!cancelled) {
+            const list = Array.isArray(data) ? data : []
+            useAppStore
+              .getState()
+              .setDmChannelMessages(
+                dmChannelId,
+                list.map((row) => normalizeApiRow(row, dmChannelId)),
+              )
+            lastFetchedAt.set(dmChannelId, Date.now())
+          }
         }
       } catch {
-        if (!cancelled) setDmMessages([])
+        if (!cancelled && !alreadyLoaded) {
+          useAppStore.getState().setDmChannelMessages(dmChannelId, [])
+        }
       } finally {
-        if (!cancelled) setIsLoading(false)
+        if (!cancelled) {
+          useAppStore.getState().setDmChannelMessagesLoading(dmChannelId, false)
+        }
       }
-    })()
 
-    const filter = `dm_channel_id=eq.${dmChannelId}`
-    let channel: RealtimeChannel | null = null
+      if (cancelled) return
 
-    void (async () => {
       try {
         const supabase = await getAuthenticatedSupabase(accessToken)
         if (cancelled) return
 
-        channel = supabase
+        const filter = `dm_channel_id=eq.${dmChannelId}`
+
+        const channel = supabase
           .channel(realtimeName)
           .on(
             'postgres_changes',
@@ -133,12 +156,12 @@ export function useDmMessages(dmChannelId: string | null) {
               const authorId = String(row.author_id)
               const profile = profileForDmAuthor(dmChannelId, authorId)
               const msg = rowToMessage(row, profile, dmChannelId)
-              appendMessage(msg)
+              const state = useAppStore.getState()
+              state.appendDmChannelMessage(dmChannelId, msg)
               if (userId && authorId !== userId) {
                 const preview =
                   msg.body.length > 160 ? `${msg.body.slice(0, 157)}…` : msg.body
                 toast('Nuevo mensaje privado', { description: preview })
-                const state = useAppStore.getState()
                 if (dmChannelId !== state.activeDmChannelId) {
                   state.incrementUnread(dmChannelId)
                 }
@@ -160,7 +183,10 @@ export function useDmMessages(dmChannelId: string | null) {
               const authorId = String(row.author_id)
               const profile = profileForDmAuthor(dmChannelId, authorId)
               const msg = rowToMessage(row, profile, dmChannelId)
-              useAppStore.getState().updateDmMessage(String(row.id), msg)
+              // Evitar que el patch sobrescriba reactions/replyCount con vacíos
+              // (realtime solo reporta columnas propias de `dm_messages`).
+              const { reactions: _r, replyCount: _c, ...patch } = msg
+              useAppStore.getState().updateDmMessage(String(row.id), patch)
             },
           )
           .on(
@@ -178,6 +204,12 @@ export function useDmMessages(dmChannelId: string | null) {
             },
           )
 
+        if (cancelled) {
+          void supabase.removeChannel(channel)
+          return
+        }
+
+        realtimeChannel = channel
         channel.subscribe((status, err) => {
           if (status === 'SUBSCRIBED') return
           if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
@@ -190,9 +222,15 @@ export function useDmMessages(dmChannelId: string | null) {
                 )
                 if (!cancelled) {
                   const list = Array.isArray(data) ? data : []
-                  setDmMessages(list.map((row) => normalizeApiRow(row, dmChannelId)))
+                  useAppStore
+                    .getState()
+                    .setDmChannelMessages(
+                      dmChannelId,
+                      list.map((row) => normalizeApiRow(row, dmChannelId)),
+                    )
+                  lastFetchedAt.set(dmChannelId, Date.now())
                 }
-              } catch { /* retry on next event */ }
+              } catch { /* silently retry on next event */ }
             })()
           }
         })
@@ -203,23 +241,35 @@ export function useDmMessages(dmChannelId: string | null) {
 
     return () => {
       cancelled = true
-      const ch = channel
+      // Importante: NO limpiamos `dmMessagesByChannel[dmChannelId]` al
+      // desmontar. Los mensajes se conservan para que, al volver al DM (por
+      // ejemplo tras entrar/salir de voz), aparezcan al instante y sin
+      // spinner.
+      const ch = realtimeChannel
+      realtimeChannel = null
       if (!ch) return
-      const supabase = getSupabaseBrowserClient()
-      void supabase.removeChannel(ch)
+      try {
+        const supabase = getSupabaseBrowserClient()
+        void supabase.removeChannel(ch)
+      } catch {
+        /* cliente aún no listo */
+      }
     }
-  }, [dmChannelId, accessToken, appendMessage, userId, setDmMessages])
+  }, [dmChannelId, accessToken, userId])
+}
 
-  const appendFromPostResponse = useCallback(
-    (row: Record<string, unknown>) => {
-      if (!dmChannelId || !row?.id) return
-      const authorId = String(row.author_id)
-      const profile = profileForDmAuthor(dmChannelId, authorId)
-      const msg = rowToMessage(row, profile, dmChannelId)
-      appendMessage(msg)
-    },
-    [dmChannelId, appendMessage],
-  )
-
-  return { isLoading, appendFromPostResponse }
+/**
+ * Inserta optimistamente en el cache el mensaje devuelto por
+ * `POST /api/dm/:dmChannelId/messages`, para verlo inmediatamente sin esperar
+ * al evento Realtime.
+ */
+export function appendDmMessageFromPostResponse(
+  dmChannelId: string,
+  row: Record<string, unknown>,
+) {
+  if (!dmChannelId || !row?.id) return
+  const authorId = String(row.author_id)
+  const profile = profileForDmAuthor(dmChannelId, authorId)
+  const msg = rowToMessage(row, profile, dmChannelId)
+  useAppStore.getState().appendDmChannelMessage(dmChannelId, msg)
 }

@@ -9,6 +9,7 @@ import type {
   VoicePresenceRow,
 } from '@/types/models'
 import {
+  filterLocalFromSnapshot,
   mergeOccupants,
   normalizeSnapshot,
   presenceRowsToByChannel,
@@ -52,7 +53,25 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
   const localSelfRef = useRef<VoiceOccupantsByChannel>({})
 
   function flushMerged() {
-    const remoteMerged = mergeOccupants(presenceRef.current, snapshotRef.current)
+    // "Verdad local" para el usuario actual: la posición del usuario LOCAL la
+    // manda `activeVoiceChannelId` + `localSelfRef`. Si ya no está en un
+    // canal (colgó) o se cambió a otro, filtramos su entrada residual tanto
+    // del snapshot del backend (que tarda hasta un poll en actualizarse)
+    // como de la presencia de Supabase (que tarda el round-trip de `track`).
+    // Sin esto, el nombre propio se queda pegado en el canal anterior hasta
+    // que alguna de las dos fuentes le alcance.
+    const state = useAppStore.getState()
+    const cleanSnapshot = filterLocalFromSnapshot(
+      snapshotRef.current,
+      state.userId,
+      state.activeVoiceChannelId,
+    )
+    const cleanPresence = filterLocalFromSnapshot(
+      presenceRef.current,
+      state.userId,
+      state.activeVoiceChannelId,
+    )
+    const remoteMerged = mergeOccupants(cleanPresence, cleanSnapshot)
     // Garantiza feedback inmediato del usuario local al entrar a voz.
     setVoiceChannelOccupants(mergeOccupants(localSelfRef.current, remoteMerged))
   }
@@ -231,11 +250,21 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
     setVoiceChannelOccupants,
   ])
 
+  /**
+   * Snapshot auxiliar del servidor para reforzar la presencia de voz. Aunque
+   * `Supabase Realtime Presence` es el canal principal, tiraba un polling
+   * cada 7 s siempre que había servidor activo — incluso con la pestaña en
+   * background. Ahora:
+   *  - El intervalo es de 20 s cuando hay servidor activo.
+   *  - Se pausa por completo si `document.hidden` está activo (tab oculta).
+   *  - Al volver la pestaña al frente, se dispara un refresco inmediato.
+   */
   useEffect(() => {
     if (!subscribe) return
 
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | null = null
+    const POLL_INTERVAL_MS = 20_000
 
     const clear = () => {
       if (timer) clearTimeout(timer)
@@ -243,6 +272,13 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
     }
 
     const loop = async () => {
+      // Si la pestaña está oculta, nos detenemos y esperamos a que vuelva al
+      // primer plano (ver `visibilitychange` abajo); así evitamos mantener
+      // peticiones activas en segundo plano.
+      if (typeof document !== 'undefined' && document.hidden) {
+        return
+      }
+
       try {
         if (!accessToken || !activeServerId) {
           snapshotRef.current = {}
@@ -260,8 +296,26 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
       } catch {
         // Silencioso: mantenemos presencia local si el snapshot remoto falla.
       } finally {
-        if (!cancelled) timer = setTimeout(loop, 7000)
+        if (!cancelled && !(typeof document !== 'undefined' && document.hidden)) {
+          timer = setTimeout(loop, POLL_INTERVAL_MS)
+        }
       }
+    }
+
+    const onVisibility = () => {
+      if (cancelled) return
+      if (document.hidden) {
+        clear()
+      } else {
+        // Al volver, forzamos un refresco inmediato para recuperar cambios
+        // que hayan ocurrido mientras estábamos en background.
+        clear()
+        void loop()
+      }
+    }
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibility)
     }
 
     void loop()
@@ -269,6 +323,9 @@ export function useVoicePresence(options?: { subscribe?: boolean }) {
     return () => {
       cancelled = true
       clear()
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibility)
+      }
     }
   }, [subscribe, accessToken, activeServerId, setVoiceChannelOccupants])
 

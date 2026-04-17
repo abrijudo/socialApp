@@ -4,9 +4,11 @@ import type {
   TrackPublishOptions,
   VideoCaptureOptions,
 } from 'livekit-client'
-import { AudioPresets } from 'livekit-client'
+import { AudioPresets, ScreenSharePresets } from 'livekit-client'
 
 export const microphoneCaptureOptions: NonNullable<RoomOptions['audioCaptureDefaults']> = {
+  // Anti-eco del navegador. Krisp se encarga del ruido, así que dejamos
+  // NS/AGC activos solo como fallback cuando Krisp no carga (móvil, WASM fallido).
   echoCancellation: true,
   noiseSuppression: false,
   autoGainControl: true,
@@ -14,6 +16,9 @@ export const microphoneCaptureOptions: NonNullable<RoomOptions['audioCaptureDefa
   channelCount: 1,
   sampleRate: 48000,
   sampleSize: 16,
+  // Minimiza delay de captura del driver. Algunos navegadores (Chromium) lo
+  // respetan y reducen ~40 ms de buffer en micros USB.
+  latency: 0,
 }
 
 /** Cámara 1080p estable con bitrate alto para priorizar calidad + fluidez. */
@@ -62,9 +67,15 @@ export const screenSharePublishOptions: TrackPublishOptions = {
     priority: 'high',
   },
   videoCodec: 'vp9',
-  screenShareSimulcastLayers: [],
+  // Capa de respaldo a 720p15 para subscribers con poco ancho de banda.
+  // Sin capas, si un participante no puede con el stream principal se queda
+  // a negro; con esta capa el SFU puede degradarle antes de cortar.
+  screenShareSimulcastLayers: [ScreenSharePresets.h720fps15],
   degradationPreference: 'balanced',
   backupCodec: { codec: 'vp8', encoding: { maxBitrate: 18_000_000, maxFramerate: 60 } },
+  // Preset estéreo para el audio del screen share (YouTube, juegos, música).
+  // El mic sigue yendo por `publishDefaults.audioPreset` (mono/high quality).
+  audioPreset: AudioPresets.musicHighQualityStereo,
 }
 
 export const roomOptionsHighQuality: RoomOptions = {
@@ -82,8 +93,11 @@ export const roomOptionsHighQuality: RoomOptions = {
     screenShareEncoding: screenSharePublishOptions.screenShareEncoding,
     screenShareSimulcastLayers: screenSharePublishOptions.screenShareSimulcastLayers,
     backupCodec: screenSharePublishOptions.backupCodec,
+    // Mic mono de alta calidad (96 kbps). El screen share sobrescribe este
+    // preset en su publish específico con `musicHighQualityStereo` (128 kbps).
     audioPreset: AudioPresets.musicHighQuality,
     dtx: false,
     red: true,
+    stopMicTrackOnMute: false,
   },
 }

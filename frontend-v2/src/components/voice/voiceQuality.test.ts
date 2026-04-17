@@ -21,7 +21,10 @@ describe('voiceQuality presets', () => {
       'maintain-framerate',
     )
     expect(roomOptionsHighQuality.publishDefaults?.screenShareEncoding).toBeDefined()
-    expect(roomOptionsHighQuality.publishDefaults?.screenShareSimulcastLayers).toEqual([])
+    // Debe haber al menos una capa de respaldo para que los subscribers con
+    // poco ancho de banda reciban una versión degradada en vez de cortarse.
+    const layers = roomOptionsHighQuality.publishDefaults?.screenShareSimulcastLayers ?? []
+    expect(layers.length).toBeGreaterThanOrEqual(1)
   })
 
   it('captura pantalla a resolución nativa con contentHint motion', () => {

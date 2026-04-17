@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react'
+import { memo, useCallback, useMemo, useState } from 'react'
 import { Mic } from 'lucide-react'
 import { UserProfilePopup } from '@/components/modals/UserProfilePopup'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -43,18 +43,22 @@ const MemberRow = memo(function MemberRow({
   presence,
   offline,
   voiceChannelName,
-  onClick,
+  onSelect,
 }: {
   member: ServerMember
   presence: PresenceStatus | undefined
   offline: boolean
   voiceChannelName?: string
-  onClick?: () => void
+  onSelect?: (userId: string) => void
 }) {
+  const handleClick = useCallback(() => {
+    onSelect?.(member.user_id)
+  }, [onSelect, member.user_id])
+
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={handleClick}
       className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left transition-colors duration-200 ease-in-out hover:bg-background/40">
       <div className="relative shrink-0">
         <div
@@ -110,20 +114,28 @@ export function MembersList({ className }: { className?: string }) {
     return byUser
   }, [channels, voiceChannelOccupants])
 
+  // Orden alfabético estable: solo se recalcula cuando cambia la lista de
+  // miembros, NO cada vez que entra un evento de presencia.
+  const sortedMembers = useMemo(() => {
+    const list = members.filter((m) => m?.user_id).slice()
+    list.sort((a, b) => memberDisplayName(a).localeCompare(memberDisplayName(b), 'es'))
+    return list
+  }, [members])
+
+  // Set de IDs en línea: clave referencial del selector. Así la partición
+  // sólo se rehace cuando cambia realmente el conjunto de usuarios online,
+  // no cuando cambian otros datos ajenos (voz, canales, etc.).
+  const onlineIds = useMemo(() => new Set(Object.keys(onlineUsers)), [onlineUsers])
+
   const { onlineMembers, offlineMembers } = useMemo(() => {
     const on: ServerMember[] = []
     const off: ServerMember[] = []
-    for (const m of members) {
-      if (!m?.user_id) continue
-      if (m.user_id in onlineUsers) on.push(m)
+    for (const m of sortedMembers) {
+      if (onlineIds.has(m.user_id)) on.push(m)
       else off.push(m)
     }
-    const byName = (a: ServerMember, b: ServerMember) =>
-      memberDisplayName(a).localeCompare(memberDisplayName(b), 'es')
-    on.sort(byName)
-    off.sort(byName)
     return { onlineMembers: on, offlineMembers: off }
-  }, [members, onlineUsers])
+  }, [sortedMembers, onlineIds])
 
   return (
     <aside
@@ -161,7 +173,7 @@ export function MembersList({ className }: { className?: string }) {
                   presence={onlineUsers[m.user_id]}
                   offline={false}
                   voiceChannelName={voiceChannelByUserId.get(m.user_id)}
-                  onClick={() => setProfileUserId(m.user_id)}
+                  onSelect={setProfileUserId}
                 />
               </li>
             ))}
@@ -183,7 +195,7 @@ export function MembersList({ className }: { className?: string }) {
                   presence={undefined}
                   offline
                   voiceChannelName={voiceChannelByUserId.get(m.user_id)}
-                  onClick={() => setProfileUserId(m.user_id)}
+                  onSelect={setProfileUserId}
                 />
               </li>
             ))}

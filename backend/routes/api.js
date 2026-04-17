@@ -951,6 +951,78 @@ router.post('/dm/:dmChannelId/messages', async (req, res) => {
   }
 });
 
+// --- Edición y borrado de mensajes directos ---
+// Los endpoints `/api/messages/:id` operan sobre la tabla `messages` (canales
+// de servidor). Los DM viven en `dm_messages`, así que necesitan endpoints
+// propios; sin ellos, cualquier intento de editar/borrar un DM respondía 500
+// con "Mensaje no encontrado".
+router.patch('/dm-messages/:messageId', async (req, res) => {
+  try {
+    const params = z.object({ messageId: z.string().uuid() }).parse(req.params);
+    const rawBody = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
+    const body = z.object({ text: z.string().min(1).max(1000) }).parse(rawBody);
+
+    const sb = getSupabaseAdmin();
+    const { data: msg, error: fetchErr } = await sb
+      .from('dm_messages')
+      .select('id, dm_channel_id, author_id')
+      .eq('id', params.messageId)
+      .single();
+    if (fetchErr || !msg) throw new Error('Mensaje no encontrado.');
+    if (msg.author_id !== req.userId) throw new Error('Solo el autor puede editar.');
+
+    // Verificamos que el usuario sigue siendo participante del DM.
+    const { data: part } = await sb
+      .from('dm_participants')
+      .select('user_id')
+      .eq('dm_channel_id', msg.dm_channel_id)
+      .eq('user_id', req.userId)
+      .maybeSingle();
+    if (!part) throw new Error('No tienes acceso a este DM.');
+
+    const { data, error } = await sb
+      .from('dm_messages')
+      .update({ body: body.text.trim(), edited_at: new Date().toISOString() })
+      .eq('id', params.messageId)
+      .eq('author_id', req.userId)
+      .select('id, body, edited_at')
+      .single();
+    if (error) throw error;
+    return res.json(data);
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
+router.delete('/dm-messages/:messageId', async (req, res) => {
+  try {
+    const params = z.object({ messageId: z.string().uuid() }).parse(req.params);
+
+    const sb = getSupabaseAdmin();
+    const { data: msg, error: fetchErr } = await sb
+      .from('dm_messages')
+      .select('id, dm_channel_id, author_id')
+      .eq('id', params.messageId)
+      .single();
+    if (fetchErr || !msg) throw new Error('Mensaje no encontrado.');
+    if (msg.author_id !== req.userId) throw new Error('Solo el autor puede borrar.');
+
+    const { data: part } = await sb
+      .from('dm_participants')
+      .select('user_id')
+      .eq('dm_channel_id', msg.dm_channel_id)
+      .eq('user_id', req.userId)
+      .maybeSingle();
+    if (!part) throw new Error('No tienes acceso a este DM.');
+
+    const { error } = await sb.from('dm_messages').delete().eq('id', params.messageId);
+    if (error) throw error;
+    return res.json({ ok: true });
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
 router.get('/messages/:channelId/thread/:parentId', async (req, res) => {
   try {
     const { channelId, parentId } = z.object({ channelId: idSchema, parentId: z.string().uuid() }).parse(req.params);

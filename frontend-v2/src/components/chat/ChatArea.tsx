@@ -1,6 +1,6 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Hash, Loader2, Send, X } from 'lucide-react'
-import { useChannelMessages } from '@/hooks/useChannelMessages'
+import { appendChannelMessageFromPostResponse } from '@/hooks/useChannelMessages'
 import { useTypingIndicator } from '@/hooks/useTypingIndicator'
 import { apiPostJson } from '@/lib/api'
 import { MessageItem } from '@/components/chat/MessageItem'
@@ -8,6 +8,12 @@ import { MessageSkeleton } from '@/components/chat/MessageSkeleton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAppStore } from '@/store/useAppStore'
+import type { ChannelMessage } from '@/types/models'
+
+// Array compartido para evitar nueva referencia cuando no hay mensajes cacheados;
+// así el selector devuelve la misma instancia y no dispara re-renders.
+const EMPTY_MESSAGES: ChannelMessage[] = []
+const EMPTY_DRAFT = { body: '', replyToId: null as string | null }
 
 export interface ChatAreaProps {
   channelId: string | null
@@ -34,25 +40,45 @@ function ChannelEmptyWelcome({ channelName }: { channelName: string }) {
 }
 
 export function ChatArea({ channelId, onAuthorClick }: ChatAreaProps) {
-  const messages = useAppStore((s) => s.messages)
+  const messages = useAppStore((s) =>
+    channelId ? s.messagesByChannel[channelId] ?? EMPTY_MESSAGES : EMPTY_MESSAGES,
+  )
+  // `isLoading` ahora lo publica `useChannelMessages` (montado en `AppLayout`)
+  // dentro del store, así el spinner puede mostrarse sin que este componente
+  // "posea" la suscripción realtime y se arrastre un desmontaje cada vez que
+  // el layout cambia (por ejemplo al entrar/salir de un canal de voz).
+  const isLoading = useAppStore((s) =>
+    channelId ? s.messagesLoadingByChannel[channelId] ?? false : false,
+  )
   const channels = useAppStore((s) => s.channels)
   const accessToken = useAppStore((s) => s.accessToken)
-  const { isLoading } = useChannelMessages(channelId)
+  // Draft persistente por canal: se guarda en el store para que al cambiar de
+  // canal y volver siga ahí (y que el `parentMessageId` de la respuesta sea
+  // siempre del canal correcto).
+  const draftEntry = useAppStore((s) =>
+    channelId ? s.drafts[channelId] ?? EMPTY_DRAFT : EMPTY_DRAFT,
+  )
+  const setDraftBody = useAppStore((s) => s.setDraftBody)
+  const setDraftReply = useAppStore((s) => s.setDraftReply)
+  const clearDraft = useAppStore((s) => s.clearDraft)
   const { typingUsers, reportTyping } = useTypingIndicator(channelId)
-  const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
-  const [replyTo, setReplyTo] = useState<import('@/types/models').ChannelMessage | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const isNearBottomRef = useRef(true)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const messagesById = useMemo(() => {
-    const map = new Map<string, import('@/types/models').ChannelMessage>()
+    const map = new Map<string, ChannelMessage>()
     for (const m of messages) map.set(m.id, m)
     return map
   }, [messages])
+
+  const draft = draftEntry.body
+  const replyTo: ChannelMessage | null = draftEntry.replyToId
+    ? messagesById.get(draftEntry.replyToId) ?? null
+    : null
 
   const activeChannel = channelId ? channels.find((c) => c.id === channelId) : undefined
   const channelName = activeChannel?.name?.trim() || 'canal'
@@ -74,6 +100,31 @@ export function ChatArea({ channelId, onAuthorClick }: ChatAreaProps) {
     endRef.current?.scrollIntoView({ behavior: 'instant' })
   }, [channelId])
 
+  // Reset de error al cambiar de canal (el draft y replyTo viven en el store
+  // y son específicos de cada canal, así que no hay que limpiarlos).
+  useEffect(() => {
+    setSendError(null)
+  }, [channelId])
+
+  // Si la respuesta citada ya no está en la cache (p. ej. el mensaje se borró
+  // o se paginó fuera), cancelamos la respuesta para no enviar un
+  // `parentMessageId` inválido.
+  useEffect(() => {
+    if (!channelId) return
+    if (draftEntry.replyToId && !messagesById.has(draftEntry.replyToId)) {
+      setDraftReply(channelId, null)
+    }
+  }, [channelId, draftEntry.replyToId, messagesById, setDraftReply])
+
+  const handleReply = useCallback(
+    (msg: ChannelMessage) => {
+      if (!channelId) return
+      setDraftReply(channelId, msg.id)
+      inputRef.current?.focus()
+    },
+    [channelId, setDraftReply],
+  )
+
   if (!channelId) {
     return (
       <div className="text-muted-foreground flex h-full min-h-0 flex-1 flex-col items-center justify-center overflow-hidden p-3 text-center text-sm">
@@ -82,19 +133,14 @@ export function ChatArea({ channelId, onAuthorClick }: ChatAreaProps) {
     )
   }
 
-  function handleReply(msg: import('@/types/models').ChannelMessage) {
-    setReplyTo(msg)
-    inputRef.current?.focus()
-  }
-
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     const text = draft.trim()
-    if (!text || !accessToken || sending) return
+    if (!text || !accessToken || sending || !channelId) return
     setSendError(null)
     setSending(true)
     try {
-      await apiPostJson<unknown>(
+      const created = await apiPostJson<Record<string, unknown>>(
         '/api/messages',
         accessToken,
         {
@@ -104,8 +150,8 @@ export function ChatArea({ channelId, onAuthorClick }: ChatAreaProps) {
           ...(replyTo ? { parentMessageId: replyTo.id } : {}),
         },
       )
-      setDraft('')
-      setReplyTo(null)
+      appendChannelMessageFromPostResponse(channelId, created)
+      clearDraft(channelId)
     } catch (err) {
       setSendError((err as Error).message || 'No se pudo enviar')
     } finally {
@@ -163,7 +209,7 @@ export function ChatArea({ channelId, onAuthorClick }: ChatAreaProps) {
             <button
               type="button"
               className="text-muted-foreground hover:text-foreground shrink-0"
-              onClick={() => setReplyTo(null)}
+              onClick={() => setDraftReply(channelId, null)}
               title="Cancelar respuesta"
             >
               <X className="size-4" />
@@ -190,11 +236,11 @@ export function ChatArea({ channelId, onAuthorClick }: ChatAreaProps) {
               placeholder={replyTo ? 'Escribe tu respuesta…' : 'Escribir en el canal…'}
               value={draft}
               onChange={(e) => {
-                setDraft(e.target.value)
+                setDraftBody(channelId, e.target.value)
                 reportTyping()
               }}
               onKeyDown={(e) => {
-                if (e.key === 'Escape' && replyTo) setReplyTo(null)
+                if (e.key === 'Escape' && replyTo) setDraftReply(channelId, null)
               }}
               maxLength={1000}
               disabled={sending || !accessToken}

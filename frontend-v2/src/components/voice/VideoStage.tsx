@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ParticipantTile, useTracks } from '@livekit/components-react'
 import { Track } from 'livekit-client'
-import { Maximize2, Volume2, VolumeX } from 'lucide-react'
+import { Maximize2, Pin, PinOff, Volume2, VolumeX } from 'lucide-react'
 
 function trackKey(track: unknown, index: number): string {
   const t = track as {
@@ -30,6 +30,10 @@ function trackVolumeKey(track: unknown): string {
 function trackParticipantLabel(track: unknown): string {
   const t = track as { participant?: { identity?: string } }
   return t.participant?.identity || 'usuario'
+}
+
+function isScreenShare(track: unknown): boolean {
+  return (track as { source?: string | number }).source === Track.Source.ScreenShare
 }
 
 function applyVolumeToTransmission(track: unknown, nextVolume: number) {
@@ -87,14 +91,21 @@ async function requestTileFullscreen(el: HTMLDivElement | null) {
 }
 
 /**
- * Cuadrícula LiveKit: todas las cámaras (con placeholder al apagar) + pantallas compartidas.
- * `onlySubscribed: false` evita que el hook omita publicaciones aún sin track remoto suscrito.
+ * Layout adaptativo para transmisiones simultáneas.
+ *
+ * Reglas:
+ *  - Si hay un tile "pinned" (usuario ha fijado uno), va grande y el resto al
+ *    filmstrip inferior.
+ *  - Sin pin: 0 pantallas → galería de cámaras. 1 pantalla → la pantalla como
+ *    hero + resto al filmstrip. 2+ pantallas → grid de pantallas + filmstrip
+ *    de cámaras debajo.
+ *
+ * `onlySubscribed: false` evita "tiles negros" cuando la publicación existe
+ * pero aún no hay suscripción remota en este cliente.
  */
 export function VideoStage() {
   const tracks = useTracks(
     [
-      // Sin placeholder para evitar "tiles negros" falsos cuando la publicación existe
-      // pero aún no hay suscripción visual en el cliente local.
       { source: Track.Source.Camera, withPlaceholder: false },
       { source: Track.Source.ScreenShare, withPlaceholder: false },
     ],
@@ -106,19 +117,40 @@ export function VideoStage() {
   const [controlsVisibleByTile, setControlsVisibleByTile] = useState<Record<string, boolean>>({})
   const lastNonZeroByTrackRef = useRef<Record<string, number>>({})
   const hideControlsTimerRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
-  const screenShares = useMemo(() => tracks.filter((t) => t.source === Track.Source.ScreenShare), [tracks])
-  const cameras = useMemo(() => tracks.filter((t) => t.source === Track.Source.Camera), [tracks])
+
+  const screenShares = useMemo(() => tracks.filter(isScreenShare), [tracks])
+  const cameras = useMemo(() => tracks.filter((t) => !isScreenShare(t)), [tracks])
   const hasScreenShare = screenShares.length > 0
+
   const isControlsActiveOnAny = Object.values(controlsVisibleByTile).some((v) => v === true)
   const isImmersive = !isControlsActiveOnAny
-  const focusTracks = hasScreenShare ? [...screenShares, ...cameras] : []
-  const heroScreen = hasScreenShare
-    ? focusTracks.find((t) => trackVolumeKey(t) === pinnedTrackKey) || screenShares[0]
-    : null
-  const filmstripTracks = hasScreenShare
-    ? focusTracks.filter((t) => trackVolumeKey(t) !== trackVolumeKey(heroScreen))
-    : []
+
   type StageTrack = (typeof tracks)[number]
+
+  // Resolución del pin: si el usuario pinchó un track que sigue vivo → hero forzado.
+  const pinnedTrack: StageTrack | null = useMemo(() => {
+    if (!pinnedTrackKey) return null
+    return tracks.find((t) => trackVolumeKey(t) === pinnedTrackKey) ?? null
+  }, [tracks, pinnedTrackKey])
+
+  // Determina el layout sin pin: split (2+ screens) | hero+strip (1 screen) | galería.
+  const layout: {
+    mode: 'pinned' | 'split' | 'hero' | 'gallery'
+    heroTracks: StageTrack[]
+    stripTracks: StageTrack[]
+  } = useMemo(() => {
+    if (pinnedTrack) {
+      const rest = tracks.filter((t) => trackVolumeKey(t) !== trackVolumeKey(pinnedTrack))
+      return { mode: 'pinned', heroTracks: [pinnedTrack], stripTracks: rest }
+    }
+    if (screenShares.length >= 2) {
+      return { mode: 'split', heroTracks: screenShares, stripTracks: cameras }
+    }
+    if (hasScreenShare) {
+      return { mode: 'hero', heroTracks: [screenShares[0]], stripTracks: cameras }
+    }
+    return { mode: 'gallery', heroTracks: [], stripTracks: [] }
+  }, [pinnedTrack, screenShares, cameras, hasScreenShare, tracks])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -205,6 +237,7 @@ export function VideoStage() {
     const isMuted = volume <= 0.001
     const key = `${trackKey(track, index)}:${mode}`
     const showControls = controlsVisibleByTile[key] === true
+    const isPinned = pinnedTrackKey === volumeKey
     const outerClass =
       mode === 'hero'
         ? `group relative h-full min-h-0 w-full min-w-0 overflow-hidden bg-black ${
@@ -217,12 +250,15 @@ export function VideoStage() {
           : `group relative min-h-0 min-w-0 overflow-hidden bg-black ${
               isImmersive ? 'rounded-none border-0' : 'rounded-lg border border-border/20'
             }`
-    const isScreenShareTrack = (track as { source?: string | number }).source === Track.Source.ScreenShare
-    const immersiveMediaFitClass = isImmersive
-      ? isScreenShareTrack
-        ? '[&_video]:h-full [&_video]:w-full [&_video]:object-contain [&_canvas]:h-full [&_canvas]:w-full [&_canvas]:object-contain'
-        : '[&_video]:h-full [&_video]:w-full [&_video]:object-cover [&_canvas]:h-full [&_canvas]:w-full [&_canvas]:object-cover'
-      : ''
+    const screenFit = isScreenShare(track)
+    // `object-contain` para screen share (no recortar texto), `object-cover`
+    // para cámaras en el filmstrip/grid (miniaturas limpias). En modo hero las
+    // cámaras usan `object-contain` para no recortar caras si el aspect ratio
+    // del viewport no coincide con el de la webcam.
+    const shouldContain = screenFit || mode === 'hero'
+    const mediaFitClass = shouldContain
+      ? '[&_video]:h-full [&_video]:w-full [&_video]:object-contain [&_canvas]:h-full [&_canvas]:w-full [&_canvas]:object-contain'
+      : '[&_video]:h-full [&_video]:w-full [&_video]:object-cover [&_canvas]:h-full [&_canvas]:w-full [&_canvas]:object-cover'
 
     const hideLkOverlayClass = showControls
       ? '[&_.lk-participant-metadata]:opacity-100 [&_.lk-participant-metadata]:transition-opacity [&_.lk-participant-metadata]:duration-200'
@@ -231,7 +267,7 @@ export function VideoStage() {
     return (
       <div
         key={key}
-        className={`${outerClass} ${immersiveMediaFitClass} ${hideLkOverlayClass} lk-stage-tile`}
+        className={`${outerClass} ${mediaFitClass} ${hideLkOverlayClass} lk-stage-tile`}
         onMouseMove={() => {
           if (isTouchDevice) return
           showControlsFor(key, 900)
@@ -247,27 +283,45 @@ export function VideoStage() {
         }}
       >
         <ParticipantTile trackRef={track} />
-        <button
-          type="button"
-          className={`absolute top-2 right-2 z-20 inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/20 bg-black/60 text-white transition-opacity duration-200 ${
+
+        {/* Botones superiores derechos: pin + fullscreen */}
+        <div
+          className={`absolute top-2 right-2 z-20 flex items-center gap-1 transition-opacity duration-200 ${
             showControls ? 'opacity-100' : 'pointer-events-none opacity-0'
           }`}
-          aria-label="Pantalla completa"
-          title="Pantalla completa"
-          onClick={(e) => {
-            e.stopPropagation()
-            const container = e.currentTarget.closest('.lk-stage-tile') as HTMLDivElement | null
-            const keyForPin = trackVolumeKey(track)
-            if (document.fullscreenEnabled) {
-              void requestTileFullscreen(container)
-            } else {
-              setPinnedTrackKey((prev) => (prev === keyForPin ? null : keyForPin))
-            }
-          }}
         >
-          <Maximize2 className="size-4" aria-hidden />
-        </button>
+          <button
+            type="button"
+            className={`inline-flex h-8 w-8 items-center justify-center rounded-md border text-white ${
+              isPinned
+                ? 'border-primary bg-primary/80'
+                : 'border-white/20 bg-black/60 hover:bg-black/80'
+            }`}
+            aria-label={isPinned ? 'Desfijar' : 'Fijar'}
+            title={isPinned ? 'Desfijar' : 'Fijar como principal'}
+            onClick={(e) => {
+              e.stopPropagation()
+              setPinnedTrackKey((prev) => (prev === volumeKey ? null : volumeKey))
+            }}
+          >
+            {isPinned ? <PinOff className="size-4" aria-hidden /> : <Pin className="size-4" aria-hidden />}
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/20 bg-black/60 text-white hover:bg-black/80"
+            aria-label="Pantalla completa"
+            title="Pantalla completa"
+            onClick={(e) => {
+              e.stopPropagation()
+              const container = e.currentTarget.closest('.lk-stage-tile') as HTMLDivElement | null
+              void requestTileFullscreen(container)
+            }}
+          >
+            <Maximize2 className="size-4" aria-hidden />
+          </button>
+        </div>
 
+        {/* Barra inferior: nombre + volumen */}
         <div
           className={`absolute right-2 bottom-2 left-2 z-20 flex items-center gap-1.5 rounded-md border border-white/20 bg-black/65 px-2 py-1 text-white transition-opacity duration-200 ${
             showControls ? 'opacity-100' : 'pointer-events-none opacity-0'
@@ -325,18 +379,58 @@ export function VideoStage() {
     )
   }
 
-  if (hasScreenShare && heroScreen) {
+  // ── Layouts ────────────────────────────────────────────────────────────────
+  const padClass = isImmersive ? 'p-0' : 'p-2'
+  const gapClass = isImmersive ? 'gap-0' : 'gap-2'
+
+  if (layout.mode === 'gallery') {
+    // Grid responsive 1/2/3/4 columnas. `auto-rows-fr` reparte filas iguales.
+    const n = cameras.length
+    // Para n pequeño (1–4) forzamos un grid cuadrado para no dejar tiles muy anchas.
+    const gridCols =
+      n === 1
+        ? 'grid-cols-1'
+        : n === 2
+          ? 'grid-cols-1 sm:grid-cols-2'
+          : n <= 4
+            ? 'grid-cols-1 sm:grid-cols-2'
+            : 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'
+    return (
+      <div className={`flex h-full min-h-0 w-full flex-1 overflow-hidden bg-black ${padClass}`}>
+        <div
+          className={`grid h-full min-h-0 w-full min-w-0 auto-rows-fr ${gridCols} ${gapClass}`}
+        >
+          {cameras.map((track, index) => renderTile(track, index, 'grid'))}
+        </div>
+      </div>
+    )
+  }
+
+  if (layout.mode === 'split') {
+    // 2+ pantallas simultáneas: grid equitativo arriba + strip de cámaras debajo.
+    const screens = layout.heroTracks
+    const strip = layout.stripTracks
+    const screenCols =
+      screens.length === 2
+        ? 'grid-cols-1 md:grid-cols-2'
+        : screens.length === 3
+          ? 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
+          : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3'
     return (
       <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-black">
-        <div className={`flex-1 min-h-0 ${isImmersive ? 'p-0' : 'p-2'}`}>
-          {renderTile(heroScreen, 0, 'hero')}
+        <div className={`min-h-0 flex-1 ${padClass}`}>
+          <div className={`grid h-full min-h-0 w-full min-w-0 auto-rows-fr ${screenCols} ${gapClass}`}>
+            {screens.map((track, i) => renderTile(track, i, 'hero'))}
+          </div>
         </div>
-        {filmstripTracks.length > 0 ? (
-          <div className={`bg-background/50 shrink-0 overflow-x-auto transition-all duration-200 ${
-            isImmersive ? 'h-0 overflow-hidden p-0 opacity-0' : 'h-40 p-2 opacity-100'
-          }`}>
+        {strip.length > 0 ? (
+          <div
+            className={`bg-background/50 shrink-0 overflow-x-auto transition-all duration-200 ${
+              isImmersive ? 'h-0 overflow-hidden p-0 opacity-0' : 'h-40 p-2 opacity-100'
+            }`}
+          >
             <div className="flex h-full min-w-max gap-2">
-              {filmstripTracks.map((track, index) => renderTile(track, index + 1, 'strip'))}
+              {strip.map((track, index) => renderTile(track, index, 'strip'))}
             </div>
           </div>
         ) : null}
@@ -344,17 +438,23 @@ export function VideoStage() {
     )
   }
 
-  const galleryTracks = cameras.length > 0 ? cameras : tracks
-
+  // hero | pinned: 1 tile grande + strip con el resto.
+  const heroTrack = layout.heroTracks[0]
+  const strip = layout.stripTracks
   return (
-    <div className={`flex h-full min-h-0 w-full flex-1 overflow-hidden bg-black ${isImmersive ? 'p-0' : 'p-2'}`}>
-      <div
-        className={`grid h-full min-h-0 w-full min-w-0 auto-rows-fr grid-cols-1 ${
-          isImmersive ? 'gap-0' : 'gap-2'
-        } sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4`}
-      >
-        {galleryTracks.map((track, index) => renderTile(track, index, 'grid'))}
-      </div>
+    <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-black">
+      <div className={`min-h-0 flex-1 ${padClass}`}>{renderTile(heroTrack, 0, 'hero')}</div>
+      {strip.length > 0 ? (
+        <div
+          className={`bg-background/50 shrink-0 overflow-x-auto transition-all duration-200 ${
+            isImmersive ? 'h-0 overflow-hidden p-0 opacity-0' : 'h-40 p-2 opacity-100'
+          }`}
+        >
+          <div className="flex h-full min-w-max gap-2">
+            {strip.map((track, index) => renderTile(track, index + 1, 'strip'))}
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

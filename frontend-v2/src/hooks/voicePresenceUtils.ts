@@ -77,6 +77,33 @@ export function normalizeSnapshot(byChannelRaw: VoiceParticipantsSnapshot['byCha
   return out
 }
 
+/**
+ * Elimina al usuario local del snapshot del backend en todos los canales
+ * distintos del canal activo. Se usa como "verdad local" para el usuario
+ * conectado: si sabemos que no está en un canal (porque acaba de colgar o
+ * se cambió a otro canal), no queremos que un snapshot viejo del backend
+ * lo siga pintando ahí hasta el próximo poll.
+ */
+export function filterLocalFromSnapshot(
+  snapshot: VoiceOccupantsByChannel,
+  localUserId: string,
+  activeChannelId: string | null,
+): VoiceOccupantsByChannel {
+  if (!localUserId) return snapshot
+  let mutated = false
+  const out: VoiceOccupantsByChannel = {}
+  for (const [chId, list] of Object.entries(snapshot)) {
+    if (chId === activeChannelId) {
+      out[chId] = list
+      continue
+    }
+    const filtered = list.filter((u) => u.userId !== localUserId)
+    if (filtered.length !== list.length) mutated = true
+    if (filtered.length > 0) out[chId] = filtered
+  }
+  return mutated ? out : snapshot
+}
+
 export function mergeOccupants(
   presenceMap: VoiceOccupantsByChannel,
   snapshotMap: VoiceOccupantsByChannel,

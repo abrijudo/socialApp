@@ -1,14 +1,18 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Loader2, Menu, Send, User, X } from 'lucide-react'
 import { useMobileNav } from '@/components/layout/MobileNavContext'
 import { MessageItem } from '@/components/chat/MessageItem'
 import { MessageSkeleton } from '@/components/chat/MessageSkeleton'
 import { Button } from '@/components/ui/button'
-import { useDmMessages } from '@/hooks/useDmMessages'
+import { appendDmMessageFromPostResponse } from '@/hooks/useDmMessages'
 import { useTypingIndicator } from '@/hooks/useTypingIndicator'
 import { apiPostJson } from '@/lib/api'
 import { Input } from '@/components/ui/input'
 import { useAppStore } from '@/store/useAppStore'
+import type { ChannelMessage } from '@/types/models'
+
+const EMPTY_DM_MESSAGES: ChannelMessage[] = []
+const EMPTY_DRAFT = { body: '', replyToId: null as string | null }
 
 function peerWelcomeInitials(displayName: string, username: string | undefined): string {
   const label = displayName.trim() || username || '?'
@@ -57,23 +61,40 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
   const mobile = useMobileNav()
   const accessToken = useAppStore((s) => s.accessToken)
   const dmChannels = useAppStore((s) => s.dmChannels)
-  const messages = useAppStore((s) => s.dmMessages)
-  const { isLoading, appendFromPostResponse } = useDmMessages(dmChannelId)
+  const messages = useAppStore((s) =>
+    dmChannelId ? s.dmMessagesByChannel[dmChannelId] ?? EMPTY_DM_MESSAGES : EMPTY_DM_MESSAGES,
+  )
+  // La suscripción realtime y el fetch del historial viven en `AppLayout`
+  // (`useDmMessages`), así este componente simplemente lee del cache y se
+  // puede desmontar/remontar (por ejemplo al entrar/salir de voz) sin perder
+  // mensajes ni disparar recargas.
+  const isLoading = useAppStore((s) =>
+    dmChannelId ? s.dmMessagesLoadingByChannel[dmChannelId] ?? false : false,
+  )
+  const draftEntry = useAppStore((s) =>
+    dmChannelId ? s.drafts[dmChannelId] ?? EMPTY_DRAFT : EMPTY_DRAFT,
+  )
+  const setDraftBody = useAppStore((s) => s.setDraftBody)
+  const setDraftReply = useAppStore((s) => s.setDraftReply)
+  const clearDraft = useAppStore((s) => s.clearDraft)
   const { typingUsers, reportTyping } = useTypingIndicator(dmChannelId)
-  const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
-  const [replyTo, setReplyTo] = useState<import('@/types/models').ChannelMessage | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const isNearBottomRef = useRef(true)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const messagesById = useMemo(() => {
-    const map = new Map<string, import('@/types/models').ChannelMessage>()
+    const map = new Map<string, ChannelMessage>()
     for (const m of messages) map.set(m.id, m)
     return map
   }, [messages])
+
+  const draft = draftEntry.body
+  const replyTo: ChannelMessage | null = draftEntry.replyToId
+    ? messagesById.get(draftEntry.replyToId) ?? null
+    : null
 
   const peer = dmChannels.find((d) => d.id === dmChannelId)?.otherUser
   const peerLabel =
@@ -96,6 +117,26 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
     endRef.current?.scrollIntoView({ behavior: 'instant' })
   }, [dmChannelId])
 
+  useEffect(() => {
+    setSendError(null)
+  }, [dmChannelId])
+
+  useEffect(() => {
+    if (!dmChannelId) return
+    if (draftEntry.replyToId && !messagesById.has(draftEntry.replyToId)) {
+      setDraftReply(dmChannelId, null)
+    }
+  }, [dmChannelId, draftEntry.replyToId, messagesById, setDraftReply])
+
+  const handleReply = useCallback(
+    (msg: ChannelMessage) => {
+      if (!dmChannelId) return
+      setDraftReply(dmChannelId, msg.id)
+      inputRef.current?.focus()
+    },
+    [dmChannelId, setDraftReply],
+  )
+
   if (!dmChannelId) {
     return (
       <div className="text-muted-foreground flex h-full min-h-0 flex-1 flex-col items-center justify-center overflow-hidden p-3 text-center text-sm">
@@ -104,15 +145,10 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
     )
   }
 
-  function handleReply(msg: import('@/types/models').ChannelMessage) {
-    setReplyTo(msg)
-    inputRef.current?.focus()
-  }
-
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     const text = draft.trim()
-    if (!text || !accessToken || sending) return
+    if (!text || !accessToken || sending || !dmChannelId) return
     setSendError(null)
     setSending(true)
     try {
@@ -124,9 +160,8 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
           ...(replyTo ? { parentMessageId: replyTo.id } : {}),
         },
       )
-      appendFromPostResponse(created)
-      setDraft('')
-      setReplyTo(null)
+      appendDmMessageFromPostResponse(dmChannelId, created)
+      clearDraft(dmChannelId)
     } catch (err) {
       setSendError((err as Error).message || 'No se pudo enviar')
     } finally {
@@ -213,7 +248,7 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
               <button
                 type="button"
                 className="text-muted-foreground hover:text-foreground shrink-0"
-                onClick={() => setReplyTo(null)}
+                onClick={() => setDraftReply(dmChannelId, null)}
                 title="Cancelar respuesta"
               >
                 <X className="size-4" />
@@ -240,11 +275,11 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
                 placeholder={replyTo ? 'Escribe tu respuesta…' : 'Escribir mensaje privado…'}
                 value={draft}
                 onChange={(e) => {
-                  setDraft(e.target.value)
+                  setDraftBody(dmChannelId, e.target.value)
                   reportTyping()
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Escape' && replyTo) setReplyTo(null)
+                  if (e.key === 'Escape' && replyTo) setDraftReply(dmChannelId, null)
                 }}
                 maxLength={1000}
                 disabled={sending || !accessToken}

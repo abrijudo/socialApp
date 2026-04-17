@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useCallback, useMemo } from 'react'
 import { Loader2, Menu, MessageCircle } from 'lucide-react'
 import { DmChatArea } from '@/components/chat/DmChatArea'
 import { DmSidebar } from '@/components/layout/DmSidebar'
@@ -10,6 +10,8 @@ import { ServerRail } from '@/components/layout/ServerRail'
 import { ServerSidebar } from '@/components/layout/ServerSidebar'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
+import { useChannelMessages } from '@/hooks/useChannelMessages'
+import { useDmMessages } from '@/hooks/useDmMessages'
 import { useServerPresence } from '@/hooks/useServerPresence'
 import { useVoicePresence } from '@/hooks/useVoicePresence'
 import { useWorkspaceRealtime } from '@/hooks/useWorkspaceRealtime'
@@ -155,38 +157,52 @@ export function AppLayout() {
   const activeServerId = useAppStore((s) => s.activeServerId)
   const userId = useAppStore((s) => s.userId)
   const activeVoiceChannelId = useAppStore((s) => s.activeVoiceChannelId)
+  const activeTextChannelId = useAppStore((s) => s.activeTextChannelId)
   const activeDmChannelId = useAppStore((s) => s.activeDmChannelId)
   const setActiveServerId = useAppStore((s) => s.setActiveServerId)
   const setActiveTextChannelId = useAppStore((s) => s.setActiveTextChannelId)
   const setActiveVoiceChannelId = useAppStore((s) => s.setActiveVoiceChannelId)
-  const activeVoiceChannel = channels.find((c) => c.id === activeVoiceChannelId)
+  const activeVoiceChannel = useMemo(
+    () => (activeVoiceChannelId ? channels.find((c) => c.id === activeVoiceChannelId) : undefined),
+    [channels, activeVoiceChannelId],
+  )
 
   useServerPresence(activeServerId, userId)
   useVoicePresence({ subscribe: true })
   useWorkspaceRealtime()
+  // Mantenemos la suscripción al canal de texto/DM activo montada desde el
+  // layout raíz. Así, entrar/salir de un canal de voz (que sí remonta
+  // `ChatArea`/`DmChatArea`) no interrumpe la suscripción realtime de
+  // mensajes ni dispara un nuevo fetch del historial.
+  useChannelMessages(activeTextChannelId)
+  useDmMessages(activeDmChannelId)
 
-  function goHome() {
+  const goHome = useCallback(() => {
     setActiveVoiceChannelId(null)
     setActiveServerId(null)
     setActiveTextChannelId(null)
-  }
+  }, [setActiveVoiceChannelId, setActiveServerId, setActiveTextChannelId])
 
-  function selectServer(srvId: string) {
-    setActiveVoiceChannelId(null)
-    setActiveServerId(srvId)
-    const firstText = channels.find(
-      (c) => c.server_id === srvId && c.type === 'text' && !c.is_archived,
-    )
-    setActiveTextChannelId(firstText?.id ?? null)
-  }
-
-  const mainWhenNotVoice: ReactNode = activeServerId ? (
-    <MainChatColumnPlain />
-  ) : activeDmChannelId ? (
-    <DmChatArea dmChannelId={activeDmChannelId} />
-  ) : (
-    <HomeMainEmpty />
+  const selectServer = useCallback(
+    (srvId: string) => {
+      setActiveVoiceChannelId(null)
+      setActiveServerId(srvId)
+      // Leemos los canales vigentes desde el store para evitar que `selectServer`
+      // cambie de identidad cada vez que se actualiza la lista (p. ej. por Realtime).
+      const currentChannels = useAppStore.getState().channels
+      const firstText = currentChannels.find(
+        (c) => c.server_id === srvId && c.type === 'text' && !c.is_archived,
+      )
+      setActiveTextChannelId(firstText?.id ?? null)
+    },
+    [setActiveVoiceChannelId, setActiveServerId, setActiveTextChannelId],
   )
+
+  const mainWhenNotVoice: ReactNode = useMemo(() => {
+    if (activeServerId) return <MainChatColumnPlain />
+    if (activeDmChannelId) return <DmChatArea dmChannelId={activeDmChannelId} />
+    return <HomeMainEmpty />
+  }, [activeServerId, activeDmChannelId])
 
   const showMembersButton = Boolean(activeServerId || activeVoiceChannelId)
 

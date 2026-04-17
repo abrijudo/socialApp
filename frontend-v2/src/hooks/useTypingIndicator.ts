@@ -34,6 +34,10 @@ export function useTypingIndicator(channelId: string | null) {
     void (async () => {
       try {
         const supabase = await getAuthenticatedSupabase(accessToken)
+        // Si el efecto ya se limpió durante el await anterior, no creamos el
+        // canal ni lo suscribimos: de lo contrario dejaríamos un
+        // RealtimeChannel colgado que `cleanup` no puede remover porque
+        // `localChannel` fue null en el momento del return.
         if (cancelled) return
 
         const channel = supabase.channel(`typing:${channelId}`, {
@@ -60,6 +64,10 @@ export function useTypingIndicator(channelId: string | null) {
           .on('presence', { event: 'join' }, flush)
           .on('presence', { event: 'leave' }, flush)
 
+        if (cancelled) {
+          void supabase.removeChannel(channel)
+          return
+        }
         channel.subscribe()
       } catch {
         // Silently ignore

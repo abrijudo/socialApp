@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { apiPostJson } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/useAppStore'
-import type { Profile, ServerMember, ServerRole } from '@/types/models'
+import type { DmChannelSummary, Profile, ServerMember, ServerRole } from '@/types/models'
 
 function roleLabel(role: ServerRole | undefined): string {
   switch (role) {
@@ -73,6 +73,8 @@ export function UserProfilePopup({ open, onOpenChange, userId: targetUserId }: U
   const accessToken = useAppStore((s) => s.accessToken)
   const localUserId = useAppStore((s) => s.userId)
   const setActiveDmChannelId = useAppStore((s) => s.setActiveDmChannelId)
+  const setDmChannels = useAppStore((s) => s.setDmChannels)
+  const dmChannels = useAppStore((s) => s.dmChannels)
   const [dmSending, setDmSending] = useState(false)
 
   const member: ServerMember | undefined = members.find((m) => m.user_id === targetUserId)
@@ -89,6 +91,23 @@ export function UserProfilePopup({ open, onOpenChange, userId: targetUserId }: U
         otherUserId: targetUserId,
       })
       if (res?.id) {
+        // Si el DM es nuevo, lo insertamos en la cache local usando los datos
+        // del miembro actual para que aparezca al instante en `DmSidebar` sin
+        // esperar al próximo `GET /api/dm`.
+        const alreadyListed = dmChannels.some((d) => d.id === res.id)
+        if (!alreadyListed) {
+          const other: DmChannelSummary['otherUser'] = profile
+            ? { ...profile, user_id: targetUserId }
+            : {
+                user_id: targetUserId,
+                username: '',
+                display_name: '',
+                avatar_url: null,
+                bio: '',
+                status: 'offline',
+              }
+          setDmChannels([...dmChannels, { id: res.id, otherUser: other }])
+        }
         setActiveDmChannelId(res.id)
         onOpenChange(false)
       }

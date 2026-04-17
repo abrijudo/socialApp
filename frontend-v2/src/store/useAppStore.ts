@@ -43,8 +43,23 @@ export interface AppState {
   activeVoiceChannelId: string | null
   activeDmChannelId: string | null
   dmChannels: DmChannelSummary[]
-  messages: ChannelMessage[]
-  dmMessages: ChannelMessage[]
+  /**
+   * Caché de mensajes por `channel_id` para que, al desmontar y remontar
+   * `ChatArea` (p. ej. al entrar/salir de un canal de voz, o al cambiar de
+   * canal de texto), los mensajes ya cargados no se pierdan ni se tengan que
+   * volver a pedir con spinner. El hook `useChannelMessages` sigue
+   * suscribiéndose a realtime y hace un fetch silencioso en background.
+   */
+  messagesByChannel: Record<string, ChannelMessage[]>
+  /** Indicador de carga del historial por canal (en el primer fetch). */
+  messagesLoadingByChannel: Record<string, boolean>
+  /**
+   * Caché de mensajes por `dm_channel_id`, análogo a `messagesByChannel` pero
+   * para mensajes directos. Evita recargar el historial al volver a un DM.
+   */
+  dmMessagesByChannel: Record<string, ChannelMessage[]>
+  /** Indicador de carga del historial por DM (primer fetch). */
+  dmMessagesLoadingByChannel: Record<string, boolean>
   channelsLoading: boolean
   membersLoading: boolean
   initialBootDone: boolean
@@ -69,6 +84,14 @@ export interface AppState {
   isVideoStageOpen: boolean
   unreadCounts: Record<string, number>
   lastReadTimestamps: Record<string, string>
+  /**
+   * Draft de mensaje en curso por canal/DM. Lo mantenemos en el store (en
+   * vez de en el estado local de `ChatArea`/`DmChatArea`) para que al cambiar
+   * de canal y volver no se pierda lo que se estaba escribiendo, y para que
+   * el `parentMessageId` de la respuesta sea siempre del canal correcto.
+   * Las claves son UUIDs únicos entre `channels` y `dm_channels`.
+   */
+  drafts: Record<string, { body: string; replyToId: string | null }>
 }
 
 export interface AppActions {
@@ -80,9 +103,21 @@ export interface AppActions {
   setActiveServerId: (id: string | null) => void
   setActiveDmChannelId: (id: string | null) => void
   setDmChannels: (list: DmChannelSummary[]) => void
-  setMessages: (messages: ChannelMessage[]) => void
-  setDmMessages: (messages: ChannelMessage[]) => void
+  /** Reemplaza completamente la lista de mensajes cacheada de un canal. */
+  setChannelMessages: (channelId: string, messages: ChannelMessage[]) => void
+  /** Añade un mensaje al canal (idempotente por `id`). */
+  appendChannelMessage: (channelId: string, msg: ChannelMessage) => void
+  /** Marca/desmarca el estado de carga del historial de un canal. */
+  setChannelMessagesLoading: (channelId: string, loading: boolean) => void
+  /** Reemplaza completamente la lista de mensajes cacheada de un DM. */
+  setDmChannelMessages: (dmChannelId: string, messages: ChannelMessage[]) => void
+  /** Añade un mensaje al DM (idempotente por `id`). */
+  appendDmChannelMessage: (dmChannelId: string, msg: ChannelMessage) => void
+  /** Marca/desmarca el estado de carga del historial de un DM. */
+  setDmChannelMessagesLoading: (dmChannelId: string, loading: boolean) => void
+  /** Actualiza un mensaje en el canal donde se encuentre (búsqueda global). */
   updateMessage: (id: string, patch: Partial<ChannelMessage>) => void
+  /** Elimina un mensaje del canal donde esté. */
   removeMessage: (id: string) => void
   updateDmMessage: (id: string, patch: Partial<ChannelMessage>) => void
   removeDmMessage: (id: string) => void
@@ -101,6 +136,9 @@ export interface AppActions {
   resetApp: () => void
   /** Quita un canal de la lista y limpia selección si era el activo (p. ej. DELETE en tiempo real). */
   pruneDeletedChannel: (channelId: string) => void
+  setDraftBody: (channelId: string, body: string) => void
+  setDraftReply: (channelId: string, replyToId: string | null) => void
+  clearDraft: (channelId: string) => void
 }
 
 const initialState: AppState = {
@@ -118,8 +156,10 @@ const initialState: AppState = {
   activeVoiceChannelId: null,
   activeDmChannelId: null,
   dmChannels: [],
-  messages: [],
-  dmMessages: [],
+  messagesByChannel: {},
+  messagesLoadingByChannel: {},
+  dmMessagesByChannel: {},
+  dmMessagesLoadingByChannel: {},
   channelsLoading: false,
   membersLoading: false,
   initialBootDone: false,
@@ -136,6 +176,7 @@ const initialState: AppState = {
   isVideoStageOpen: true,
   unreadCounts: {},
   lastReadTimestamps: loadLastReadTimestamps(),
+  drafts: {},
 }
 
 function loadLastReadTimestamps(): Record<string, string> {
@@ -217,7 +258,10 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
             activeServerId: null,
             members: [],
             channels: [],
-            dmMessages: [],
+            messagesByChannel: {},
+            messagesLoadingByChannel: {},
+            dmMessagesByChannel: {},
+            dmMessagesLoadingByChannel: {},
             activeTextChannelId: null,
             activeVoiceChannelId: null,
             initialBootDone: false,
@@ -273,8 +317,10 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
       activeTextChannelId: pickDefaultTextChannelId(channels),
       activeVoiceChannelId: null,
       activeDmChannelId: null,
-      messages: [],
-      dmMessages: [],
+      messagesByChannel: {},
+      messagesLoadingByChannel: {},
+      dmMessagesByChannel: {},
+      dmMessagesLoadingByChannel: {},
       dmChannels: [],
       voiceChannelOccupants: {},
       livekitSpeakers: {},
@@ -303,26 +349,146 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
   setActiveDmChannelId: (activeDmChannelId) => {
     set({
       activeDmChannelId,
-      ...(activeDmChannelId != null ? { activeTextChannelId: null } : {}),
+      // Al activar un DM tenemos que salirnos del servidor actual (en
+      // `AppLayout`, `activeServerId` gana sobre `activeDmChannelId` al
+      // renderizar el panel principal). Si solo limpiásemos el canal de texto,
+      // el usuario veía "Selecciona un canal" en lugar del DM.
+      ...(activeDmChannelId != null
+        ? { activeTextChannelId: null, activeServerId: null, activeVoiceChannelId: null }
+        : {}),
     })
     if (activeDmChannelId) get().markChannelAsRead(activeDmChannelId)
   },
   setDmChannels: (dmChannels) => set({ dmChannels }),
-  setMessages: (messages) => set({ messages }),
-  setDmMessages: (dmMessages) => set({ dmMessages }),
+  setChannelMessages: (channelId, messages) =>
+    set((s) => ({
+      messagesByChannel: { ...s.messagesByChannel, [channelId]: messages },
+    })),
+  appendChannelMessage: (channelId, msg) =>
+    set((s) => {
+      const list = s.messagesByChannel[channelId] ?? []
+      if (list.some((m) => m.id === msg.id)) return {}
+      return {
+        messagesByChannel: { ...s.messagesByChannel, [channelId]: [...list, msg] },
+      }
+    }),
+  setChannelMessagesLoading: (channelId, loading) =>
+    set((s) => {
+      // Evita actualizaciones redundantes que generarían renders.
+      if ((s.messagesLoadingByChannel[channelId] ?? false) === loading) return {}
+      return {
+        messagesLoadingByChannel: {
+          ...s.messagesLoadingByChannel,
+          [channelId]: loading,
+        },
+      }
+    }),
+  setDmChannelMessages: (dmChannelId, messages) =>
+    set((s) => ({
+      dmMessagesByChannel: { ...s.dmMessagesByChannel, [dmChannelId]: messages },
+    })),
+  appendDmChannelMessage: (dmChannelId, msg) =>
+    set((s) => {
+      const list = s.dmMessagesByChannel[dmChannelId] ?? []
+      if (list.some((m) => m.id === msg.id)) return {}
+      return {
+        dmMessagesByChannel: {
+          ...s.dmMessagesByChannel,
+          [dmChannelId]: [...list, msg],
+        },
+      }
+    }),
+  setDmChannelMessagesLoading: (dmChannelId, loading) =>
+    set((s) => {
+      if ((s.dmMessagesLoadingByChannel[dmChannelId] ?? false) === loading) return {}
+      return {
+        dmMessagesLoadingByChannel: {
+          ...s.dmMessagesLoadingByChannel,
+          [dmChannelId]: loading,
+        },
+      }
+    }),
   updateMessage: (id, patch) =>
-    set((s) => ({ messages: s.messages.map((m) => (m.id === id ? { ...m, ...patch } : m)) })),
+    set((s) => {
+      for (const [chId, list] of Object.entries(s.messagesByChannel)) {
+        const idx = list.findIndex((m) => m.id === id)
+        if (idx >= 0) {
+          const updated = list.slice()
+          updated[idx] = { ...updated[idx], ...patch }
+          return {
+            messagesByChannel: { ...s.messagesByChannel, [chId]: updated },
+          }
+        }
+      }
+      return {}
+    }),
   removeMessage: (id) =>
-    set((s) => ({ messages: s.messages.filter((m) => m.id !== id) })),
+    set((s) => {
+      for (const [chId, list] of Object.entries(s.messagesByChannel)) {
+        if (list.some((m) => m.id === id)) {
+          return {
+            messagesByChannel: {
+              ...s.messagesByChannel,
+              [chId]: list.filter((m) => m.id !== id),
+            },
+          }
+        }
+      }
+      return {}
+    }),
   updateDmMessage: (id, patch) =>
-    set((s) => ({ dmMessages: s.dmMessages.map((m) => (m.id === id ? { ...m, ...patch } : m)) })),
+    set((s) => {
+      for (const [dmId, list] of Object.entries(s.dmMessagesByChannel)) {
+        const idx = list.findIndex((m) => m.id === id)
+        if (idx >= 0) {
+          const updated = list.slice()
+          updated[idx] = { ...updated[idx], ...patch }
+          return {
+            dmMessagesByChannel: { ...s.dmMessagesByChannel, [dmId]: updated },
+          }
+        }
+      }
+      return {}
+    }),
   removeDmMessage: (id) =>
-    set((s) => ({ dmMessages: s.dmMessages.filter((m) => m.id !== id) })),
+    set((s) => {
+      for (const [dmId, list] of Object.entries(s.dmMessagesByChannel)) {
+        if (list.some((m) => m.id === id)) {
+          return {
+            dmMessagesByChannel: {
+              ...s.dmMessagesByChannel,
+              [dmId]: list.filter((m) => m.id !== id),
+            },
+          }
+        }
+      }
+      return {}
+    }),
 
   setChannelsLoading: (channelsLoading) => set({ channelsLoading }),
   setMembersLoading: (membersLoading) => set({ membersLoading }),
 
-  setOnlineUsers: (onlineUsers) => set({ onlineUsers }),
+  setOnlineUsers: (onlineUsers) =>
+    set((s) => {
+      // Shallow-equal: evitamos cambiar la referencia (y por tanto re-renderizar
+      // suscriptores como `MembersList`) si el diccionario llega igual. El
+      // canal de presencia emite `sync`/`join`/`leave` con mucha frecuencia y
+      // muchas veces sin cambios reales.
+      const prev = s.onlineUsers
+      const prevKeys = Object.keys(prev)
+      const nextKeys = Object.keys(onlineUsers)
+      if (prevKeys.length === nextKeys.length) {
+        let equal = true
+        for (const k of nextKeys) {
+          if (prev[k] !== onlineUsers[k]) {
+            equal = false
+            break
+          }
+        }
+        if (equal) return {}
+      }
+      return { onlineUsers }
+    }),
 
   setVoiceChannelOccupants: (voiceChannelOccupants) => set({ voiceChannelOccupants }),
 
@@ -331,7 +497,26 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
   setLocalScreenShareEnabled: (localScreenShareEnabled) => set({ localScreenShareEnabled }),
   setLocalVoiceSpeaking: (localVoiceSpeaking) => set({ localVoiceSpeaking }),
 
-  setLivekitSpeakers: (livekitSpeakers) => set({ livekitSpeakers }),
+  setLivekitSpeakers: (livekitSpeakers) =>
+    set((s) => {
+      // Shallow-equal: `activeSpeakersChanged` de LiveKit dispara varias veces
+      // por segundo aunque no cambie el conjunto de hablantes. Evitamos
+      // re-renderizar consumidores si no hay diferencia real.
+      const prev = s.livekitSpeakers
+      const prevKeys = Object.keys(prev)
+      const nextKeys = Object.keys(livekitSpeakers)
+      if (prevKeys.length === nextKeys.length) {
+        let equal = true
+        for (const k of nextKeys) {
+          if (prev[k] !== livekitSpeakers[k]) {
+            equal = false
+            break
+          }
+        }
+        if (equal) return {}
+      }
+      return { livekitSpeakers }
+    }),
   setIsVideoStageOpen: (isVideoStageOpen) => set({ isVideoStageOpen }),
 
   markChannelAsRead: (channelId) =>
@@ -350,10 +535,64 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
   resetApp: () => set(initialState),
 
   pruneDeletedChannel: (channelId) =>
-    set((s) => ({
-      channels: s.channels.filter((c) => c.id !== channelId),
-      messages: s.activeTextChannelId === channelId ? [] : s.messages,
-      activeTextChannelId: s.activeTextChannelId === channelId ? null : s.activeTextChannelId,
-      activeVoiceChannelId: s.activeVoiceChannelId === channelId ? null : s.activeVoiceChannelId,
-    })),
+    set((s) => {
+      const nextMessagesByChannel = { ...s.messagesByChannel }
+      delete nextMessagesByChannel[channelId]
+      const nextMessagesLoading = { ...s.messagesLoadingByChannel }
+      delete nextMessagesLoading[channelId]
+      const nextDrafts = { ...s.drafts }
+      delete nextDrafts[channelId]
+      return {
+        channels: s.channels.filter((c) => c.id !== channelId),
+        messagesByChannel: nextMessagesByChannel,
+        messagesLoadingByChannel: nextMessagesLoading,
+        drafts: nextDrafts,
+        activeTextChannelId: s.activeTextChannelId === channelId ? null : s.activeTextChannelId,
+        activeVoiceChannelId: s.activeVoiceChannelId === channelId ? null : s.activeVoiceChannelId,
+      }
+    }),
+
+  setDraftBody: (channelId, body) =>
+    set((s) => {
+      if (!channelId) return {}
+      const prev = s.drafts[channelId]
+      // Si el draft queda vacío y no hay respuesta pendiente, lo eliminamos
+      // para no dejar basura en el diccionario.
+      if (!body && !prev?.replyToId) {
+        if (!prev) return {}
+        const next = { ...s.drafts }
+        delete next[channelId]
+        return { drafts: next }
+      }
+      const nextEntry = { body, replyToId: prev?.replyToId ?? null }
+      if (prev && prev.body === nextEntry.body && prev.replyToId === nextEntry.replyToId) {
+        return {}
+      }
+      return { drafts: { ...s.drafts, [channelId]: nextEntry } }
+    }),
+
+  setDraftReply: (channelId, replyToId) =>
+    set((s) => {
+      if (!channelId) return {}
+      const prev = s.drafts[channelId]
+      if (!prev?.body && !replyToId) {
+        if (!prev) return {}
+        const next = { ...s.drafts }
+        delete next[channelId]
+        return { drafts: next }
+      }
+      const nextEntry = { body: prev?.body ?? '', replyToId }
+      if (prev && prev.body === nextEntry.body && prev.replyToId === nextEntry.replyToId) {
+        return {}
+      }
+      return { drafts: { ...s.drafts, [channelId]: nextEntry } }
+    }),
+
+  clearDraft: (channelId) =>
+    set((s) => {
+      if (!channelId || !(channelId in s.drafts)) return {}
+      const next = { ...s.drafts }
+      delete next[channelId]
+      return { drafts: next }
+    }),
 }))
