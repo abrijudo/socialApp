@@ -15,6 +15,8 @@ export type ElectronShareConfirmPayload = {
   sourceId: string
   kind: 'window' | 'screen'
   captureAudio: boolean
+  /** PID para WASAPI (ventana); si falta y hay audio, solo vídeo */
+  processId?: string
 }
 
 type Props = {
@@ -71,8 +73,8 @@ export function ElectronDesktopPicker({ open, onOpenChange, onConfirm }: Props) 
     onConfirm({
       sourceId: selectedId,
       kind: selected.sourceType,
-      // Pantalla completa + audio de escritorio en Electron/Chromium en Windows suele rechazar getUserMedia entero.
       captureAudio: selected.sourceType === 'window' && captureAudio,
+      processId: selected.sourceType === 'window' ? selected.processId : undefined,
     })
     onOpenChange(false)
   }
@@ -83,9 +85,9 @@ export function ElectronDesktopPicker({ open, onOpenChange, onConfirm }: Props) 
         <DialogHeader className="border-border border-b px-4 py-3">
           <DialogTitle>Compartir pantalla</DialogTitle>
           <DialogDescription>
-            Elige una ventana o pantalla. Esta ventana de la app no aparece en la lista (evita compartir la propia
-            llamada). Con «Ventanas» y audio, se usa la misma fuente de escritorio en vídeo y audio, como una pestaña en
-            el navegador; el aislamiento total frente al resto del SO puede requerir captura nativa (WASAPI).
+            Elige una ventana o pantalla. Esta ventana de la app no aparece en la lista. En Windows, el audio de
+            «Ventana» usa captura WASAPI por PID cuando hay PID disponible; si no, solo vídeo para evitar el loopback
+            del sistema (voces de la llamada).
           </DialogDescription>
         </DialogHeader>
 
@@ -156,7 +158,7 @@ export function ElectronDesktopPicker({ open, onOpenChange, onConfirm }: Props) 
               onChange={(e) => setCaptureAudio(e.target.checked)}
               className="accent-primary"
             />
-            Incluir audio de la aplicación (si el SO lo permite)
+            Incluir audio de la aplicación (WASAPI por PID en Windows; requiere que aparezca el PID en la lista)
           </label>
         )}
         {tab === 'screen' && (

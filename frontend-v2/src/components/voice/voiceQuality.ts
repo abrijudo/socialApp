@@ -4,7 +4,7 @@ import type {
   TrackPublishOptions,
   VideoCaptureOptions,
 } from 'livekit-client'
-import { AudioPresets, ScreenSharePresets } from 'livekit-client'
+import { AudioPresets, ScreenSharePresets, Track } from 'livekit-client'
 
 export const microphoneCaptureOptions: NonNullable<RoomOptions['audioCaptureDefaults']> = {
   // Anti-eco del navegador. Krisp se encarga del ruido, así que dejamos
@@ -65,30 +65,53 @@ export const screenShareCaptureOptions: ScreenShareCaptureOptions = {
   selfBrowserSurface: 'exclude',
   surfaceSwitching: 'include',
   suppressLocalAudioPlayback: false,
+  // 1080p60: el codificador mantiene fps real; 4K60 suele tirones aunque el bitrate sea alto.
   resolution: {
-    width: 3840,
-    height: 2160,
+    width: 1920,
+    height: 1080,
     frameRate: 60,
   },
-  contentHint: 'motion',
+  // Mejor legibilidad de UI/texto; el SFU sigue pudiendo degradar por capas.
+  contentHint: 'detail',
 }
 
 export const screenSharePublishOptions: TrackPublishOptions = {
   screenShareEncoding: {
-    maxBitrate: 24_000_000,
+    // Alto pero sostenible con H.264 por hardware en la mayoría de GPUs.
+    maxBitrate: 10_000_000,
     maxFramerate: 60,
     priority: 'high',
   },
-  videoCodec: 'vp9',
+  videoCodec: 'h264',
   // Capa de respaldo a 720p15 para subscribers con poco ancho de banda.
   // Sin capas, si un participante no puede con el stream principal se queda
   // a negro; con esta capa el SFU puede degradarle antes de cortar.
   screenShareSimulcastLayers: [ScreenSharePresets.h720fps15],
-  degradationPreference: 'balanced',
-  backupCodec: { codec: 'vp8', encoding: { maxBitrate: 18_000_000, maxFramerate: 60 } },
+  degradationPreference: 'maintain-framerate',
+  backupCodec: { codec: 'vp8', encoding: { maxBitrate: 4_000_000, maxFramerate: 30 } },
   // Preset estéreo para el audio del screen share (YouTube, juegos, música).
   // El mic sigue yendo por `publishDefaults.audioPreset` (mono/high quality).
   audioPreset: AudioPresets.musicHighQualityStereo,
+}
+
+/** Constraints en la MediaStreamTrack de audio de pantalla (evita AEC/NS/AGC tipo “voz”). */
+export const nativeScreenShareAudioTrackConstraints: MediaTrackConstraints = {
+  echoCancellation: false,
+  noiseSuppression: false,
+  autoGainControl: false,
+  channelCount: 2,
+}
+
+/**
+ * Publicación explícita del audio WASAPI / pantalla (no tratarlo como voz).
+ * `AudioPresets.music` (~48 kbps) es bajo para juego/vídeo; usamos estéreo HQ (128 kbps).
+ */
+export const electronNativeScreenAudioPublishOptions: TrackPublishOptions = {
+  name: 'screen_audio',
+  source: Track.Source.ScreenShareAudio,
+  audioPreset: AudioPresets.musicHighQualityStereo,
+  dtx: false,
+  red: true,
 }
 
 export const roomOptionsHighQuality: RoomOptions = {

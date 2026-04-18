@@ -11,11 +11,15 @@ import {
   ElectronDesktopPicker,
   type ElectronShareConfirmPayload,
 } from '@/components/voice/ElectronDesktopPicker';
-import { createLocalScreenShareTracksFromElectronSource } from '@/components/voice/electronScreenCapture';
+import {
+  createLocalScreenShareTracksFromElectronSource,
+  type ElectronScreenCaptureResult,
+} from '@/components/voice/electronScreenCapture';
 import { createLocalScreenShareTracks } from '@/components/voice/screenShareDisplayMedia';
 import {
   cameraCaptureOptions,
   cameraPublishOptions,
+  electronNativeScreenAudioPublishOptions,
   microphoneCaptureOptions,
   screenShareCaptureOptions,
   screenSharePublishOptions,
@@ -231,6 +235,13 @@ export function VoiceControlBar({ className }: { className?: string }) {
   const screenShareMenuRef = useRef<HTMLDivElement>(null);
   const [electronPickerOpen, setElectronPickerOpen] = useState(false);
   const electronShareIntentRef = useRef<'start' | 'change'>('start');
+  const wasapiDisposeRef = useRef<(() => Promise<void>) | null>(null);
+
+  const runWasapiDispose = useCallback(async () => {
+    const d = wasapiDisposeRef.current;
+    wasapiDisposeRef.current = null;
+    if (d) await d();
+  }, []);
 
   useEffect(() => {
     if (!screenShareMenuOpen) return;
@@ -256,8 +267,18 @@ export function VoiceControlBar({ className }: { className?: string }) {
 
   // CRÍTICO: no usar setScreenShareEnabled(true): solo publishTrack manual.
   const publishLocalScreenShareTracks = async (tracks: LocalTrack[]) => {
-    for (const track of tracks) {
-      await localParticipant.publishTrack(track, screenSharePublishOptions);
+    /** Audio de pantalla primero: evita condiciones de carrera SFU/WebRTC al enlazar stream. */
+    const ordered = [...tracks].sort((a, b) => {
+      if (a.source === Track.Source.ScreenShareAudio && b.source !== Track.Source.ScreenShareAudio) return -1;
+      if (b.source === Track.Source.ScreenShareAudio && a.source !== Track.Source.ScreenShareAudio) return 1;
+      return 0;
+    });
+    for (const track of ordered) {
+      const opts =
+        track.source === Track.Source.ScreenShareAudio
+          ? electronNativeScreenAudioPublishOptions
+          : screenSharePublishOptions;
+      await localParticipant.publishTrack(track, opts);
     }
     setLocalScreenShareEnabled(true);
   };
@@ -284,23 +305,28 @@ export function VoiceControlBar({ className }: { className?: string }) {
   };
 
   const onElectronPickerConfirm = async (payload: ElectronShareConfirmPayload) => {
+    await runWasapiDispose();
     if (electronShareIntentRef.current === 'change') {
-      let newTracks: Awaited<ReturnType<typeof createLocalScreenShareTracksFromElectronSource>> | null = null;
+      let capture: ElectronScreenCaptureResult | null = null;
       try {
-        newTracks = await createLocalScreenShareTracksFromElectronSource(payload.sourceId, {
+        capture = await createLocalScreenShareTracksFromElectronSource(payload.sourceId, {
           captureAudio: payload.captureAudio,
           kind: payload.kind,
+          processId: payload.processId,
         });
       } catch {
         return;
       }
+      const newTracks = capture.tracks;
       if (!newTracks || newTracks.length === 0) return;
       try {
         await unpublishLocalScreenShareAudioIfPublished();
         await localParticipant.setScreenShareEnabled(false);
         await publishLocalScreenShareTracks(newTracks);
+        wasapiDisposeRef.current = capture.disposeWasapi ?? null;
       } catch (e) {
         console.warn('Error al cambiar pantalla compartida (Electron)', e);
+        await capture.disposeWasapi?.();
         for (const track of newTracks) {
           try {
             track.stop();
@@ -311,21 +337,25 @@ export function VoiceControlBar({ className }: { className?: string }) {
       }
       return;
     }
-    let tracks: Awaited<ReturnType<typeof createLocalScreenShareTracksFromElectronSource>> | null = null;
+    let capture: ElectronScreenCaptureResult | null = null;
     try {
-      tracks = await createLocalScreenShareTracksFromElectronSource(payload.sourceId, {
+      capture = await createLocalScreenShareTracksFromElectronSource(payload.sourceId, {
         captureAudio: payload.captureAudio,
         kind: payload.kind,
+        processId: payload.processId,
       });
     } catch (e) {
       console.warn('Error al capturar escritorio en Electron', e);
       return;
     }
+    const tracks = capture.tracks;
     if (!tracks || tracks.length === 0) return;
     try {
       await publishLocalScreenShareTracks(tracks);
+      wasapiDisposeRef.current = capture.disposeWasapi ?? null;
     } catch (e) {
       console.warn('Error al publicar captura Electron', e);
+      await capture.disposeWasapi?.();
       for (const track of tracks) {
         try {
           track.stop();
@@ -338,6 +368,7 @@ export function VoiceControlBar({ className }: { className?: string }) {
 
   const stopScreenShare = async () => {
     try {
+      await runWasapiDispose();
       await unpublishLocalScreenShareAudioIfPublished();
       await localParticipant.setScreenShareEnabled(false);
       setLocalScreenShareEnabled(false);

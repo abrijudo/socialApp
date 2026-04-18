@@ -1,8 +1,14 @@
 import { app, BrowserWindow, desktopCapturer, ipcMain, session } from 'electron'
+
+// WebCodecs (AudioData) + Insertable Streams: mejora odds de MediaStreamTrackGenerator usable.
+app.commandLine.appendSwitch('enable-blink-features', 'WebCodecs')
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const require = createRequire(import.meta.url)
+const appLoopback = require('./appLoopback.cjs')
 
 /** URL del servidor Vite en desarrollo (p. ej. wait-on + cross-env). */
 const devServerUrl = process.env.ELECTRON_START_URL ?? process.env.VITE_DEV_SERVER_URL
@@ -141,7 +147,7 @@ app.whenReady().then(() => {
       selfMediaSourceId = null
     }
 
-    return sources
+    const rows = sources
       .filter((s) => (selfMediaSourceId ? s.id !== selfMediaSourceId : true))
       .map((s) => ({
         id: s.id,
@@ -151,7 +157,10 @@ app.whenReady().then(() => {
         /** 'window' | 'screen' — inferido del id de Chromium. */
         sourceType: s.id.startsWith('screen:') ? 'screen' : 'window',
       }))
+    return await appLoopback.enrichSourcesWithProcessId(rows)
   })
+
+  appLoopback.registerAppLoopbackIpc(ipcMain)
 
   createWindow()
 

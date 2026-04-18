@@ -98,6 +98,7 @@ describe('VoiceControlBar', () => {
     createLocalScreenShareTracks.mockResolvedValue([
       {
         kind: 'video',
+        source: Track.Source.ScreenShare,
         mediaStreamTrack: {
           getSettings: () => ({ displaySurface: 'browser' }),
         } as unknown as MediaStreamTrack,
@@ -158,8 +159,8 @@ describe('VoiceControlBar', () => {
     await waitFor(() => {
       expect(createLocalScreenShareTracks).toHaveBeenCalledWith(
         expect.objectContaining({
-          contentHint: 'motion',
-          resolution: expect.objectContaining({ width: 3840, height: 2160 }),
+          contentHint: 'detail',
+          resolution: expect.objectContaining({ width: 1920, height: 1080 }),
           systemAudio: 'exclude',
           selfBrowserSurface: 'exclude',
           suppressLocalAudioPlayback: false,
@@ -170,9 +171,9 @@ describe('VoiceControlBar', () => {
       expect(publishTrack).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({
-          videoCodec: 'vp9',
+          videoCodec: 'h264',
           screenShareEncoding: expect.objectContaining({
-            maxBitrate: 24_000_000,
+            maxBitrate: 10_000_000,
             maxFramerate: 60,
           }),
         }),
@@ -186,12 +187,18 @@ describe('VoiceControlBar', () => {
     createLocalScreenShareTracks.mockResolvedValueOnce([
       {
         kind: 'video',
+        source: Track.Source.ScreenShare,
         mediaStreamTrack: {
           getSettings: () => ({ displaySurface: 'browser' }),
         } as unknown as MediaStreamTrack,
         stop: vi.fn(),
       },
-      { kind: 'audio', mediaStreamTrack: {} as MediaStreamTrack, stop: audioStop },
+      {
+        kind: 'audio',
+        source: Track.Source.ScreenShareAudio,
+        mediaStreamTrack: {} as MediaStreamTrack,
+        stop: audioStop,
+      },
     ])
 
     render(<VoiceControlBar />)
@@ -202,6 +209,15 @@ describe('VoiceControlBar', () => {
     await waitFor(() => {
       expect(publishTrack).toHaveBeenCalledTimes(2)
     })
+    expect(publishTrack).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      expect.objectContaining({
+        name: 'screen_audio',
+        dtx: false,
+        red: true,
+      }),
+    )
     expect(audioStop).not.toHaveBeenCalled()
   })
 

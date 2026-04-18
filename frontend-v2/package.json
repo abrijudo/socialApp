@@ -20,6 +20,7 @@
     "@livekit/components-styles": "^1.2.0",
     "@livekit/krisp-noise-filter": "^0.3.4",
     "@supabase/supabase-js": "^2.101.1",
+    "application-loopback": "^1.2.7",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "es-define-property": "^1.0.1",

@@ -12,4 +12,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   armDisplayMediaPick: (payload) => ipcRenderer.invoke('electron:arm-display-media-pick', payload),
   cancelDisplayMediaPick: () => ipcRenderer.invoke('electron:cancel-display-media-pick'),
+  startAppLoopbackAudio: (processId) => ipcRenderer.invoke('electron:start-app-loopback', processId),
+  stopAppLoopbackAudio: () => ipcRenderer.invoke('electron:stop-app-loopback'),
+  /**
+   * @param {(pcm: Uint8Array) => void} callback
+   * @returns {() => void} función para dejar de escuchar
+   */
+  onAppLoopbackChunk: (callback) => {
+    const listener = (_event, buf) => {
+      const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf)
+      callback(u8)
+    }
+    ipcRenderer.on('electron:app-loopback-chunk', listener)
+    return () => ipcRenderer.removeListener('electron:app-loopback-chunk', listener)
+  },
 })

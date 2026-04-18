@@ -6,6 +6,7 @@ import {
   Track,
   TrackInvalidError,
 } from 'livekit-client'
+import { nativeScreenShareAudioTrackConstraints } from '@/components/voice/voiceQuality'
 
 function isLikelySafari(): boolean {
   if (typeof navigator === 'undefined') return false
@@ -86,7 +87,9 @@ export async function createLocalScreenShareTracks(
   screenVideo.source = Track.Source.ScreenShare
   const localTracks: LocalTrack[] = [screenVideo]
   if (stream.getAudioTracks().length > 0) {
-    const screenAudio = new LocalAudioTrack(stream.getAudioTracks()[0], undefined, false)
+    const raw = stream.getAudioTracks()[0]
+    void raw.applyConstraints(nativeScreenShareAudioTrackConstraints).catch(() => {})
+    const screenAudio = new LocalAudioTrack(raw, nativeScreenShareAudioTrackConstraints, false)
     screenAudio.source = Track.Source.ScreenShareAudio
     localTracks.push(screenAudio)
   }

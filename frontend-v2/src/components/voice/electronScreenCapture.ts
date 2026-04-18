@@ -4,8 +4,16 @@ import {
   type ElectronDesktopCaptureKind,
   useChromeDesktopMediaForKind,
 } from '@/components/voice/electronCaptureIsolation'
+import { createWasapiAppLoopbackMediaStreamTrack } from '@/components/voice/electronWasapiPcmToMediaTrack'
+import { nativeScreenShareAudioTrackConstraints } from '@/components/voice/voiceQuality'
 
 export type { ElectronDesktopCaptureKind } from '@/components/voice/electronCaptureIsolation'
+
+export type ElectronScreenCaptureResult = {
+  tracks: LocalTrack[]
+  /** Solo ventana + WASAPI: detener binario y cerrar pista sintética */
+  disposeWasapi?: () => Promise<void>
+}
 
 function localTracksFromScreenStream(stream: MediaStream, captureAudio: boolean): LocalTrack[] {
   const videoTracks = stream.getVideoTracks()
@@ -19,7 +27,9 @@ function localTracksFromScreenStream(stream: MediaStream, captureAudio: boolean)
 
   const audioTracks = stream.getAudioTracks()
   if (captureAudio && audioTracks.length > 0) {
-    const screenAudio = new LocalAudioTrack(audioTracks[0], undefined, false)
+    const raw = audioTracks[0]
+    void raw.applyConstraints(nativeScreenShareAudioTrackConstraints).catch(() => {})
+    const screenAudio = new LocalAudioTrack(raw, nativeScreenShareAudioTrackConstraints, false)
     screenAudio.source = Track.Source.ScreenShareAudio
     out.push(screenAudio)
   } else {
@@ -29,20 +39,66 @@ function localTracksFromScreenStream(stream: MediaStream, captureAudio: boolean)
 }
 
 /**
- * Captura escritorio en Electron.
- *
- * - **Ventana (`kind === 'window'`)**: solo `getUserMedia` con `chromeMediaSource: 'desktop'` y el
- *   mismo `chromeMediaSourceId` en vídeo y audio — equivalente práctico a compartir “pestaña” con
- *   audio de esa superficie (ver `electronCaptureIsolation.ts`).
- * - **Pantalla**: primero `getDisplayMedia` + `setDisplayMediaRequestHandler` (audio `loopback` a
- *   nivel sistema si se pide); si falla, `getUserMedia` con el id de pantalla.
+ * - **Ventana + audio**: vídeo con `getUserMedia` (solo vídeo) + audio WASAPI por PID (`application-loopback`).
+ *   Sin PID conocido → solo vídeo (no se usa audio de escritorio Chromium).
+ * - **Pantalla + audio**: `getDisplayMedia` + handler; si falla, `getUserMedia` con vídeo+audio Chromium.
  */
 export async function createLocalScreenShareTracksFromElectronSource(
   sourceId: string,
-  opts: { captureAudio: boolean; kind: ElectronDesktopCaptureKind },
-): Promise<LocalTrack[]> {
+  opts: {
+    captureAudio: boolean
+    kind: ElectronDesktopCaptureKind
+    /** PID Windows (ProcessList); requerido para audio de ventana sin loopback del sistema */
+    processId?: string | null
+  },
+): Promise<ElectronScreenCaptureResult> {
   const api = typeof window !== 'undefined' ? window.electronAPI : undefined
   const chromeOnly = useChromeDesktopMediaForKind(opts.kind)
+
+  const useWasapiWindowAudio =
+    opts.kind === 'window' &&
+    opts.captureAudio &&
+    Boolean(opts.processId) &&
+    typeof api?.startAppLoopbackAudio === 'function'
+
+  if (useWasapiWindowAudio && opts.processId) {
+    const videoStream = await getElectronDesktopUserMedia(sourceId, false)
+    try {
+      const videoTracks = videoStream.getVideoTracks()
+      if (videoTracks.length === 0) {
+        videoStream.getTracks().forEach((t) => t.stop())
+        throw new TrackInvalidError('no video track found')
+      }
+      const screenVideo = new LocalVideoTrack(videoTracks[0], undefined, false)
+      screenVideo.source = Track.Source.ScreenShare
+
+      const { mediaStreamTrack, dispose } = await createWasapiAppLoopbackMediaStreamTrack(opts.processId)
+      void mediaStreamTrack.applyConstraints(nativeScreenShareAudioTrackConstraints).catch(() => {})
+      const screenAudio = new LocalAudioTrack(
+        mediaStreamTrack,
+        nativeScreenShareAudioTrackConstraints,
+        false,
+      )
+      screenAudio.source = Track.Source.ScreenShareAudio
+
+      return {
+        tracks: [screenVideo, screenAudio],
+        disposeWasapi: dispose,
+      }
+    } catch (e) {
+      videoStream.getTracks().forEach((t) => t.stop())
+      throw e
+    }
+  }
+
+  if (opts.kind === 'window' && opts.captureAudio && !opts.processId) {
+    console.warn(
+      '[electron] Ventana con audio pero sin PID (ProcessList); se comparte solo vídeo para evitar loopback del sistema.',
+    )
+    const stream = await getElectronDesktopUserMedia(sourceId, false)
+    const tracks = localTracksFromScreenStream(stream, false)
+    return { tracks }
+  }
 
   if (!chromeOnly && typeof api?.armDisplayMediaPick === 'function') {
     try {
@@ -55,11 +111,14 @@ export async function createLocalScreenShareTracksFromElectronSource(
         audio: opts.captureAudio
           ? ({
               suppressLocalAudioPlayback: true,
-              echoCancellation: true,
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+              channelCount: 2,
             } as DisplayMediaStreamOptions['audio'])
           : false,
       })
-      return localTracksFromScreenStream(stream, opts.captureAudio)
+      return { tracks: localTracksFromScreenStream(stream, opts.captureAudio) }
     } catch (e) {
       console.warn('[electron] getDisplayMedia (pantalla) falló; probando getUserMedia:', e)
     } finally {
@@ -68,29 +127,18 @@ export async function createLocalScreenShareTracksFromElectronSource(
   }
 
   const stream = await getElectronDesktopUserMedia(sourceId, opts.captureAudio)
-  return localTracksFromScreenStream(stream, opts.captureAudio)
+  return { tracks: localTracksFromScreenStream(stream, opts.captureAudio) }
 }
 
-async function getElectronDesktopUserMedia(sourceId: string, captureAudio: boolean): Promise<MediaStream> {
+async function getElectronDesktopUserMedia(sourceId: string, withAudio: boolean): Promise<MediaStream> {
   const mandatory = {
     chromeMediaSource: 'desktop',
     chromeMediaSourceId: sourceId,
   }
-  /** Chromium: intentar AEC / exclusión de eco local sobre loopback de escritorio (best-effort). */
-  const desktopAudioChrome = {
-    mandatory,
-    optional: [
-      { echoCancellation: true },
-      { googEchoCancellation: true },
-      { googDAEchoCancellation: true },
-      { disableLocalEcho: true },
-    ],
-  } as const
-
-  const buildConstraints = (withAudio: boolean): MediaStreamConstraints => ({
-    audio: withAudio
+  const buildConstraints = (audio: boolean): MediaStreamConstraints => ({
+    audio: audio
       ? ({
-          ...desktopAudioChrome,
+          mandatory,
         } as unknown as MediaTrackConstraints)
       : false,
     video: {
@@ -99,9 +147,9 @@ async function getElectronDesktopUserMedia(sourceId: string, captureAudio: boole
   })
 
   try {
-    return await navigator.mediaDevices.getUserMedia(buildConstraints(captureAudio))
+    return await navigator.mediaDevices.getUserMedia(buildConstraints(withAudio))
   } catch (first) {
-    if (captureAudio) {
+    if (withAudio) {
       return await navigator.mediaDevices.getUserMedia(buildConstraints(false))
     }
     throw first

@@ -10,7 +10,7 @@ describe('voiceQuality presets', () => {
   it('usa bitrate alto para cámara y pantalla', () => {
     expect(cameraPublishOptions.videoEncoding?.maxBitrate).toBeGreaterThanOrEqual(6_000_000)
     expect(screenSharePublishOptions.screenShareEncoding?.maxBitrate).toBeGreaterThanOrEqual(
-      16_000_000,
+      8_000_000,
     )
   })
 
@@ -28,19 +28,19 @@ describe('voiceQuality presets', () => {
     expect(layers.length).toBeGreaterThanOrEqual(1)
   })
 
-  it('captura pantalla a resolución nativa con contentHint motion', () => {
+  it('captura pantalla 1080p60 fluida con contentHint detail', () => {
     const resolution = screenShareCaptureOptions.resolution!
-    expect(resolution.width).toBe(3840)
-    expect(resolution.height).toBe(2160)
-    expect(screenShareCaptureOptions.contentHint).toBe('motion')
+    expect(resolution.width).toBe(1920)
+    expect(resolution.height).toBe(1080)
+    expect(screenShareCaptureOptions.contentHint).toBe('detail')
   })
 
   it('excluye la superficie del propio navegador para evitar bucle al compartir pestaña', () => {
     expect(screenShareCaptureOptions.selfBrowserSurface).toBe('exclude')
   })
 
-  it('usa VP9 para screen share con fallback a VP8', () => {
-    expect(screenSharePublishOptions.videoCodec).toBe('vp9')
+  it('usa H.264 para screen share (HW) con fallback a VP8', () => {
+    expect(screenSharePublishOptions.videoCodec).toBe('h264')
     expect(screenSharePublishOptions.backupCodec).toBeDefined()
   })
 })
