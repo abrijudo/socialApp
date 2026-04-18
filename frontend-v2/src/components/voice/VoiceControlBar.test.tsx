@@ -17,7 +17,8 @@ const setLocalScreenShareEnabled = vi.fn()
 const setLocalVoiceSpeaking = vi.fn()
 const setNoiseFilterEnabled = vi.fn().mockResolvedValue(undefined)
 const setProcessor = vi.fn().mockResolvedValue(undefined)
-const createLocalScreenTracks = vi.fn()
+const createLocalScreenShareTracks = vi.fn()
+
 const on = vi.fn()
 const off = vi.fn()
 
@@ -33,13 +34,9 @@ const localParticipantMock = {
   isSpeaking: false,
 }
 
-vi.mock('livekit-client', async () => {
-  const actual = await vi.importActual<typeof import('livekit-client')>('livekit-client')
-  return {
-    ...actual,
-    createLocalScreenTracks: (...args: unknown[]) => createLocalScreenTracks(...args),
-  }
-})
+vi.mock('@/components/voice/screenShareDisplayMedia', () => ({
+  createLocalScreenShareTracks: (...args: unknown[]) => createLocalScreenShareTracks(...args),
+}))
 
 vi.mock('@livekit/krisp-noise-filter', () => ({
   isKrispNoiseFilterSupported: () => true,
@@ -86,6 +83,7 @@ vi.mock('@/store/useAppStore', () => ({
 describe('VoiceControlBar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    unpublishTrack.mockResolvedValue(undefined)
     getTrackPublication.mockImplementation((source: unknown) => {
       if (source === Track.Source.Microphone) {
         return {
@@ -97,8 +95,7 @@ describe('VoiceControlBar', () => {
       }
       return undefined
     })
-    // Por defecto el navegador entrega tab capture (browser) sin audio leak.
-    createLocalScreenTracks.mockResolvedValue([
+    createLocalScreenShareTracks.mockResolvedValue([
       {
         kind: 'video',
         mediaStreamTrack: {
@@ -152,22 +149,20 @@ describe('VoiceControlBar', () => {
     )
   })
 
-  it('activa compartir pantalla con bitrate alto y opciones anti-fuga de audio', async () => {
+  it('activa compartir pantalla (web) con getDisplayMedia y publishTrack', async () => {
     render(<VoiceControlBar />)
     await act(async () => {
       fireEvent.click(screen.getByTitle('Compartir pantalla'))
     })
 
     await waitFor(() => {
-      expect(createLocalScreenTracks).toHaveBeenCalledWith(
+      expect(createLocalScreenShareTracks).toHaveBeenCalledWith(
         expect.objectContaining({
           contentHint: 'motion',
           resolution: expect.objectContaining({ width: 3840, height: 2160 }),
-          // Blindajes contra que las voces de los participantes (que LiveKit
-          // reproduce en local) se cuelen en la transmisión vía system/tab audio.
           systemAudio: 'exclude',
           selfBrowserSurface: 'exclude',
-          suppressLocalAudioPlayback: true,
+          suppressLocalAudioPlayback: false,
         }),
       )
     })
@@ -186,18 +181,17 @@ describe('VoiceControlBar', () => {
     expect(setScreenShareEnabled).not.toHaveBeenCalled()
   })
 
-  it('al compartir pantalla completa descarta cualquier audio que entregue el navegador', async () => {
+  it('al compartir (web) con vídeo y audio publica ambas pistas', async () => {
     const audioStop = vi.fn()
-    const videoStop = vi.fn()
-    createLocalScreenTracks.mockResolvedValueOnce([
+    createLocalScreenShareTracks.mockResolvedValueOnce([
       {
         kind: 'video',
         mediaStreamTrack: {
-          getSettings: () => ({ displaySurface: 'monitor' }),
+          getSettings: () => ({ displaySurface: 'browser' }),
         } as unknown as MediaStreamTrack,
-        stop: videoStop,
+        stop: vi.fn(),
       },
-      { kind: 'audio', stop: audioStop },
+      { kind: 'audio', mediaStreamTrack: {} as MediaStreamTrack, stop: audioStop },
     ])
 
     render(<VoiceControlBar />)
@@ -206,13 +200,9 @@ describe('VoiceControlBar', () => {
     })
 
     await waitFor(() => {
-      expect(publishTrack).toHaveBeenCalledTimes(1)
+      expect(publishTrack).toHaveBeenCalledTimes(2)
     })
-    expect(publishTrack).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'video' }),
-      expect.anything(),
-    )
-    expect(audioStop).toHaveBeenCalled()
+    expect(audioStop).not.toHaveBeenCalled()
   })
 
   it('activa supresión de ruido IA con Krisp en micrófono local', async () => {
@@ -223,5 +213,4 @@ describe('VoiceControlBar', () => {
 
     expect(setNoiseFilterEnabled).toHaveBeenCalledWith(true)
   })
-
 })

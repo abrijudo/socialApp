@@ -44,22 +44,15 @@ export const cameraPublishOptions: TrackPublishOptions = {
 
 export const screenShareCaptureOptions: ScreenShareCaptureOptions = {
   video: true,
-  // Audio del screen share blindado contra la fuga de voces de la sala:
-  //   - `systemAudio: 'exclude'` → al compartir pantalla/ventana el navegador NO
-  //     ofrece "audio del sistema", así que lo que sale por nuestros altavoces
-  //     (la voz de los demás participantes que LiveKit reproduce en local) NO se
-  //     vuelve a capturar y NO se republica al SFU. Sin esto, los demás se oirían
-  //     a sí mismos cuando alguien transmite con altavoces puestos.
-  //   - `selfBrowserSurface: 'exclude'` → impide elegir la propia pestaña de la
-  //     app como fuente; aunque se pidiera "compartir audio de la pestaña" no
-  //     habría forma de incluir los `<audio>` internos con las voces remotas.
-  //   - `suppressLocalAudioPlayback: true` → cuando se comparte otra pestaña con
-  //     audio (YouTube, juego en navegador, música), ese audio se transmite a la
-  //     sala pero deja de sonar en local, evitando dobles reproducciones y
-  //     cualquier camino indirecto de re-captura.
-  // El campo `audio` se deja activo para soportar los casos legítimos
-  // (compartir una pestaña concreta con sonido); las tres opciones de arriba
-  // son las que garantizan que NUNCA se cuelen los micrófonos de la sala.
+  // Audio del screen share:
+  //   - `systemAudio: 'exclude'` → no ofrecer captura de «todo el audio del sistema»
+  //     al compartir pantalla completa (reduce eco por altavoces).
+  //   - `selfBrowserSurface: 'exclude'` → impide compartir la pestaña de esta app
+  //     (evita bucle de vídeo/audio con la propia sesión). Mantener siempre activo.
+  //   - `suppressLocalAudioPlayback: false` (recomendado): si es `true`, en
+  //     algunos Chromium el audio de la transmisión se comporta mal o el
+  //     capturador queda en un estado raro; se fusiona en `audio` vía
+  //     `screenShareDisplayMedia.ts`.
   audio: {
     echoCancellation: false,
     noiseSuppression: false,
@@ -71,7 +64,7 @@ export const screenShareCaptureOptions: ScreenShareCaptureOptions = {
   systemAudio: 'exclude',
   selfBrowserSurface: 'exclude',
   surfaceSwitching: 'include',
-  suppressLocalAudioPlayback: true,
+  suppressLocalAudioPlayback: false,
   resolution: {
     width: 3840,
     height: 2160,
@@ -101,8 +94,11 @@ export const screenSharePublishOptions: TrackPublishOptions = {
 export const roomOptionsHighQuality: RoomOptions = {
   adaptiveStream: true,
   dynacast: true,
-  // Enruta el audio por el altavoz multimedia (YouTube/Spotify) en vez del auricular del teléfono.
-  webAudioMix: true,
+  // `false`: rutas `<audio>` nativas para que Chromium pueda correlacionar salida local
+  // con captura de escritorio (AEC / supresión de loopback) en Electron. Con `true`,
+  // Web Audio a veces evita ese camino y reintroduce voces remotas en el loopback.
+  // Si el audio remoto degrada, valorar auriculares o volver a `true` solo en web.
+  webAudioMix: false,
   audioCaptureDefaults: microphoneCaptureOptions,
   videoCaptureDefaults: cameraCaptureOptions,
   publishDefaults: {

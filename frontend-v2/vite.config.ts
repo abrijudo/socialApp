@@ -6,6 +6,9 @@ import { defineConfig } from 'vite'
 import { viteStaticCopy } from 'vite-plugin-static-copy'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const isElectronDev = process.env.ELECTRON_DEV === '1'
+/** Puerto dedicado para no chocar con `npm run dev` (5173) cuando ambos corren a la vez. */
+const electronDevPort = Number(process.env.ELECTRON_VITE_PORT ?? 5174)
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -30,6 +33,7 @@ export default defineConfig({
     },
   },
   server: {
+    ...(isElectronDev ? { port: electronDevPort, strictPort: true } : {}),
     proxy: {
       '/api': { target: 'http://localhost:3000', changeOrigin: true },
     },

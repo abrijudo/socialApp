@@ -1,0 +1,5 @@
+# LiveKit Agents SDK (>=1.5.2 es obligatorio para Agent Console)
+livekit-agents[openai,silero,turn-detector,noise-cancellation]>=1.5.2
+
+# Carga de variables .env
+python-dotenv>=1.0.1

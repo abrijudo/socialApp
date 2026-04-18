@@ -17,6 +17,7 @@ describe('voiceQuality presets', () => {
   it('configura sala para priorizar calidad y estabilidad', () => {
     expect(roomOptionsHighQuality.dynacast).toBe(true)
     expect(roomOptionsHighQuality.adaptiveStream).toBe(true)
+    expect(roomOptionsHighQuality.webAudioMix).toBe(false)
     expect(roomOptionsHighQuality.publishDefaults?.degradationPreference).toBe(
       'maintain-framerate',
     )
@@ -32,6 +33,10 @@ describe('voiceQuality presets', () => {
     expect(resolution.width).toBe(3840)
     expect(resolution.height).toBe(2160)
     expect(screenShareCaptureOptions.contentHint).toBe('motion')
+  })
+
+  it('excluye la superficie del propio navegador para evitar bucle al compartir pestaña', () => {
+    expect(screenShareCaptureOptions.selfBrowserSurface).toBe('exclude')
   })
 
   it('usa VP9 para screen share con fallback a VP8', () => {

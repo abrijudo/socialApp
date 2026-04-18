@@ -2,10 +2,17 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
 import { useKrispNoiseFilter } from '@livekit/components-react/krisp';
 import { isKrispNoiseFilterSupported } from '@livekit/krisp-noise-filter';
-import { ParticipantEvent, Track } from 'livekit-client';
+import { LocalTrack, ParticipantEvent, Track } from 'livekit-client';
 import { Mic, MicOff, MonitorOff, MonitorUp, PhoneOff, RefreshCw, Video, VideoOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Toggle } from '@/components/ui/toggle';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  ElectronDesktopPicker,
+  type ElectronShareConfirmPayload,
+} from '@/components/voice/ElectronDesktopPicker';
+import { createLocalScreenShareTracksFromElectronSource } from '@/components/voice/electronScreenCapture';
+import { createLocalScreenShareTracks } from '@/components/voice/screenShareDisplayMedia';
 import {
   cameraCaptureOptions,
   cameraPublishOptions,
@@ -14,10 +21,16 @@ import {
   screenSharePublishOptions,
 } from '@/components/voice/voiceQuality';
 import { cn } from '@/lib/utils';
+import { isElectronRuntime } from '@/lib/electron';
 import { useAppStore } from '@/store/useAppStore';
 
 const iconToggleClass =
   'size-9 shrink-0 rounded-lg border border-border/60 bg-background/80 p-0 data-[state=on]:bg-muted';
+
+const SCREEN_SHARE_WEB_TOOLTIP =
+  "Para compartir sonido sin eco, elige la opción 'Pestaña'.";
+
+const SCREEN_SHARE_ELECTRON_TOOLTIP = 'Elige ventana o pantalla en el selector nativo.';
 
 export function VoiceControlBar({ className }: { className?: string }) {
   const {
@@ -216,6 +229,8 @@ export function VoiceControlBar({ className }: { className?: string }) {
 
   const [screenShareMenuOpen, setScreenShareMenuOpen] = useState(false);
   const screenShareMenuRef = useRef<HTMLDivElement>(null);
+  const [electronPickerOpen, setElectronPickerOpen] = useState(false);
+  const electronShareIntentRef = useRef<'start' | 'change'>('start');
 
   useEffect(() => {
     if (!screenShareMenuOpen) return;
@@ -228,53 +243,34 @@ export function VoiceControlBar({ className }: { className?: string }) {
     return () => document.removeEventListener('pointerdown', handleClickOutside);
   }, [screenShareMenuOpen]);
 
-  // Inspecciona los tracks devueltos por getDisplayMedia y descarta el audio
-  // siempre que la superficie compartida sea "monitor" (pantalla completa) o
-  // "window" (ventana del SO), porque en esos casos cualquier audio asociado
-  // sólo puede provenir del mezclador del sistema operativo y arrastraría las
-  // voces de los participantes que salen por nuestros altavoces.
-  // En tab capture (displaySurface === 'browser') sí dejamos pasar el audio,
-  // porque ahí el navegador entrega el audio digital de esa pestaña concreta y
-  // ya hemos vetado la propia pestaña con `selfBrowserSurface: 'exclude'`.
-  const stripLeakyAudioTracks = async <T extends { kind: string; mediaStreamTrack?: MediaStreamTrack; stop?: () => void }>(
-    tracks: T[],
-  ): Promise<T[]> => {
-    const videoTrack = tracks.find((t) => t.kind === 'video');
-    const surface = (videoTrack?.mediaStreamTrack?.getSettings?.() as MediaTrackSettings & {
-      displaySurface?: string;
-    } | undefined)?.displaySurface;
-    const isTabCapture = surface === 'browser';
-    if (isTabCapture) return tracks;
-    const safe: T[] = [];
-    for (const track of tracks) {
-      if (track.kind === 'audio') {
-        try {
-          track.stop?.();
-        } catch {
-          // noop
-        }
-        continue;
-      }
-      safe.push(track);
+  const unpublishLocalScreenShareAudioIfPublished = async () => {
+    const pub = localParticipant.getTrackPublication(Track.Source.ScreenShareAudio);
+    const t = pub?.track;
+    if (!t) return;
+    try {
+      await localParticipant.unpublishTrack(t, true);
+    } catch {
+      // noop
     }
-    return safe;
   };
 
-  const startScreenShare = async () => {
+  // CRÍTICO: no usar setScreenShareEnabled(true): solo publishTrack manual.
+  const publishLocalScreenShareTracks = async (tracks: LocalTrack[]) => {
+    for (const track of tracks) {
+      await localParticipant.publishTrack(track, screenSharePublishOptions);
+    }
+    setLocalScreenShareEnabled(true);
+  };
+
+  const startScreenShareWeb = async () => {
     try {
-      const lk = await import('livekit-client');
-      const rawTracks = await lk.createLocalScreenTracks(screenShareCaptureOptions);
-      if (!rawTracks || rawTracks.length === 0) return;
-      const safeTracks = await stripLeakyAudioTracks(rawTracks);
-      if (safeTracks.length === 0) return;
+      const tracks = await createLocalScreenShareTracks(screenShareCaptureOptions);
+      if (!tracks || tracks.length === 0) return;
       try {
-        for (const track of safeTracks) {
-          await localParticipant.publishTrack(track, screenSharePublishOptions);
-        }
-        setLocalScreenShareEnabled(true);
+        await publishLocalScreenShareTracks(tracks);
       } catch (e) {
         console.warn('Error al publicar pantalla compartida', e);
-        for (const track of safeTracks) {
+        for (const track of tracks) {
           try {
             track.stop();
           } catch {
@@ -287,8 +283,62 @@ export function VoiceControlBar({ className }: { className?: string }) {
     }
   };
 
+  const onElectronPickerConfirm = async (payload: ElectronShareConfirmPayload) => {
+    if (electronShareIntentRef.current === 'change') {
+      let newTracks: Awaited<ReturnType<typeof createLocalScreenShareTracksFromElectronSource>> | null = null;
+      try {
+        newTracks = await createLocalScreenShareTracksFromElectronSource(payload.sourceId, {
+          captureAudio: payload.captureAudio,
+          kind: payload.kind,
+        });
+      } catch {
+        return;
+      }
+      if (!newTracks || newTracks.length === 0) return;
+      try {
+        await unpublishLocalScreenShareAudioIfPublished();
+        await localParticipant.setScreenShareEnabled(false);
+        await publishLocalScreenShareTracks(newTracks);
+      } catch (e) {
+        console.warn('Error al cambiar pantalla compartida (Electron)', e);
+        for (const track of newTracks) {
+          try {
+            track.stop();
+          } catch {
+            // noop
+          }
+        }
+      }
+      return;
+    }
+    let tracks: Awaited<ReturnType<typeof createLocalScreenShareTracksFromElectronSource>> | null = null;
+    try {
+      tracks = await createLocalScreenShareTracksFromElectronSource(payload.sourceId, {
+        captureAudio: payload.captureAudio,
+        kind: payload.kind,
+      });
+    } catch (e) {
+      console.warn('Error al capturar escritorio en Electron', e);
+      return;
+    }
+    if (!tracks || tracks.length === 0) return;
+    try {
+      await publishLocalScreenShareTracks(tracks);
+    } catch (e) {
+      console.warn('Error al publicar captura Electron', e);
+      for (const track of tracks) {
+        try {
+          track.stop();
+        } catch {
+          // noop
+        }
+      }
+    }
+  };
+
   const stopScreenShare = async () => {
     try {
+      await unpublishLocalScreenShareAudioIfPublished();
       await localParticipant.setScreenShareEnabled(false);
       setLocalScreenShareEnabled(false);
     } catch (e) {
@@ -299,8 +349,11 @@ export function VoiceControlBar({ className }: { className?: string }) {
   const handleScreenShareButton = () => {
     if (isScreenShareEnabled) {
       setScreenShareMenuOpen((prev) => !prev);
+    } else if (isElectronRuntime()) {
+      electronShareIntentRef.current = 'start';
+      setElectronPickerOpen(true);
     } else {
-      void startScreenShare();
+      void startScreenShareWeb();
     }
   };
 
@@ -311,42 +364,32 @@ export function VoiceControlBar({ className }: { className?: string }) {
 
   const handleChangeScreenShare = () => {
     setScreenShareMenuOpen(false);
+    if (isElectronRuntime()) {
+      electronShareIntentRef.current = 'change';
+      setElectronPickerOpen(true);
+      return;
+    }
     void (async () => {
-      // Creamos los NUEVOS tracks antes de soltar los actuales. Si el usuario
-      // cancela el diálogo del navegador, conservamos la transmisión en curso
-      // en vez de dejarle sin nada (bug previo: stop -> start; al cancelar el
-      // segundo prompt se quedaba sin transmisión).
-      const lk = await import('livekit-client');
-      let newTracks: Awaited<ReturnType<typeof lk.createLocalScreenTracks>> | null = null;
+      let newTracks: Awaited<ReturnType<typeof createLocalScreenShareTracks>> | null = null;
       try {
-        newTracks = await lk.createLocalScreenTracks(screenShareCaptureOptions);
+        newTracks = await createLocalScreenShareTracks(screenShareCaptureOptions);
       } catch {
         return;
       }
       if (!newTracks || newTracks.length === 0) return;
-      // Filtramos audio según superficie por si el usuario eligió pantalla/ventana
-      // y el navegador igualmente entregó un audio track (algunos navegadores
-      // pueden ignorar `systemAudio: 'exclude'` en builds antiguas).
-      const safeTracks = await stripLeakyAudioTracks(newTracks);
-      if (safeTracks.length === 0) {
-        for (const track of newTracks) {
-          try { track.stop(); } catch { /* noop */ }
-        }
-        return;
-      }
       try {
-        // Primero paramos la anterior (unpublish + stop de MediaStreamTrack).
+        await unpublishLocalScreenShareAudioIfPublished();
         await localParticipant.setScreenShareEnabled(false);
-        // Luego publicamos los nuevos tracks directamente, sin volver a pedir
-        // permiso al usuario. La source (ScreenShare/ScreenShareAudio) la
-        // infiere LiveKit del propio LocalTrack.
-        for (const track of safeTracks) {
-          await localParticipant.publishTrack(track, screenSharePublishOptions);
-        }
-        setLocalScreenShareEnabled(true);
+        await publishLocalScreenShareTracks(newTracks);
       } catch (e) {
         console.warn('Error al cambiar pantalla compartida', e);
-        for (const track of safeTracks) track.stop();
+        for (const track of newTracks) {
+          try {
+            track.stop();
+          } catch {
+            // noop
+          }
+        }
       }
     })();
   };
@@ -368,6 +411,7 @@ export function VoiceControlBar({ className }: { className?: string }) {
   };
 
   return (
+    <TooltipProvider>
     <div
       className={cn('flex w-full flex-nowrap items-center justify-center gap-2', className)}
       role="toolbar"
@@ -414,19 +458,38 @@ export function VoiceControlBar({ className }: { className?: string }) {
       </Toggle>
 
       <div className="relative" ref={screenShareMenuRef}>
-        <button
-          type="button"
-          onClick={handleScreenShareButton}
-          aria-label={isScreenShareEnabled ? 'Opciones de transmisión' : 'Compartir pantalla'}
-          title={isScreenShareEnabled ? 'Opciones de transmisión' : 'Compartir pantalla'}
-          className={cn(
-            iconToggleClass,
-            'inline-flex items-center justify-center',
-            isScreenShareEnabled && 'bg-red-600 text-white border-red-700 hover:bg-red-700',
-          )}
-        >
-          {isScreenShareEnabled ? <MonitorOff className="size-4" /> : <MonitorUp className="size-4" />}
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={handleScreenShareButton}
+              aria-label={isScreenShareEnabled ? 'Opciones de transmisión' : 'Compartir pantalla'}
+              title={isScreenShareEnabled ? 'Opciones de transmisión' : 'Compartir pantalla'}
+              className={cn(
+                iconToggleClass,
+                'inline-flex items-center justify-center',
+                isScreenShareEnabled && 'bg-red-600 text-white border-red-700 hover:bg-red-700',
+              )}
+            >
+              {isScreenShareEnabled ? <MonitorOff className="size-4" /> : <MonitorUp className="size-4" />}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            {isScreenShareEnabled
+              ? 'Cambiar o detener la transmisión.'
+              : isElectronRuntime()
+                ? SCREEN_SHARE_ELECTRON_TOOLTIP
+                : SCREEN_SHARE_WEB_TOOLTIP}
+          </TooltipContent>
+        </Tooltip>
+
+        <ElectronDesktopPicker
+          open={electronPickerOpen}
+          onOpenChange={setElectronPickerOpen}
+          onConfirm={(payload) => {
+            void onElectronPickerConfirm(payload);
+          }}
+        />
 
         {screenShareMenuOpen && (
           <div className="absolute bottom-full left-1/2 z-50 mb-2 w-48 -translate-x-1/2 rounded-lg border border-border bg-background shadow-lg">
@@ -468,5 +531,6 @@ export function VoiceControlBar({ className }: { className?: string }) {
         <PhoneOff className="size-4" aria-hidden />
       </Button>
     </div>
+    </TooltipProvider>
   );
 }

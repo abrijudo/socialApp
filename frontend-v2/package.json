@@ -3,12 +3,15 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "electron/main.mjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:dev": "concurrently -k \"cross-env ELECTRON_DEV=1 vite\" \"wait-on http://localhost:5174 && cross-env ELECTRON_START_URL=http://localhost:5174/ electron .\"",
+    "electron:start": "electron ."
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.8",
@@ -19,6 +22,7 @@
     "@supabase/supabase-js": "^2.101.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "es-define-property": "^1.0.1",
     "livekit-client": "^2.18.1",
     "lucide-react": "^1.7.0",
     "next-themes": "^0.4.6",
@@ -40,6 +44,9 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^39.2.0",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
@@ -50,6 +57,7 @@
     "typescript-eslint": "^8.57.0",
     "vite": "^8.0.1",
     "vite-plugin-static-copy": "^4.0.1",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "wait-on": "^9.0.3"
   }
 }
