@@ -44,6 +44,22 @@ export const cameraPublishOptions: TrackPublishOptions = {
 
 export const screenShareCaptureOptions: ScreenShareCaptureOptions = {
   video: true,
+  // Audio del screen share blindado contra la fuga de voces de la sala:
+  //   - `systemAudio: 'exclude'` → al compartir pantalla/ventana el navegador NO
+  //     ofrece "audio del sistema", así que lo que sale por nuestros altavoces
+  //     (la voz de los demás participantes que LiveKit reproduce en local) NO se
+  //     vuelve a capturar y NO se republica al SFU. Sin esto, los demás se oirían
+  //     a sí mismos cuando alguien transmite con altavoces puestos.
+  //   - `selfBrowserSurface: 'exclude'` → impide elegir la propia pestaña de la
+  //     app como fuente; aunque se pidiera "compartir audio de la pestaña" no
+  //     habría forma de incluir los `<audio>` internos con las voces remotas.
+  //   - `suppressLocalAudioPlayback: true` → cuando se comparte otra pestaña con
+  //     audio (YouTube, juego en navegador, música), ese audio se transmite a la
+  //     sala pero deja de sonar en local, evitando dobles reproducciones y
+  //     cualquier camino indirecto de re-captura.
+  // El campo `audio` se deja activo para soportar los casos legítimos
+  // (compartir una pestaña concreta con sonido); las tres opciones de arriba
+  // son las que garantizan que NUNCA se cuelen los micrófonos de la sala.
   audio: {
     echoCancellation: false,
     noiseSuppression: false,
@@ -52,6 +68,10 @@ export const screenShareCaptureOptions: ScreenShareCaptureOptions = {
     sampleRate: 48000,
     sampleSize: 16,
   },
+  systemAudio: 'exclude',
+  selfBrowserSurface: 'exclude',
+  surfaceSwitching: 'include',
+  suppressLocalAudioPlayback: true,
   resolution: {
     width: 3840,
     height: 2160,

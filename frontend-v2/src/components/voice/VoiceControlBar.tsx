@@ -228,14 +228,60 @@ export function VoiceControlBar({ className }: { className?: string }) {
     return () => document.removeEventListener('pointerdown', handleClickOutside);
   }, [screenShareMenuOpen]);
 
+  // Inspecciona los tracks devueltos por getDisplayMedia y descarta el audio
+  // siempre que la superficie compartida sea "monitor" (pantalla completa) o
+  // "window" (ventana del SO), porque en esos casos cualquier audio asociado
+  // sólo puede provenir del mezclador del sistema operativo y arrastraría las
+  // voces de los participantes que salen por nuestros altavoces.
+  // En tab capture (displaySurface === 'browser') sí dejamos pasar el audio,
+  // porque ahí el navegador entrega el audio digital de esa pestaña concreta y
+  // ya hemos vetado la propia pestaña con `selfBrowserSurface: 'exclude'`.
+  const stripLeakyAudioTracks = async <T extends { kind: string; mediaStreamTrack?: MediaStreamTrack; stop?: () => void }>(
+    tracks: T[],
+  ): Promise<T[]> => {
+    const videoTrack = tracks.find((t) => t.kind === 'video');
+    const surface = (videoTrack?.mediaStreamTrack?.getSettings?.() as MediaTrackSettings & {
+      displaySurface?: string;
+    } | undefined)?.displaySurface;
+    const isTabCapture = surface === 'browser';
+    if (isTabCapture) return tracks;
+    const safe: T[] = [];
+    for (const track of tracks) {
+      if (track.kind === 'audio') {
+        try {
+          track.stop?.();
+        } catch {
+          // noop
+        }
+        continue;
+      }
+      safe.push(track);
+    }
+    return safe;
+  };
+
   const startScreenShare = async () => {
     try {
-      await localParticipant.setScreenShareEnabled(
-        true,
-        screenShareCaptureOptions,
-        screenSharePublishOptions,
-      );
-      setLocalScreenShareEnabled(true);
+      const lk = await import('livekit-client');
+      const rawTracks = await lk.createLocalScreenTracks(screenShareCaptureOptions);
+      if (!rawTracks || rawTracks.length === 0) return;
+      const safeTracks = await stripLeakyAudioTracks(rawTracks);
+      if (safeTracks.length === 0) return;
+      try {
+        for (const track of safeTracks) {
+          await localParticipant.publishTrack(track, screenSharePublishOptions);
+        }
+        setLocalScreenShareEnabled(true);
+      } catch (e) {
+        console.warn('Error al publicar pantalla compartida', e);
+        for (const track of safeTracks) {
+          try {
+            track.stop();
+          } catch {
+            // noop
+          }
+        }
+      }
     } catch (e) {
       console.warn('Error al iniciar pantalla compartida', e);
     }
@@ -278,19 +324,29 @@ export function VoiceControlBar({ className }: { className?: string }) {
         return;
       }
       if (!newTracks || newTracks.length === 0) return;
+      // Filtramos audio según superficie por si el usuario eligió pantalla/ventana
+      // y el navegador igualmente entregó un audio track (algunos navegadores
+      // pueden ignorar `systemAudio: 'exclude'` en builds antiguas).
+      const safeTracks = await stripLeakyAudioTracks(newTracks);
+      if (safeTracks.length === 0) {
+        for (const track of newTracks) {
+          try { track.stop(); } catch { /* noop */ }
+        }
+        return;
+      }
       try {
         // Primero paramos la anterior (unpublish + stop de MediaStreamTrack).
         await localParticipant.setScreenShareEnabled(false);
         // Luego publicamos los nuevos tracks directamente, sin volver a pedir
         // permiso al usuario. La source (ScreenShare/ScreenShareAudio) la
         // infiere LiveKit del propio LocalTrack.
-        for (const track of newTracks) {
+        for (const track of safeTracks) {
           await localParticipant.publishTrack(track, screenSharePublishOptions);
         }
         setLocalScreenShareEnabled(true);
       } catch (e) {
         console.warn('Error al cambiar pantalla compartida', e);
-        for (const track of newTracks) track.stop();
+        for (const track of safeTracks) track.stop();
       }
     })();
   };
