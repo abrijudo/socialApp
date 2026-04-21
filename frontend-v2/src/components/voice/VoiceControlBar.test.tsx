@@ -171,9 +171,9 @@ describe('VoiceControlBar', () => {
       expect(publishTrack).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({
-          videoCodec: 'h264',
+          videoCodec: 'vp9',
           screenShareEncoding: expect.objectContaining({
-            maxBitrate: 10_000_000,
+            maxBitrate: 5_000_000,
             maxFramerate: 60,
           }),
         }),

@@ -83,38 +83,42 @@
     --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* Tema oscuro: Discord “clásico” (grises escalonados + blurple) con toque propio —
+   acento ~1 hue más violeta que #5865F2 para identidad sin parecer copia literal. */
 .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
+    --background: oklch(0.32 0.012 262);
+    --foreground: oklch(0.96 0.01 262);
+    --card: oklch(0.26 0.012 262);
+    --card-foreground: oklch(0.96 0.01 262);
+    --popover: oklch(0.28 0.012 262);
+    --popover-foreground: oklch(0.96 0.01 262);
+    --primary: oklch(0.58 0.2 276);
+    --primary-foreground: oklch(0.99 0.005 276);
+    --secondary: oklch(0.23 0.014 262);
+    --secondary-foreground: oklch(0.94 0.01 262);
+    --muted: oklch(0.3 0.012 262);
+    --muted-foreground: oklch(0.65 0.02 262);
+    --accent: oklch(0.34 0.016 262);
+    --accent-foreground: oklch(0.96 0.01 262);
     --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --border: oklch(1 0 0 / 8%);
+    --input: oklch(1 0 0 / 12%);
+    --ring: oklch(0.58 0.14 276);
+    --chart-1: oklch(0.58 0.18 276);
+    --chart-2: oklch(0.45 0.02 262);
+    --chart-3: oklch(0.38 0.02 262);
+    --chart-4: oklch(0.32 0.012 262);
+    --chart-5: oklch(0.26 0.012 262);
+    /* Carril tipo lista de servidores: un paso más oscuro que el área principal */
+    --sidebar: oklch(0.188 0.014 262);
+    --sidebar-foreground: oklch(0.92 0.015 262);
+    --sidebar-primary: oklch(0.58 0.2 276);
+    --sidebar-primary-foreground: oklch(0.99 0.005 276);
+    --sidebar-accent: oklch(0.26 0.016 262);
+    --sidebar-accent-foreground: oklch(0.96 0.01 262);
+    --sidebar-border: oklch(1 0 0 / 6%);
+    --sidebar-ring: oklch(0.58 0.14 276);
+    --radius: 0.5rem;
 }
 
 @layer base {
@@ -174,10 +178,50 @@
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-/* LiveKit / vídeo: encuadre completo (letterbox), sin recorte tipo cover */
+/*
+ * LiveKit / vídeo en app: nunca object-fit: cover en el reproductor —
+ * el cover fuerza recorte/zoom en la caja y degrada un 1080p nítido.
+ * contain preserva aspect ratio y 1:1 píxeles perceptibles en el encuadre.
+ */
 .lk-video-container video,
 .lk-participant-tile video,
 video {
   object-fit: contain !important;
+  object-position: center;
   background-color: #000 !important;
+}
+
+/* Escenario VideoStage: refuerzo por encima de estilos inyectados por LiveKit */
+.lk-video-stage video,
+.lk-video-stage canvas,
+.lk-stage-tile video,
+.lk-stage-tile canvas {
+  object-fit: contain !important;
+  object-position: center center;
+}
+
+/* Escenario de vídeo: el tile flex ocupa la celda; el contenido LiveKit se centra y escala al máximo sin recorte */
+.lk-stage-media {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.lk-stage-media .lk-participant-tile {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+}
+
+.lk-stage-media .lk-participant-tile video,
+.lk-stage-media .lk-participant-tile canvas {
+  max-width: 100%;
+  max-height: 100%;
 }

@@ -43,12 +43,18 @@ export function ServerRail({
   return (
     <aside
       className={cn(
-        'bg-card text-card-foreground flex h-full min-h-0 w-[72px] shrink-0 flex-col overflow-hidden border-r border-border',
+        'bg-card text-card-foreground flex h-full min-h-0 w-[72px] min-w-[72px] max-w-[72px] shrink-0 flex-col overflow-x-hidden overflow-y-hidden border-r border-border',
         className,
       )}
       aria-label="Servidores"
     >
-      <div className="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto p-3">
+      <div
+        className={cn(
+          'flex min-h-0 flex-1 flex-col items-center gap-2 overflow-x-hidden overflow-y-auto overscroll-y-contain p-3',
+          // Sin franja/scroll visible con pocos iconos; sigue scrolleable con rueda si hay muchos servidores
+          '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+        )}
+      >
         <button
           type="button"
           title="Inicio — mensajes directos"

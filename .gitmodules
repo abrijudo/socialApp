@@ -1,0 +1,8 @@
+[submodule "reference/awesome-design-systems"]
+	path = reference/awesome-design-systems
+	url = https://github.com/alexpate/awesome-design-systems.git
+	branch = master
+[submodule "reference/awesome-design-md"]
+	path = reference/awesome-design-md
+	url = https://github.com/VoltAgent/awesome-design-md.git
+	branch = main

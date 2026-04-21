@@ -134,11 +134,15 @@ export interface AppActions {
   markChannelAsRead: (channelId: string) => void
   incrementUnread: (channelId: string) => void
   resetApp: () => void
+  /** Cierra sesión en Supabase y vuelve a la pantalla de nombre de usuario. */
+  logout: () => Promise<void>
   /** Quita un canal de la lista y limpia selección si era el activo (p. ej. DELETE en tiempo real). */
   pruneDeletedChannel: (channelId: string) => void
   setDraftBody: (channelId: string, body: string) => void
   setDraftReply: (channelId: string, replyToId: string | null) => void
   clearDraft: (channelId: string) => void
+  /** Tras guardar perfil en API: actualiza `profile` y miembros con el mismo `user_id`. */
+  applyProfileUpdate: (profile: Profile) => void
 }
 
 const initialState: AppState = {
@@ -349,12 +353,10 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
   setActiveDmChannelId: (activeDmChannelId) => {
     set({
       activeDmChannelId,
-      // Al activar un DM tenemos que salirnos del servidor actual (en
-      // `AppLayout`, `activeServerId` gana sobre `activeDmChannelId` al
-      // renderizar el panel principal). Si solo limpiásemos el canal de texto,
-      // el usuario veía "Selecciona un canal" en lugar del DM.
+      // Al activar un DM salimos del servidor/canal de texto, pero no del
+      // canal de voz: LiveKit sigue vivo hasta colgar o cerrar pestaña.
       ...(activeDmChannelId != null
-        ? { activeTextChannelId: null, activeServerId: null, activeVoiceChannelId: null }
+        ? { activeTextChannelId: null, activeServerId: null }
         : {}),
     })
     if (activeDmChannelId) get().markChannelAsRead(activeDmChannelId)
@@ -534,6 +536,22 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
 
   resetApp: () => set(initialState),
 
+  logout: async () => {
+    const sb = getSupabaseBrowserClient()
+    await sb.auth.signOut().catch(() => {})
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(SOCIALAPP_USER_KEY)
+      }
+    } catch {
+      /* noop */
+    }
+    set({
+      ...initialState,
+      needsUsername: true,
+    })
+  },
+
   pruneDeletedChannel: (channelId) =>
     set((s) => {
       const nextMessagesByChannel = { ...s.messagesByChannel }
@@ -594,5 +612,18 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
       const next = { ...s.drafts }
       delete next[channelId]
       return { drafts: next }
+    }),
+
+  applyProfileUpdate: (nextProfile) =>
+    set((s) => {
+      if (s.userId !== nextProfile.user_id) return {}
+      const members = s.members.map((m) =>
+        m.user_id === nextProfile.user_id ? { ...m, profile: nextProfile } : m,
+      )
+      return {
+        profile: nextProfile,
+        username: nextProfile.username || s.username,
+        members,
+      }
     }),
 }))

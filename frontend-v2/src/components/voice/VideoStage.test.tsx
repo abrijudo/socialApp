@@ -41,22 +41,24 @@ describe('VideoStage', () => {
         },
       ],
     ])
+    const activePub = { track: {}, isMuted: false, trackSid: 'x' }
     useTracksMock.mockReturnValue([
       {
         id: 'camera-self',
         source: Track.Source.Camera,
+        publication: activePub,
         participant: { identity: 'self', audioTrackPublications: audioTrackPubMap },
       },
       {
         id: 'screen-self',
         source: Track.Source.ScreenShare,
-        publication: { trackSid: 'screen-self-sid' },
+        publication: { ...activePub, trackSid: 'screen-self-sid' },
         participant: { identity: 'self', audioTrackPublications: audioTrackPubMap },
       },
       {
         id: 'screen-other-user',
         source: Track.Source.ScreenShare,
-        publication: { trackSid: 'screen-other-user-sid' },
+        publication: { ...activePub, trackSid: 'screen-other-user-sid' },
         participant: { identity: 'otro', audioTrackPublications: audioTrackPubMap },
       },
     ])
@@ -66,8 +68,10 @@ describe('VideoStage', () => {
     expect(screen.getByTestId('participant-tile-camera-self')).toBeInTheDocument()
     expect(screen.getByTestId('participant-tile-screen-self')).toBeInTheDocument()
     expect(screen.getByTestId('participant-tile-screen-other-user')).toBeInTheDocument()
-    expect(screen.getAllByTitle('Pantalla completa')).toHaveLength(3)
-    expect(screen.getAllByTitle('Volumen de transmisión')).toHaveLength(3)
+    // Pantallas compartidas ocultas por defecto: sin controles de pantalla completa ni volumen hasta «Ver transmisión»
+    expect(screen.getAllByTitle('Pantalla completa')).toHaveLength(1)
+    expect(screen.getAllByTitle('Volumen de transmisión')).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: /ver transmisión/i })).toHaveLength(2)
   })
 
   it('no renderiza grid cuando no hay tracks', () => {
@@ -97,12 +101,13 @@ describe('VideoStage', () => {
       {
         id: 'screen-streamer',
         source: Track.Source.ScreenShare,
-        publication: { trackSid: 'screen-streamer-sid' },
+        publication: { track: {}, isMuted: false, trackSid: 'screen-streamer-sid' },
         participant,
       },
     ])
 
     render(<VideoStage />)
+    fireEvent.click(screen.getByRole('button', { name: /ver transmisión de streamer/i }))
     const slider = screen.getByLabelText('Volumen de transmisión de streamer')
     fireEvent.change(slider, { target: { value: '0' } })
 

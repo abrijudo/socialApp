@@ -1,15 +1,15 @@
 import type { ReactNode } from 'react'
 import { lazy, Suspense, useCallback, useMemo } from 'react'
-import { Loader2, Menu, MessageCircle } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { DmChatArea } from '@/components/chat/DmChatArea'
 import { DmSidebar } from '@/components/layout/DmSidebar'
+import { HomeMainEmpty } from '@/components/layout/HomeMainEmpty'
 import { MainChatColumnPlain } from '@/components/layout/MainChatColumn'
 import { MembersList } from '@/components/layout/MembersList'
 import { MobileNavProvider, useMobileNav } from '@/components/layout/MobileNavContext'
 import { ServerRail } from '@/components/layout/ServerRail'
 import { ServerSidebar } from '@/components/layout/ServerSidebar'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
-import { Button } from '@/components/ui/button'
 import { useChannelMessages } from '@/hooks/useChannelMessages'
 import { useDmMessages } from '@/hooks/useDmMessages'
 import { useServerPresence } from '@/hooks/useServerPresence'
@@ -41,41 +41,6 @@ function VoiceLoadingFallback() {
   )
 }
 
-function HomeMainEmpty() {
-  const mobile = useMobileNav()
-
-  return (
-    <main
-      className="bg-background flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-      aria-label="Inicio"
-    >
-      <header className="border-border flex h-12 shrink-0 items-center gap-2 border-b px-3 shadow-sm">
-        {mobile ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="md:hidden shrink-0"
-            aria-label="Abrir menú de navegación"
-            onClick={() => mobile.openNavSheet()}
-          >
-            <Menu className="size-5" aria-hidden />
-          </Button>
-        ) : null}
-        <span className="text-muted-foreground text-sm font-semibold">Inicio</span>
-      </header>
-      <div className="text-muted-foreground flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto p-3 text-center text-sm">
-        <div className="bg-muted mb-4 flex size-16 shrink-0 items-center justify-center rounded-[20px]">
-          <MessageCircle className="text-muted-foreground size-8" aria-hidden />
-        </div>
-        <p className="max-w-sm leading-relaxed">
-          Elige una conversación en Mensajes directos o vuelve a un servidor.
-        </p>
-      </div>
-    </main>
-  )
-}
-
 function MobileSheets({
   activeServerId,
   activeVoiceChannelId,
@@ -101,10 +66,10 @@ function MobileSheets({
   } = mobile
 
   const secondColumn =
-    activeVoiceChannelId || activeServerId ? (
+    activeServerId ? (
       <ServerSidebar voicePanel={null} />
     ) : (
-      <DmSidebar />
+      <DmSidebar voicePanel={null} />
     )
 
   return (
@@ -161,7 +126,6 @@ export function AppLayout() {
   const activeDmChannelId = useAppStore((s) => s.activeDmChannelId)
   const setActiveServerId = useAppStore((s) => s.setActiveServerId)
   const setActiveTextChannelId = useAppStore((s) => s.setActiveTextChannelId)
-  const setActiveVoiceChannelId = useAppStore((s) => s.setActiveVoiceChannelId)
   const activeVoiceChannel = useMemo(
     () => (activeVoiceChannelId ? channels.find((c) => c.id === activeVoiceChannelId) : undefined),
     [channels, activeVoiceChannelId],
@@ -178,14 +142,12 @@ export function AppLayout() {
   useDmMessages(activeDmChannelId)
 
   const goHome = useCallback(() => {
-    setActiveVoiceChannelId(null)
     setActiveServerId(null)
     setActiveTextChannelId(null)
-  }, [setActiveVoiceChannelId, setActiveServerId, setActiveTextChannelId])
+  }, [setActiveServerId, setActiveTextChannelId])
 
   const selectServer = useCallback(
     (srvId: string) => {
-      setActiveVoiceChannelId(null)
       setActiveServerId(srvId)
       // Leemos los canales vigentes desde el store para evitar que `selectServer`
       // cambie de identidad cada vez que se actualiza la lista (p. ej. por Realtime).
@@ -195,7 +157,7 @@ export function AppLayout() {
       )
       setActiveTextChannelId(firstText?.id ?? null)
     },
-    [setActiveVoiceChannelId, setActiveServerId, setActiveTextChannelId],
+    [setActiveServerId, setActiveTextChannelId],
   )
 
   const mainWhenNotVoice: ReactNode = useMemo(() => {
@@ -230,7 +192,13 @@ export function AppLayout() {
                   activeServerId={activeServerId}
                   onHome={goHome}
                   onSelectServer={selectServer}
-                  renderNav={(voicePanel) => <ServerSidebar voicePanel={voicePanel} />}
+                  renderNav={() =>
+                    activeServerId ? (
+                      <ServerSidebar voicePanel={null} embeddedInVoiceSession />
+                    ) : (
+                      <DmSidebar voicePanel={null} embeddedInVoiceSession />
+                    )
+                  }
                   renderMainDisconnected={() => <MainChatColumnPlain />}
                   renderMainConnected={() => (
                     <Suspense fallback={<VoiceLoadingFallback />}>

@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ParticipantTile, useTracks } from '@livekit/components-react'
 import { Track } from 'livekit-client'
-import { Maximize2, Pin, PinOff, Volume2, VolumeX } from 'lucide-react'
+import {
+  EyeOff,
+  Maximize2,
+  MonitorPlay,
+  Pin,
+  PinOff,
+  Volume2,
+  VolumeX,
+} from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { isRenderableVideoTrackRef } from '@/components/voice/videoTrackFilters'
 
 function trackKey(track: unknown, index: number): string {
   const t = track as {
@@ -90,67 +100,66 @@ async function requestTileFullscreen(el: HTMLDivElement | null) {
   }
 }
 
+/** Columnas del escenario: 1 → una columna a todo el ancho; 2 → dos; 3+ → máx. 3 por fila. */
+function stageColumnCount(trackCount: number): number {
+  if (trackCount <= 1) return 1
+  if (trackCount === 2) return 2
+  return 3
+}
+
+/** Contenedor del tile: flex para centrar el vídeo manteniendo object-contain (nada recortado). */
+const TILE_BASE =
+  'group relative box-border flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-xl border border-white/12 bg-zinc-950 ring-1 ring-inset ring-white/5'
+
 /**
- * Layout adaptativo para transmisiones simultáneas.
- *
- * Reglas:
- *  - Si hay un tile "pinned" (usuario ha fijado uno), va grande y el resto al
- *    filmstrip inferior.
- *  - Sin pin: 0 pantallas → galería de cámaras. 1 pantalla → la pantalla como
- *    hero + resto al filmstrip. 2+ pantallas → grid de pantallas + filmstrip
- *    de cámaras debajo.
- *
- * `onlySubscribed: false` evita "tiles negros" cuando la publicación existe
- * pero aún no hay suscripción remota en este cliente.
+ * Panel de vídeo: recuadros **mismo tamaño**, máx. **3 por fila**, grupo centrado (1 o 2 fuentes al
+ * centro; con 3 en la primera fila). `onlySubscribed: false` evita tiles negros si aún no hay suscripción.
  */
 export function VideoStage() {
-  const tracks = useTracks(
+  const rawTracks = useTracks(
     [
       { source: Track.Source.Camera, withPlaceholder: false },
       { source: Track.Source.ScreenShare, withPlaceholder: false },
     ],
     { onlySubscribed: false },
   )
+  const tracks = useMemo(
+    () => rawTracks.filter(isRenderableVideoTrackRef),
+    [rawTracks],
+  )
   const [volumesByTrack, setVolumesByTrack] = useState<Record<string, number>>({})
+  /** Pantalla compartida: por defecto oculta (sin imagen ni audio) hasta que el usuario pulse «Ver transmisión». */
+  const [screenViewingByKey, setScreenViewingByKey] = useState<Record<string, boolean>>({})
   const [isTouchDevice, setIsTouchDevice] = useState(false)
   const [pinnedTrackKey, setPinnedTrackKey] = useState<string | null>(null)
   const [controlsVisibleByTile, setControlsVisibleByTile] = useState<Record<string, boolean>>({})
   const lastNonZeroByTrackRef = useRef<Record<string, number>>({})
   const hideControlsTimerRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
-  const screenShares = useMemo(() => tracks.filter(isScreenShare), [tracks])
-  const cameras = useMemo(() => tracks.filter((t) => !isScreenShare(t)), [tracks])
-  const hasScreenShare = screenShares.length > 0
-
   const isControlsActiveOnAny = Object.values(controlsVisibleByTile).some((v) => v === true)
   const isImmersive = !isControlsActiveOnAny
 
   type StageTrack = (typeof tracks)[number]
 
-  // Resolución del pin: si el usuario pinchó un track que sigue vivo → hero forzado.
-  const pinnedTrack: StageTrack | null = useMemo(() => {
-    if (!pinnedTrackKey) return null
-    return tracks.find((t) => trackVolumeKey(t) === pinnedTrackKey) ?? null
+  /**
+   * Orden en la rejilla: transmisiones de pantalla primero, luego cámaras.
+   * Si hay pin, ese tile va el primero para encontrarlo enseguida.
+   */
+  const gridTracks = useMemo(() => {
+    const screens = tracks.filter(isScreenShare)
+    const cams = tracks.filter((t) => !isScreenShare(t))
+    let ordered: StageTrack[] = [...screens, ...cams]
+    if (pinnedTrackKey) {
+      const i = ordered.findIndex((t) => trackVolumeKey(t) === pinnedTrackKey)
+      if (i > 0) {
+        const [p] = ordered.splice(i, 1)
+        ordered = [p, ...ordered]
+      }
+    }
+    return ordered
   }, [tracks, pinnedTrackKey])
 
-  // Determina el layout sin pin: split (2+ screens) | hero+strip (1 screen) | galería.
-  const layout: {
-    mode: 'pinned' | 'split' | 'hero' | 'gallery'
-    heroTracks: StageTrack[]
-    stripTracks: StageTrack[]
-  } = useMemo(() => {
-    if (pinnedTrack) {
-      const rest = tracks.filter((t) => trackVolumeKey(t) !== trackVolumeKey(pinnedTrack))
-      return { mode: 'pinned', heroTracks: [pinnedTrack], stripTracks: rest }
-    }
-    if (screenShares.length >= 2) {
-      return { mode: 'split', heroTracks: screenShares, stripTracks: cameras }
-    }
-    if (hasScreenShare) {
-      return { mode: 'hero', heroTracks: [screenShares[0]], stripTracks: cameras }
-    }
-    return { mode: 'gallery', heroTracks: [], stripTracks: [] }
-  }, [pinnedTrack, screenShares, cameras, hasScreenShare, tracks])
+  const stageCols = stageColumnCount(gridTracks.length)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -189,12 +198,14 @@ export function VideoStage() {
   useEffect(() => {
     for (const track of tracks) {
       const key = trackVolumeKey(track)
-      const volume = typeof volumesByTrack[key] === 'number' ? volumesByTrack[key] : 1
-      if (appliedVolumesRef.current[key] === volume) continue
-      appliedVolumesRef.current[key] = volume
-      applyVolumeToTransmission(track, volume)
+      const userVol = typeof volumesByTrack[key] === 'number' ? volumesByTrack[key] : 1
+      const effective =
+        isScreenShare(track) && screenViewingByKey[key] !== true ? 0 : userVol
+      if (appliedVolumesRef.current[key] === effective) continue
+      appliedVolumesRef.current[key] = effective
+      applyVolumeToTransmission(track, effective)
     }
-  }, [tracks, volumesByTrack])
+  }, [tracks, volumesByTrack, screenViewingByKey])
 
   useEffect(() => {
     if (!pinnedTrackKey) return
@@ -203,6 +214,17 @@ export function VideoStage() {
       setPinnedTrackKey(null)
     }
   }, [tracks, pinnedTrackKey])
+
+  /** Si deja de verse una pantalla compartida que estaba fijada, quitamos el pin. */
+  useEffect(() => {
+    if (!pinnedTrackKey) return
+    if (screenViewingByKey[pinnedTrackKey] !== true) {
+      const pinnedIsScreen = tracks.some(
+        (t) => trackVolumeKey(t) === pinnedTrackKey && isScreenShare(t),
+      )
+      if (pinnedIsScreen) setPinnedTrackKey(null)
+    }
+  }, [screenViewingByKey, pinnedTrackKey, tracks])
 
   useEffect(() => {
     return () => {
@@ -230,46 +252,43 @@ export function VideoStage() {
     setControlsVisibleByTile((prev) => (prev[tileKey] ? { ...prev, [tileKey]: false } : prev))
   }
 
-  const renderTile = (track: StageTrack, index: number, mode: 'hero' | 'strip' | 'grid') => {
+  const renderTile = (track: StageTrack, index: number) => {
     const volumeKey = trackVolumeKey(track)
     const volume = typeof volumesByTrack[volumeKey] === 'number' ? volumesByTrack[volumeKey] : 1
     const participantLabel = trackParticipantLabel(track)
-    const isMuted = volume <= 0.001
-    const key = `${trackKey(track, index)}:${mode}`
+    const key = `${trackKey(track, index)}:cell`
     const showControls = controlsVisibleByTile[key] === true
     const isPinned = pinnedTrackKey === volumeKey
-    const outerClass =
-      mode === 'hero'
-        ? `group relative h-full min-h-0 w-full min-w-0 overflow-hidden bg-black ${
-            isImmersive ? 'rounded-none border-0' : 'rounded-lg border border-border/20'
-          }`
-        : mode === 'strip'
-          ? `group relative h-full w-56 shrink-0 overflow-hidden bg-black sm:w-64 ${
-              isImmersive ? 'rounded-none border-0' : 'rounded-lg border border-border/20'
-            }`
-          : `group relative min-h-0 min-w-0 overflow-hidden bg-black ${
-              isImmersive ? 'rounded-none border-0' : 'rounded-lg border border-border/20'
-            }`
     const screenFit = isScreenShare(track)
-    // `object-contain` para screen share (no recortar texto), `object-cover`
-    // para cámaras en el filmstrip/grid (miniaturas limpias). En modo hero las
-    // cámaras usan `object-contain` para no recortar caras si el aspect ratio
-    // del viewport no coincide con el de la webcam.
-    const shouldContain = screenFit || mode === 'hero'
-    const mediaFitClass = shouldContain
-      ? '[&_video]:h-full [&_video]:w-full [&_video]:object-contain [&_canvas]:h-full [&_canvas]:w-full [&_canvas]:object-contain'
-      : '[&_video]:h-full [&_video]:w-full [&_video]:object-cover [&_canvas]:h-full [&_canvas]:w-full [&_canvas]:object-cover'
+    const viewingScreen = screenFit && screenViewingByKey[volumeKey] === true
+    const screenConcealed = screenFit && !viewingScreen
+    const isMuted = volume <= 0.001
+
+    const outerClass = `${TILE_BASE} ${isImmersive ? 'shadow-none' : 'shadow-md'}`
+
+    // object-fit contain (nunca cover): evita "zoom" recortado que estropea nitidez en 1080p.
+    const mediaFitClass =
+      '[&_video]:box-border [&_video]:!object-contain [&_video]:object-center [&_video]:max-h-full [&_video]:max-w-full [&_canvas]:!object-contain [&_canvas]:object-center [&_canvas]:max-h-full [&_canvas]:max-w-full'
 
     const hideLkOverlayClass = showControls
       ? '[&_.lk-participant-metadata]:opacity-100 [&_.lk-participant-metadata]:transition-opacity [&_.lk-participant-metadata]:duration-200'
       : '[&_.lk-participant-metadata]:opacity-0 [&_.lk-participant-metadata]:pointer-events-none [&_.lk-participant-metadata]:transition-opacity [&_.lk-participant-metadata]:duration-200'
 
+    const stopViewingScreen = () => {
+      setScreenViewingByKey((prev) => ({ ...prev, [volumeKey]: false }))
+      if (pinnedTrackKey === volumeKey) setPinnedTrackKey(null)
+    }
+
+    const mediaAreaClass =
+      'lk-stage-media relative flex min-h-0 min-w-0 w-full flex-1 items-center justify-center'
+
     return (
       <div
         key={key}
-        className={`${outerClass} ${mediaFitClass} ${hideLkOverlayClass} lk-stage-tile`}
+        className={`${outerClass} ${hideLkOverlayClass} lk-stage-tile`}
         onMouseMove={() => {
           if (isTouchDevice) return
+          if (screenConcealed) return
           showControlsFor(key, 900)
         }}
         onMouseLeave={() => {
@@ -279,182 +298,196 @@ export function VideoStage() {
         onClick={(e) => {
           if (!isTouchDevice) return
           if ((e.target as HTMLElement).closest('button, input')) return
+          if (screenConcealed) return
           showControlsFor(key, 3000)
         }}
       >
-        <ParticipantTile trackRef={track} />
-
-        {/* Botones superiores derechos: pin + fullscreen */}
-        <div
-          className={`absolute top-2 right-2 z-20 flex items-center gap-1 transition-opacity duration-200 ${
-            showControls ? 'opacity-100' : 'pointer-events-none opacity-0'
-          }`}
-        >
-          <button
-            type="button"
-            className={`inline-flex h-8 w-8 items-center justify-center rounded-md border text-white ${
-              isPinned
-                ? 'border-primary bg-primary/80'
-                : 'border-white/20 bg-black/60 hover:bg-black/80'
-            }`}
-            aria-label={isPinned ? 'Desfijar' : 'Fijar'}
-            title={isPinned ? 'Desfijar' : 'Fijar como principal'}
-            onClick={(e) => {
-              e.stopPropagation()
-              setPinnedTrackKey((prev) => (prev === volumeKey ? null : volumeKey))
-            }}
-          >
-            {isPinned ? <PinOff className="size-4" aria-hidden /> : <Pin className="size-4" aria-hidden />}
-          </button>
-          <button
-            type="button"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/20 bg-black/60 text-white hover:bg-black/80"
-            aria-label="Pantalla completa"
-            title="Pantalla completa"
-            onClick={(e) => {
-              e.stopPropagation()
-              const container = e.currentTarget.closest('.lk-stage-tile') as HTMLDivElement | null
-              void requestTileFullscreen(container)
-            }}
-          >
-            <Maximize2 className="size-4" aria-hidden />
-          </button>
-        </div>
-
-        {/* Barra inferior: nombre + volumen */}
-        <div
-          className={`absolute right-2 bottom-2 left-2 z-20 flex items-center gap-1.5 rounded-md border border-white/20 bg-black/65 px-2 py-1 text-white transition-opacity duration-200 ${
-            showControls ? 'opacity-100' : 'pointer-events-none opacity-0'
-          }`}
-        >
-          <span className="min-w-0 flex-1 truncate text-xs opacity-80">{participantLabel}</span>
-          <button
-            type="button"
-            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm"
-            aria-label={
-              isMuted
-                ? `Activar audio de ${participantLabel}`
-                : `Mutear audio de ${participantLabel}`
-            }
-            title={isMuted ? 'Activar audio' : 'Mutear audio'}
-            onClick={(e) => {
-              e.stopPropagation()
-              if (isMuted) {
-                const restored = Math.max(
-                  0.05,
-                  Math.min(1, lastNonZeroByTrackRef.current[volumeKey] || 1),
-                )
-                setVolumesByTrack((prev) => ({ ...prev, [volumeKey]: restored }))
-                return
-              }
-              lastNonZeroByTrackRef.current[volumeKey] = volume
-              setVolumesByTrack((prev) => ({ ...prev, [volumeKey]: 0 }))
-            }}
-          >
-            {isMuted ? (
-              <VolumeX className="size-4" aria-hidden />
-            ) : (
-              <Volume2 className="size-4" aria-hidden />
-            )}
-          </button>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            step={1}
-            value={Math.round(volume * 100)}
-            onChange={(e) => {
-              e.stopPropagation()
-              const next = Number(e.target.value) / 100
-              if (next > 0.001) lastNonZeroByTrackRef.current[volumeKey] = next
-              setVolumesByTrack((prev) => ({ ...prev, [volumeKey]: next }))
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-            aria-label={`Volumen de transmisión de ${participantLabel}`}
-            title="Volumen de transmisión"
-            className="h-1.5 w-24 accent-primary"
-          />
-        </div>
-      </div>
-    )
-  }
-
-  // ── Layouts ────────────────────────────────────────────────────────────────
-  const padClass = isImmersive ? 'p-0' : 'p-2'
-  const gapClass = isImmersive ? 'gap-0' : 'gap-2'
-
-  if (layout.mode === 'gallery') {
-    // Grid responsive 1/2/3/4 columnas. `auto-rows-fr` reparte filas iguales.
-    const n = cameras.length
-    // Para n pequeño (1–4) forzamos un grid cuadrado para no dejar tiles muy anchas.
-    const gridCols =
-      n === 1
-        ? 'grid-cols-1'
-        : n === 2
-          ? 'grid-cols-1 sm:grid-cols-2'
-          : n <= 4
-            ? 'grid-cols-1 sm:grid-cols-2'
-            : 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'
-    return (
-      <div className={`flex h-full min-h-0 w-full flex-1 overflow-hidden bg-black ${padClass}`}>
-        <div
-          className={`grid h-full min-h-0 w-full min-w-0 auto-rows-fr ${gridCols} ${gapClass}`}
-        >
-          {cameras.map((track, index) => renderTile(track, index, 'grid'))}
-        </div>
-      </div>
-    )
-  }
-
-  if (layout.mode === 'split') {
-    // 2+ pantallas simultáneas: grid equitativo arriba + strip de cámaras debajo.
-    const screens = layout.heroTracks
-    const strip = layout.stripTracks
-    const screenCols =
-      screens.length === 2
-        ? 'grid-cols-1 md:grid-cols-2'
-        : screens.length === 3
-          ? 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
-          : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3'
-    return (
-      <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-black">
-        <div className={`min-h-0 flex-1 ${padClass}`}>
-          <div className={`grid h-full min-h-0 w-full min-w-0 auto-rows-fr ${screenCols} ${gapClass}`}>
-            {screens.map((track, i) => renderTile(track, i, 'hero'))}
-          </div>
-        </div>
-        {strip.length > 0 ? (
-          <div
-            className={`bg-background/50 shrink-0 overflow-x-auto transition-all duration-200 ${
-              isImmersive ? 'h-0 overflow-hidden p-0 opacity-0' : 'h-40 p-2 opacity-100'
-            }`}
-          >
-            <div className="flex h-full min-w-max gap-2">
-              {strip.map((track, index) => renderTile(track, index, 'strip'))}
+        {screenConcealed ? (
+          <>
+            {/* Vídeo sigue montado para retomar al instante; no se muestra. */}
+            <div
+              className={`pointer-events-none absolute inset-0 z-0 ${mediaAreaClass} [&_video]:invisible [&_canvas]:invisible`}
+              aria-hidden
+            >
+              <ParticipantTile trackRef={track} />
             </div>
+            <div className="absolute inset-0 z-30 flex flex-col items-center justify-center overflow-y-auto bg-gradient-to-b from-zinc-950 via-zinc-900/95 to-black p-2 text-center sm:p-4">
+              <div className="border-border/60 bg-background/40 max-h-full max-w-sm rounded-xl border px-3 py-4 shadow-xl backdrop-blur-sm sm:rounded-2xl sm:px-5 sm:py-6">
+                <div className="bg-primary/15 mx-auto mb-2 flex size-10 items-center justify-center rounded-xl sm:mb-3 sm:size-14 sm:rounded-2xl">
+                  <MonitorPlay className="text-primary size-5 sm:size-7" aria-hidden />
+                </div>
+                <p className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase sm:text-xs">
+                  Transmisión de pantalla
+                </p>
+                <p className="mt-0.5 truncate text-sm font-semibold sm:mt-1 sm:text-base">{participantLabel}</p>
+                <p className="text-muted-foreground mt-1 text-xs sm:mt-2 sm:text-sm">
+                  Oculto hasta que actives la vista y el audio.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="mt-3 w-full sm:mt-5"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setScreenViewingByKey((prev) => ({ ...prev, [volumeKey]: true }))
+                  }}
+                  aria-label={`Ver transmisión de ${participantLabel}`}
+                >
+                  <MonitorPlay className="mr-2 size-4" aria-hidden />
+                  Ver transmisión
+                </Button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className={`${mediaAreaClass} ${mediaFitClass}`}>
+            <ParticipantTile trackRef={track} />
+          </div>
+        )}
+
+        {/* Dejar de ver: siempre visible mientras la transmisión está activa */}
+        {screenFit && viewingScreen ? (
+          <div className="absolute top-2 left-2 z-30">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="border-border/60 bg-background/90 text-foreground hover:bg-background h-8 gap-1.5 px-2.5 text-xs shadow-md backdrop-blur-sm"
+              aria-label={`Dejar de ver la transmisión de ${participantLabel}`}
+              title="Ocultar vídeo y audio; puedes volver a activarla con «Ver transmisión»"
+              onClick={(e) => {
+                e.stopPropagation()
+                stopViewingScreen()
+              }}
+            >
+              <EyeOff className="size-3.5" aria-hidden />
+              Dejar de ver
+            </Button>
           </div>
         ) : null}
+
+        {/* Pin + pantalla completa */}
+        {screenConcealed ? null : (
+          <div
+            className={`absolute top-2 right-2 z-20 flex items-center gap-1 transition-opacity duration-200 ${
+              showControls ? 'opacity-100' : 'pointer-events-none opacity-0'
+            }`}
+          >
+            <button
+              type="button"
+              className={`inline-flex h-8 w-8 items-center justify-center rounded-md border text-white ${
+                isPinned
+                  ? 'border-primary bg-primary/80'
+                  : 'border-white/20 bg-black/60 hover:bg-black/80'
+              }`}
+              aria-label={isPinned ? 'Desfijar' : 'Fijar'}
+              title={isPinned ? 'Desfijar' : 'Fijar como principal'}
+              onClick={(e) => {
+                e.stopPropagation()
+                setPinnedTrackKey((prev) => (prev === volumeKey ? null : volumeKey))
+              }}
+            >
+              {isPinned ? <PinOff className="size-4" aria-hidden /> : <Pin className="size-4" aria-hidden />}
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/20 bg-black/60 text-white hover:bg-black/80"
+              aria-label="Pantalla completa"
+              title="Pantalla completa"
+              onClick={(e) => {
+                e.stopPropagation()
+                const container = e.currentTarget.closest('.lk-stage-tile') as HTMLDivElement | null
+                void requestTileFullscreen(container)
+              }}
+            >
+              <Maximize2 className="size-4" aria-hidden />
+            </button>
+          </div>
+        )}
+
+        {/* Barra inferior: nombre + volumen (no en transmisión oculta) */}
+        {screenConcealed ? null : (
+          <div
+            className={`absolute right-2 bottom-2 left-2 z-20 flex items-center gap-1.5 rounded-md border border-white/20 bg-black/65 px-2 py-1 text-white transition-opacity duration-200 ${
+              showControls ? 'opacity-100' : 'pointer-events-none opacity-0'
+            }`}
+          >
+            <span className="min-w-0 flex-1 truncate text-xs opacity-80">{participantLabel}</span>
+            <button
+              type="button"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm"
+              aria-label={
+                isMuted
+                  ? `Activar audio de ${participantLabel}`
+                  : `Mutear audio de ${participantLabel}`
+              }
+              title={isMuted ? 'Activar audio' : 'Mutear audio'}
+              onClick={(e) => {
+                e.stopPropagation()
+                if (isMuted) {
+                  const restored = Math.max(
+                    0.05,
+                    Math.min(1, lastNonZeroByTrackRef.current[volumeKey] || 1),
+                  )
+                  setVolumesByTrack((prev) => ({ ...prev, [volumeKey]: restored }))
+                  return
+                }
+                lastNonZeroByTrackRef.current[volumeKey] = volume
+                setVolumesByTrack((prev) => ({ ...prev, [volumeKey]: 0 }))
+              }}
+            >
+              {isMuted ? (
+                <VolumeX className="size-4" aria-hidden />
+              ) : (
+                <Volume2 className="size-4" aria-hidden />
+              )}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={Math.round(volume * 100)}
+              onChange={(e) => {
+                e.stopPropagation()
+                const next = Number(e.target.value) / 100
+                if (next > 0.001) lastNonZeroByTrackRef.current[volumeKey] = next
+                setVolumesByTrack((prev) => ({ ...prev, [volumeKey]: next }))
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              aria-label={`Volumen de transmisión de ${participantLabel}`}
+              title="Volumen de transmisión"
+              className="h-1.5 w-24 accent-primary"
+            />
+          </div>
+        )}
       </div>
     )
   }
 
-  // hero | pinned: 1 tile grande + strip con el resto.
-  const heroTrack = layout.heroTracks[0]
-  const strip = layout.stripTracks
+  const padClass = isImmersive ? 'p-0' : 'p-2 sm:p-3'
+
   return (
-    <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-black">
-      <div className={`min-h-0 flex-1 ${padClass}`}>{renderTile(heroTrack, 0, 'hero')}</div>
-      {strip.length > 0 ? (
-        <div
-          className={`bg-background/50 shrink-0 overflow-x-auto transition-all duration-200 ${
-            isImmersive ? 'h-0 overflow-hidden p-0 opacity-0' : 'h-40 p-2 opacity-100'
-          }`}
-        >
-          <div className="flex h-full min-w-max gap-2">
-            {strip.map((track, index) => renderTile(track, index + 1, 'strip'))}
-          </div>
+    <div
+      className={`lk-video-stage flex h-full min-h-0 w-full min-w-0 flex-1 overflow-hidden bg-black ${padClass}`}
+      aria-label="Rejilla de vídeo"
+    >
+      {gridTracks.length === 1 ? (
+        <div className="flex h-full min-h-0 w-full flex-1" role="list">
+          {renderTile(gridTracks[0], 0)}
         </div>
-      ) : null}
+      ) : (
+        <div
+          className="box-border grid h-full min-h-0 w-full min-w-0 flex-1 gap-2 overflow-hidden py-0.5"
+          style={{
+            gridTemplateColumns: `repeat(${stageCols}, minmax(0, 1fr))`,
+            gridAutoRows: 'minmax(0, 1fr)',
+          }}
+          role="list"
+        >
+          {gridTracks.map((track, index) => renderTile(track, index))}
+        </div>
+      )}
     </div>
   )
 }

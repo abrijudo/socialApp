@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { useMemo, useState } from 'react'
 import { Hash, MicOff, Plus, UserPlus, Video, Volume2 } from 'lucide-react'
+import { UserAccountFooter } from '@/components/layout/UserAccountFooter'
 import { CreateChannelModal } from '@/components/modals/CreateChannelModal'
 import { InviteModal } from '@/components/modals/InviteModal'
 import { Button } from '@/components/ui/button'
@@ -12,10 +13,15 @@ import type { Profile } from '@/types/models'
 
 export interface ServerSidebarProps {
   voicePanel: ReactNode | null
+  /**
+   * En sesión de voz: la barra lateral cambia entre listado de servidor/DM sin
+   * desmontar el panel de voz; entonces `VoiceRoom` renderiza voz + footer fuera.
+   */
+  embeddedInVoiceSession?: boolean
 }
 
 /** Columna de canales de texto/voz del servidor activo. */
-export function ServerSidebar({ voicePanel }: ServerSidebarProps) {
+export function ServerSidebar({ voicePanel, embeddedInVoiceSession = false }: ServerSidebarProps) {
   const mobile = useMobileNav()
   const server = useAppStore((s) => s.server)
   const role = useAppStore((s) => s.role)
@@ -303,24 +309,11 @@ export function ServerSidebar({ voicePanel }: ServerSidebarProps) {
         )}
       </div>
 
-      {voicePanel ? <div className="shrink-0">{voicePanel}</div> : null}
+      {!embeddedInVoiceSession && voicePanel ? (
+        <div className="shrink-0">{voicePanel}</div>
+      ) : null}
 
-      <footer className="border-border mt-auto flex items-center gap-2 border-t p-3">
-        <div
-          className="bg-primary/15 text-primary flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-medium"
-          aria-hidden
-        >
-          {(profile?.display_name || profile?.username || '?').slice(0, 1).toUpperCase()}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-xs font-medium">
-            {profile?.display_name || profile?.username || 'Usuario'}
-          </div>
-          <div className="text-muted-foreground truncate text-[11px]">
-            @{profile?.username ?? '…'}
-          </div>
-        </div>
-      </footer>
+      {!embeddedInVoiceSession ? <UserAccountFooter /> : null}
 
       <CreateChannelModal
         isOpen={isCreateChannelOpen}

@@ -1,0 +1,108 @@
+import { useState } from 'react'
+import { Copy, LogOut, UserCircle, Settings } from 'lucide-react'
+import { toast } from 'sonner'
+import { UserProfilePopup } from '@/components/modals/UserProfilePopup'
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { useAppStore } from '@/store/useAppStore'
+import { cn } from '@/lib/utils'
+
+/**
+ * Pie de barra lateral: avatar, nombre y menú de cuenta (perfil, copiar ID, cerrar sesión).
+ */
+export function UserAccountFooter({ className }: { className?: string }) {
+  const profile = useAppStore((s) => s.profile)
+  const username = useAppStore((s) => s.username)
+  const userId = useAppStore((s) => s.userId)
+  const logout = useAppStore((s) => s.logout)
+
+  const [profileOpen, setProfileOpen] = useState(false)
+
+  const displayName = profile?.display_name || profile?.username || username || 'Usuario'
+  const handle = profile?.username ?? username ?? '…'
+
+  async function handleCopyUsername() {
+    const text = typeof handle === 'string' && handle !== '…' ? handle : userId
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success('Copiado al portapapeles')
+    } catch {
+      toast.error('No se pudo copiar')
+    }
+  }
+
+  return (
+    <>
+      <footer
+        className={cn(
+          'border-border mt-auto flex min-h-14 items-center gap-2 border-t p-3',
+          className,
+        )}
+      >
+        <div
+          className="bg-primary/15 text-primary flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-medium"
+          aria-hidden
+        >
+          {(profile?.display_name || profile?.username || '?').slice(0, 1).toUpperCase()}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-xs font-medium">{displayName}</div>
+          <div className="text-muted-foreground truncate text-[11px]">@{handle}</div>
+        </div>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground size-8 shrink-0"
+              title="Cuenta y ajustes"
+              aria-label="Menú de cuenta y ajustes"
+            >
+              <Settings className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" side="top" className="w-52">
+            <DropdownMenuLabel className="font-normal">
+              <span className="text-foreground text-xs font-medium">Cuenta</span>
+            </DropdownMenuLabel>
+            <DropdownMenuItem
+              onSelect={() => {
+                setProfileOpen(true)
+              }}
+            >
+              <UserCircle className="size-4" />
+              Ver mi perfil
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => void handleCopyUsername()}>
+              <Copy className="size-4" />
+              Copiar nombre de usuario
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() => {
+                void logout()
+              }}
+            >
+              <LogOut className="size-4" />
+              Cerrar sesión
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </footer>
+
+      {userId ? (
+        <UserProfilePopup open={profileOpen} onOpenChange={setProfileOpen} userId={userId} />
+      ) : null}
+    </>
+  )
+}

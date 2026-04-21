@@ -7,11 +7,9 @@ import {
 } from '@/components/voice/voiceQuality'
 
 describe('voiceQuality presets', () => {
-  it('usa bitrate alto para cámara y pantalla', () => {
+  it('usa bitrate alto para cámara y objetivo fijo para pantalla (VP9)', () => {
     expect(cameraPublishOptions.videoEncoding?.maxBitrate).toBeGreaterThanOrEqual(6_000_000)
-    expect(screenSharePublishOptions.screenShareEncoding?.maxBitrate).toBeGreaterThanOrEqual(
-      8_000_000,
-    )
+    expect(screenSharePublishOptions.screenShareEncoding?.maxBitrate).toBe(5_000_000)
   })
 
   it('configura sala para priorizar calidad y estabilidad', () => {
@@ -22,10 +20,10 @@ describe('voiceQuality presets', () => {
       'maintain-framerate',
     )
     expect(roomOptionsHighQuality.publishDefaults?.screenShareEncoding).toBeDefined()
-    // Debe haber al menos una capa de respaldo para que los subscribers con
-    // poco ancho de banda reciban una versión degradada en vez de cortarse.
+    // Sin capas simulcast en screen share: una sola publicación para evitar
+    // versiones borrosas; el SFU sigue usando adaptiveStream/dynacast.
     const layers = roomOptionsHighQuality.publishDefaults?.screenShareSimulcastLayers ?? []
-    expect(layers.length).toBeGreaterThanOrEqual(1)
+    expect(layers.length).toBe(0)
   })
 
   it('captura pantalla 1080p60 fluida con contentHint detail', () => {
@@ -39,8 +37,9 @@ describe('voiceQuality presets', () => {
     expect(screenShareCaptureOptions.selfBrowserSurface).toBe('exclude')
   })
 
-  it('usa H.264 para screen share (HW) con fallback a VP8', () => {
-    expect(screenSharePublishOptions.videoCodec).toBe('h264')
-    expect(screenSharePublishOptions.backupCodec).toBeDefined()
+  it('usa VP9 para screen share y prioriza resolución ante congestión', () => {
+    expect(screenSharePublishOptions.videoCodec).toBe('vp9')
+    expect(screenSharePublishOptions.degradationPreference).toBe('maintain-resolution')
+    expect(screenSharePublishOptions.backupCodec).toBeUndefined()
   })
 })

@@ -3,8 +3,10 @@ import { LiveKitRoom, RoomAudioRenderer, useRoomContext } from '@livekit/compone
 import { Loader2 } from 'lucide-react'
 import { MembersList } from '@/components/layout/MembersList'
 import { ServerRail } from '@/components/layout/ServerRail'
+import { UserAccountFooter } from '@/components/layout/UserAccountFooter'
 import { VoiceControlBar } from '@/components/voice/VoiceControlBar'
 import { roomOptionsHighQuality } from '@/components/voice/voiceQuality'
+import { useVoiceChannelSoundEffects } from '@/hooks/useVoiceChannelSoundEffects'
 import { useLiveKitSpeakers } from '@/hooks/useLiveKitSpeakers'
 import { useLiveKitVoiceToken } from '@/hooks/useLiveKitVoiceToken'
 import { useMatchMedia } from '@/hooks/useMatchMedia'
@@ -18,8 +20,8 @@ export type VoiceSessionProps = {
   activeServerId: string | null
   onHome: () => void
   onSelectServer: (id: string) => void
-  /** Barra lateral de canales; `voicePanel` va encima del footer de usuario. */
-  renderNav: (voicePanel: ReactNode) => ReactNode
+  /** Solo contenido scrollable de la columna; voz y footer los fija `VoiceRoom` debajo para no desmontar `VoiceControlBar`. */
+  renderNav: () => ReactNode
   /** Main sin LiveKit (token cargando o error). */
   renderMainDisconnected: () => ReactNode
   /** Main dentro de LiveKit (puede usar useTracks, etc.). */
@@ -28,6 +30,11 @@ export type VoiceSessionProps = {
 
 function LiveKitSpeakerSync() {
   useLiveKitSpeakers()
+  return null
+}
+
+function VoiceChannelSoundEffectsSync() {
+  useVoiceChannelSoundEffects()
   return null
 }
 
@@ -133,7 +140,11 @@ export function VoiceSession({
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
         {rail}
         <div className="hidden h-full min-h-0 w-[240px] shrink-0 flex-col overflow-hidden border-r border-border bg-muted md:flex">
-          {renderNav(disconnectedVoiceChrome)}
+          <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
+            <div className="min-h-0 flex-1 overflow-hidden">{renderNav()}</div>
+            <div className="shrink-0">{disconnectedVoiceChrome}</div>
+            <UserAccountFooter />
+          </div>
         </div>
         <div className="bg-background flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {renderMainDisconnected()}
@@ -157,11 +168,16 @@ export function VoiceSession({
     >
       <RoomAudioRenderer />
       <LiveKitSpeakerSync />
+      <VoiceChannelSoundEffectsSync />
       <LiveKitPageUnloadCleanup />
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
         {rail}
         <div className="hidden h-full min-h-0 w-[240px] shrink-0 flex-col overflow-hidden border-r border-border bg-muted md:flex">
-          {renderNav(voicePanelConnected)}
+          <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
+            <div className="min-h-0 flex-1 overflow-hidden">{renderNav()}</div>
+            <div className="shrink-0">{voicePanelConnected}</div>
+            <UserAccountFooter />
+          </div>
         </div>
         <div
           className={cn(

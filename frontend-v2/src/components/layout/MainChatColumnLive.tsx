@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTracks } from '@livekit/components-react'
 import { Track } from 'livekit-client'
 import { GripHorizontal, PanelBottom, PanelTop } from 'lucide-react'
 import { ChatArea } from '@/components/chat/ChatArea'
+import { DmChatArea } from '@/components/chat/DmChatArea'
+import { HomeMainEmpty } from '@/components/layout/HomeMainEmpty'
 import { ChannelHeader } from '@/components/layout/MainChatColumn'
 import { UserProfilePopup } from '@/components/modals/UserProfilePopup'
 import { VideoStage } from '@/components/voice/VideoStage'
+import { isRenderableVideoTrackRef } from '@/components/voice/videoTrackFilters'
 import { Button } from '@/components/ui/button'
 import { useAppStore } from '@/store/useAppStore'
 
@@ -39,17 +42,23 @@ function persistVideoHeight(h: number) {
  */
 export function MainChatColumnLive() {
   const activeTextChannelId = useAppStore((s) => s.activeTextChannelId)
+  const activeDmChannelId = useAppStore((s) => s.activeDmChannelId)
+  const activeServerId = useAppStore((s) => s.activeServerId)
   const activeVoiceChannelId = useAppStore((s) => s.activeVoiceChannelId)
   const isVideoStageOpen = useAppStore((s) => s.isVideoStageOpen)
   const setIsVideoStageOpen = useAppStore((s) => s.setIsVideoStageOpen)
   const channels = useAppStore((s) => s.channels)
   const activeChannel = channels.find((c) => c.id === activeTextChannelId)
-  const videoTracks = useTracks(
+  const videoTracksRaw = useTracks(
     [
       { source: Track.Source.Camera, withPlaceholder: false },
       { source: Track.Source.ScreenShare, withPlaceholder: false },
     ],
     { onlySubscribed: false },
+  )
+  const videoTracks = useMemo(
+    () => videoTracksRaw.filter(isRenderableVideoTrackRef),
+    [videoTracksRaw],
   )
   const hasAnyVideo = videoTracks.length > 0
 
@@ -141,6 +150,17 @@ export function MainChatColumnLive() {
       setIsVideoStageOpen(false)
     }
   }, [hasAnyVideo, inVoice, isVideoStageOpen, setIsVideoStageOpen])
+
+  // DM con sesión de voz activa: el mismo layout que fuera de LiveKit (el DM
+  // incluye cabecera y composer; no se usa el rail de canal de texto).
+  if (activeDmChannelId) {
+    return <DmChatArea dmChannelId={activeDmChannelId} />
+  }
+
+  // Inicio / DMs sin conversación abierta: no dejar el chat de texto vacío (“Sin canal”).
+  if (!activeTextChannelId && !activeServerId) {
+    return <HomeMainEmpty />
+  }
 
   return (
     <main

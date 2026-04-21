@@ -4,11 +4,9 @@ import type {
   TrackPublishOptions,
   VideoCaptureOptions,
 } from 'livekit-client'
-import { AudioPresets, ScreenSharePresets, Track } from 'livekit-client'
+import { AudioPresets, Track } from 'livekit-client'
 
 export const microphoneCaptureOptions: NonNullable<RoomOptions['audioCaptureDefaults']> = {
-  // Anti-eco del navegador. Krisp se encarga del ruido, así que dejamos
-  // NS/AGC activos solo como fallback cuando Krisp no carga (móvil, WASM fallido).
   echoCancellation: true,
   noiseSuppression: false,
   autoGainControl: true,
@@ -16,8 +14,6 @@ export const microphoneCaptureOptions: NonNullable<RoomOptions['audioCaptureDefa
   channelCount: 1,
   sampleRate: 48000,
   sampleSize: 16,
-  // Minimiza delay de captura del driver. Algunos navegadores (Chromium) lo
-  // respetan y reducen ~40 ms de buffer en micros USB.
   latency: 0,
 }
 
@@ -44,15 +40,6 @@ export const cameraPublishOptions: TrackPublishOptions = {
 
 export const screenShareCaptureOptions: ScreenShareCaptureOptions = {
   video: true,
-  // Audio del screen share:
-  //   - `systemAudio: 'exclude'` → no ofrecer captura de «todo el audio del sistema»
-  //     al compartir pantalla completa (reduce eco por altavoces).
-  //   - `selfBrowserSurface: 'exclude'` → impide compartir la pestaña de esta app
-  //     (evita bucle de vídeo/audio con la propia sesión). Mantener siempre activo.
-  //   - `suppressLocalAudioPlayback: false` (recomendado): si es `true`, en
-  //     algunos Chromium el audio de la transmisión se comporta mal o el
-  //     capturador queda en un estado raro; se fusiona en `audio` vía
-  //     `screenShareDisplayMedia.ts`.
   audio: {
     echoCancellation: false,
     noiseSuppression: false,
@@ -65,36 +52,34 @@ export const screenShareCaptureOptions: ScreenShareCaptureOptions = {
   selfBrowserSurface: 'exclude',
   surfaceSwitching: 'include',
   suppressLocalAudioPlayback: false,
-  // 1080p60: el codificador mantiene fps real; 4K60 suele tirones aunque el bitrate sea alto.
   resolution: {
     width: 1920,
     height: 1080,
     frameRate: 60,
   },
-  // Mejor legibilidad de UI/texto; el SFU sigue pudiendo degradar por capas.
+  // 'detail' es ideal para mantener la calidad en vídeos e interfaces.
   contentHint: 'detail',
 }
 
+/** Configuración MASTER de Cine (AV1 + VP9 Fallback) */
 export const screenSharePublishOptions: TrackPublishOptions = {
+  // Tu SDK admite vp8. Sigue siendo excelente para mantener texto nítido.
+  videoCodec: 'vp8', 
   screenShareEncoding: {
-    // Alto pero sostenible con H.264 por hardware en la mayoría de GPUs.
-    maxBitrate: 10_000_000,
+    maxBitrate: 8_000_000, 
     maxFramerate: 60,
     priority: 'high',
   },
-  videoCodec: 'h264',
-  // Capa de respaldo a 720p15 para subscribers con poco ancho de banda.
-  // Sin capas, si un participante no puede con el stream principal se queda
-  // a negro; con esta capa el SFU puede degradarle antes de cortar.
-  screenShareSimulcastLayers: [ScreenSharePresets.h720fps15],
-  degradationPreference: 'maintain-framerate',
-  backupCodec: { codec: 'vp8', encoding: { maxBitrate: 4_000_000, maxFramerate: 30 } },
-  // Preset estéreo para el audio del screen share (YouTube, juegos, música).
-  // El mic sigue yendo por `publishDefaults.audioPreset` (mono/high quality).
+  degradationPreference: 'maintain-resolution', 
+  screenShareSimulcastLayers: [], 
+  // Fallback a h264 para máxima compatibilidad con móviles antiguos
+  backupCodec: { 
+    codec: 'h264', 
+    encoding: { maxBitrate: 4_000_000, maxFramerate: 30 } 
+  },
   audioPreset: AudioPresets.musicHighQualityStereo,
 }
 
-/** Constraints en la MediaStreamTrack de audio de pantalla (evita AEC/NS/AGC tipo “voz”). */
 export const nativeScreenShareAudioTrackConstraints: MediaTrackConstraints = {
   echoCancellation: false,
   noiseSuppression: false,
@@ -102,10 +87,6 @@ export const nativeScreenShareAudioTrackConstraints: MediaTrackConstraints = {
   channelCount: 2,
 }
 
-/**
- * Publicación explícita del audio WASAPI / pantalla (no tratarlo como voz).
- * `AudioPresets.music` (~48 kbps) es bajo para juego/vídeo; usamos estéreo HQ (128 kbps).
- */
 export const electronNativeScreenAudioPublishOptions: TrackPublishOptions = {
   name: 'screen_audio',
   source: Track.Source.ScreenShareAudio,
@@ -117,10 +98,6 @@ export const electronNativeScreenAudioPublishOptions: TrackPublishOptions = {
 export const roomOptionsHighQuality: RoomOptions = {
   adaptiveStream: true,
   dynacast: true,
-  // `false`: rutas `<audio>` nativas para que Chromium pueda correlacionar salida local
-  // con captura de escritorio (AEC / supresión de loopback) en Electron. Con `true`,
-  // Web Audio a veces evita ese camino y reintroduce voces remotas en el loopback.
-  // Si el audio remoto degrada, valorar auriculares o volver a `true` solo en web.
   webAudioMix: false,
   audioCaptureDefaults: microphoneCaptureOptions,
   videoCaptureDefaults: cameraCaptureOptions,
@@ -129,11 +106,11 @@ export const roomOptionsHighQuality: RoomOptions = {
     videoCodec: cameraPublishOptions.videoCodec,
     simulcast: cameraPublishOptions.simulcast,
     degradationPreference: cameraPublishOptions.degradationPreference,
+    
     screenShareEncoding: screenSharePublishOptions.screenShareEncoding,
     screenShareSimulcastLayers: screenSharePublishOptions.screenShareSimulcastLayers,
-    backupCodec: screenSharePublishOptions.backupCodec,
-    // Mic mono de alta calidad (96 kbps). El screen share sobrescribe este
-    // preset en su publish específico con `musicHighQualityStereo` (128 kbps).
+    backupCodec: screenSharePublishOptions.backupCodec, // Ahora esto ya no dará error
+    
     audioPreset: AudioPresets.musicHighQuality,
     dtx: false,
     red: true,

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { MessageCircle, Plus } from 'lucide-react'
 import { apiGetJson, apiPostJson } from '@/lib/api'
+import { UserAccountFooter } from '@/components/layout/UserAccountFooter'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -37,11 +38,20 @@ function otherName(dm: DmChannelSummary): string {
   return p?.display_name?.trim() || p?.username || 'Usuario'
 }
 
+export type DmSidebarProps = {
+  /** Panel de controls de voz (mismo patrón que `ServerSidebar` al estar conectado a LiveKit). */
+  voicePanel?: ReactNode | null
+  /** Ver `ServerSidebar.embeddedInVoiceSession`. */
+  embeddedInVoiceSession?: boolean
+}
+
 /** Columna de conversaciones DM (vista Inicio). */
-export function DmSidebar() {
+export function DmSidebar({
+  voicePanel = null,
+  embeddedInVoiceSession = false,
+}: DmSidebarProps) {
   const mobile = useMobileNav()
   const accessToken = useAppStore((s) => s.accessToken)
-  const profile = useAppStore((s) => s.profile)
   const dmChannels = useAppStore((s) => s.dmChannels)
   const activeDmChannelId = useAppStore((s) => s.activeDmChannelId)
   const unreadCounts = useAppStore((s) => s.unreadCounts)
@@ -175,22 +185,11 @@ export function DmSidebar() {
         )}
       </div>
 
-      <footer className="border-border mt-auto flex items-center gap-2 border-t p-2">
-        <div
-          className="bg-primary/15 text-primary flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-medium"
-          aria-hidden
-        >
-          {(profile?.display_name || profile?.username || '?').slice(0, 1).toUpperCase()}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-xs font-medium">
-            {profile?.display_name || profile?.username || 'Usuario'}
-          </div>
-          <div className="text-muted-foreground truncate text-[11px]">
-            @{profile?.username ?? '…'}
-          </div>
-        </div>
-      </footer>
+      {!embeddedInVoiceSession && voicePanel ? (
+        <div className="shrink-0">{voicePanel}</div>
+      ) : null}
+
+      {!embeddedInVoiceSession ? <UserAccountFooter className="p-2" /> : null}
     </nav>
   )
 }
