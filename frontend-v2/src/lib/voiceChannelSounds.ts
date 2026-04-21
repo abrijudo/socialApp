@@ -16,7 +16,7 @@ function getContext(): AudioContext {
 }
 
 function withEnvelope(
-  ctx: AudioContext,
+  _ctx: AudioContext,
   osc: OscillatorNode,
   gain: GainNode,
   peak: number,

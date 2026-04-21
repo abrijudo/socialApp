@@ -43,13 +43,11 @@ function VoiceLoadingFallback() {
 
 function MobileSheets({
   activeServerId,
-  activeVoiceChannelId,
   servers,
   onHome,
   onSelectServer,
 }: {
   activeServerId: string | null
-  activeVoiceChannelId: string | null
   servers: Server[]
   onHome: () => void
   onSelectServer: (id: string) => void
@@ -234,7 +232,6 @@ export function AppLayout() {
 
       <MobileSheets
         activeServerId={activeServerId}
-        activeVoiceChannelId={activeVoiceChannelId}
         servers={servers}
         onHome={goHome}
         onSelectServer={selectServer}
