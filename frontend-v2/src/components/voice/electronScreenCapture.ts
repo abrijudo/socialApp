@@ -54,14 +54,16 @@ export async function createLocalScreenShareTracksFromElectronSource(
 ): Promise<ElectronScreenCaptureResult> {
   const api = typeof window !== 'undefined' ? window.electronAPI : undefined
   const chromeOnly = useChromeDesktopMediaForKind(opts.kind)
+  /** PID Windows (trim); evita truthy con espacios */
+  const processId = String(opts.processId ?? '').trim()
 
   const useWasapiWindowAudio =
     opts.kind === 'window' &&
     opts.captureAudio &&
-    Boolean(opts.processId) &&
+    Boolean(processId) &&
     typeof api?.startAppLoopbackAudio === 'function'
 
-  if (useWasapiWindowAudio && opts.processId) {
+  if (useWasapiWindowAudio && processId) {
     const videoStream = await getElectronDesktopUserMedia(sourceId, false)
     try {
       const videoTracks = videoStream.getVideoTracks()
@@ -72,7 +74,7 @@ export async function createLocalScreenShareTracksFromElectronSource(
       const screenVideo = new LocalVideoTrack(videoTracks[0], undefined, false)
       screenVideo.source = Track.Source.ScreenShare
 
-      const { mediaStreamTrack, dispose } = await createWasapiAppLoopbackMediaStreamTrack(opts.processId)
+      const { mediaStreamTrack, dispose } = await createWasapiAppLoopbackMediaStreamTrack(processId)
       void mediaStreamTrack.applyConstraints(nativeScreenShareAudioTrackConstraints).catch(() => {})
       const screenAudio = new LocalAudioTrack(
         mediaStreamTrack,
@@ -91,13 +93,22 @@ export async function createLocalScreenShareTracksFromElectronSource(
     }
   }
 
-  if (opts.kind === 'window' && opts.captureAudio && !opts.processId) {
+  if (opts.kind === 'window' && opts.captureAudio && !processId) {
     console.warn(
       '[electron] Ventana con audio pero sin PID (ProcessList); se comparte solo vídeo para evitar loopback del sistema.',
     )
     const stream = await getElectronDesktopUserMedia(sourceId, false)
     const tracks = localTracksFromScreenStream(stream, false)
     return { tracks }
+  }
+
+  /** Sin WASAPI (p. ej. preload roto): nunca mezclar audio de Chromium para ventana — es loopback de sistema. */
+  if (opts.kind === 'window' && opts.captureAudio && processId && typeof api?.startAppLoopbackAudio !== 'function') {
+    console.warn(
+      '[electron] Ventana con PID pero sin IPC WASAPI; solo vídeo. Comprueba preload / application-loopback.',
+    )
+    const stream = await getElectronDesktopUserMedia(sourceId, false)
+    return { tracks: localTracksFromScreenStream(stream, false) }
   }
 
   if (!chromeOnly && typeof api?.armDisplayMediaPick === 'function') {
@@ -126,8 +137,14 @@ export async function createLocalScreenShareTracksFromElectronSource(
     }
   }
 
-  const stream = await getElectronDesktopUserMedia(sourceId, opts.captureAudio)
-  return { tracks: localTracksFromScreenStream(stream, opts.captureAudio) }
+  /**
+   * Para `window:`, el audio solo puede venir de WASAPI arriba. `getUserMedia`+audio aquí es loopback
+   * del sistema en Windows (mezcla Brave, YouTube, etc.).
+   */
+  const gumAudio = opts.kind === 'window' ? false : opts.captureAudio
+  const stream = await getElectronDesktopUserMedia(sourceId, gumAudio)
+  const useStreamAudio = opts.kind === 'window' ? false : opts.captureAudio
+  return { tracks: localTracksFromScreenStream(stream, useStreamAudio) }
 }
 
 async function getElectronDesktopUserMedia(sourceId: string, withAudio: boolean): Promise<MediaStream> {

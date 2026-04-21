@@ -33,11 +33,62 @@ function getLoopback() {
   }
 }
 
-/** @param {string} id p. ej. window:12345:0 */
-function hwndFromElectronSourceId(id) {
+/** @param {string} id p. ej. window:12345:0 — XX es window handle (HWND) en la doc de Electron */
+function xxFromElectronWindowSourceId(id) {
   if (typeof id !== 'string' || !id.startsWith('window:')) return null
   const parts = id.split(':')
-  return parts.length >= 2 ? parts[1] : null
+  return parts.length >= 2 ? parts[1].trim() : null
+}
+
+/**
+ * Variantes de string para cruzar el HWND de Chromium con el que devuelve el addon nativo.
+ * (decimal, hex con/sin 0x, mayúsculas)
+ * @param {string} raw
+ */
+function hwndLookupKeys(raw) {
+  const s = String(raw ?? '').trim()
+  if (!s) return []
+  /** @type {Set<string>} */
+  const out = new Set([s, s.toLowerCase()])
+  const dec = Number.parseInt(s, 10)
+  if (!Number.isNaN(dec) && dec > 0) {
+    out.add(String(dec))
+    const h = dec.toString(16)
+    out.add(h)
+    out.add(h.toUpperCase())
+    out.add(`0x${h}`)
+    out.add(`0x${h.toUpperCase()}`)
+  }
+  const hexBare = s.replace(/^0x/i, '')
+  const fromHex = Number.parseInt(hexBare, 16)
+  if (!Number.isNaN(fromHex) && fromHex > 0) {
+    out.add(String(fromHex))
+  }
+  return [...out]
+}
+
+/**
+ * Resuelve PID para `window:XX:YY`: primero por HWND; si falla, XX puede ser ya un PID válido (algunas builds).
+ * @param {string} sourceId
+ * @param {Array<{ hwnd?: unknown, processId?: unknown }>} windows
+ * @param {Map<string, unknown>} hwndToPid
+ */
+function processIdForWindowSource(sourceId, windows, hwndToPid) {
+  const xx = xxFromElectronWindowSourceId(sourceId)
+  if (xx == null) return undefined
+  for (const k of hwndLookupKeys(xx)) {
+    const pid = hwndToPid.get(k)
+    if (pid !== undefined && pid !== null && String(pid).length > 0) {
+      return String(pid)
+    }
+  }
+  const asNum = Number.parseInt(xx, 10)
+  if (!Number.isNaN(asNum) && asNum > 0) {
+    const asPid = String(asNum)
+    const ok = windows.some((w) => String(w.processId) === asPid || w.processId === asNum)
+    if (ok) return asPid
+  }
+  return undefined
 }
 
 /**
@@ -57,18 +108,16 @@ async function enrichSourcesWithProcessId(rows) {
 
   const hwndToPid = new Map()
   for (const w of windows) {
-    const h = String(w.hwnd).trim()
-    if (!h) continue
-    hwndToPid.set(h, w.processId)
-    hwndToPid.set(h.toLowerCase(), w.processId)
-    const n = Number.parseInt(h, 10)
-    if (!Number.isNaN(n)) hwndToPid.set(String(n), w.processId)
+    const pid = w.processId
+    if (pid === undefined || pid === null) continue
+    for (const k of hwndLookupKeys(String(w.hwnd ?? ''))) {
+      hwndToPid.set(k, pid)
+    }
   }
 
   return rows.map((s) => {
     if (s.sourceType !== 'window') return { ...s, processId: undefined }
-    const hwnd = hwndFromElectronSourceId(s.id)
-    const pid = hwnd != null ? hwndToPid.get(hwnd) ?? hwndToPid.get(hwnd.toLowerCase()) : undefined
+    const pid = processIdForWindowSource(s.id, windows, hwndToPid)
     return { ...s, processId: pid ?? undefined }
   })
 }

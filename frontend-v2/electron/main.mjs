@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
 const appLoopback = require('./appLoopback.cjs')
+/** Solo empaquetado: actualizaciones desde GitHub (electron-builder `publish`). */
+const { autoUpdater } = require('electron-updater')
 
 /** URL del servidor Vite en desarrollo (p. ej. wait-on + cross-env). */
 const devServerUrl = process.env.ELECTRON_START_URL ?? process.env.VITE_DEV_SERVER_URL
@@ -161,6 +163,13 @@ app.whenReady().then(() => {
   })
 
   appLoopback.registerAppLoopbackIpc(ipcMain)
+
+  if (app.isPackaged) {
+    autoUpdater.on('error', (err) => {
+      console.warn('[autoUpdater]', err?.message ?? err)
+    })
+    void autoUpdater.checkForUpdatesAndNotify()
+  }
 
   createWindow()
 

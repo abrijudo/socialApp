@@ -1,7 +1,9 @@
 {
-  "name": "frontend-v2",
+  "name": "social-club",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "Cliente de escritorio (Electron)",
+  "author": "abrijudo",
   "type": "module",
   "main": "electron/main.mjs",
   "scripts": {
@@ -11,7 +13,10 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "electron:dev": "concurrently -k \"cross-env ELECTRON_DEV=1 vite\" \"wait-on http://localhost:5174 && cross-env ELECTRON_START_URL=http://localhost:5174/ electron .\"",
-    "electron:start": "electron ."
+    "electron:start": "electron .",
+    "electron:pack": "npm run build && electron-builder --dir",
+    "electron:dist": "npm run build && electron-builder",
+    "electron:publish": "npm run build && electron-builder --publish always"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.8",
@@ -23,6 +28,7 @@
     "application-loopback": "^1.2.7",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "electron-updater": "^6.8.3",
     "es-define-property": "^1.0.1",
     "livekit-client": "^2.18.1",
     "lucide-react": "^1.7.0",
@@ -48,6 +54,7 @@
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
     "electron": "^39.2.0",
+    "electron-builder": "^26.8.1",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
@@ -60,5 +67,68 @@
     "vite-plugin-static-copy": "^4.0.1",
     "vitest": "^3.2.4",
     "wait-on": "^9.0.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/abrijudo/socialApp.git"
+  },
+  "build": {
+    "appId": "com.minidiscord.desktop",
+    "productName": "Mini Discord",
+    "copyright": "Copyright © 2026",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "**/*",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!src/**",
+      "!**/*.{ts,tsx,cts,mts}",
+      "!**/tsconfig*.json",
+      "!**/vite.config.*",
+      "!**/vitest.config.*",
+      "!**/eslint.config.*",
+      "!**/.git/**",
+      "!**/.github/**",
+      "!**/release/**",
+      "!**/*.test.*"
+    ],
+    "asarUnpack": [
+      "**/node_modules/application-loopback/**/*"
+    ],
+    "forceCodeSigning": false,
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "verifyUpdateCodeSignature": false,
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.social-networking"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Network"
+    },
+    "publish":[
+      {
+        "provider": "github",
+        "owner": "abrijudo",
+        "repo": "socialApp"
+      }
+    ] 
   }
 }
