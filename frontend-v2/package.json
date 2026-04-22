@@ -1,7 +1,7 @@
 {
   "name": "social-club",
   "private": true,
-  "version": "0.1.36",
+  "version": "0.1.37",
   "description": "Cliente de escritorio (Electron)",
   "author": "abrijudo",
   "type": "module",
@@ -19,6 +19,7 @@
     "electron:start": "electron .",
     "electron:pack": "npm run build && node scripts/ensure-electron-pack-assets.mjs && electron-builder --dir",
     "electron:dist": "npm run build && node scripts/ensure-electron-pack-assets.mjs && electron-builder",
+    "electron:build": "npm run electron:dist",
     "electron:publish": "npm run build && node scripts/ensure-electron-pack-assets.mjs && electron-builder --publish always"
   },
   "dependencies": {
