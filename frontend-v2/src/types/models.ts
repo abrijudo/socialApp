@@ -116,6 +116,23 @@ export type VoiceParticipantsSnapshot = {
 
 export type ChannelMessagesResponse = { messages: ChannelMessage[]; hasMore: boolean }
 
+/** Fila de amistad / solicitud (GET /api/friends) */
+export type FriendshipListItem = {
+  friendshipId: string
+  user: Profile
+  createdAt: string
+  status: 'pending' | 'accepted'
+}
+
+export type FriendEntry = FriendshipListItem & { since: string }
+
+/** Respuesta GET /api/friends */
+export type FriendsListResponse = {
+  friends: FriendEntry[]
+  pendingIncoming: FriendshipListItem[]
+  pendingOutgoing: FriendshipListItem[]
+}
+
 export type LiveKitTokenResponse = {
   token: string
   url: string

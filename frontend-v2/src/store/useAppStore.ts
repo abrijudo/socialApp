@@ -1,13 +1,16 @@
 import { create } from 'zustand'
 import { createSupabaseBrowserClient, getSupabaseBrowserClient } from '@/lib/supabase'
 import { ensureSupabaseSession } from '@/lib/bootstrapSession'
-import { fetchBootstrap } from '@/lib/api'
+import { apiGetJson, fetchBootstrap } from '@/lib/api'
 import { SOCIALAPP_USER_KEY } from '@/lib/constants'
 import type {
   BootstrapPayload,
   Channel,
   ChannelMessage,
   DmChannelSummary,
+  FriendsListResponse,
+  FriendEntry,
+  FriendshipListItem,
   Profile,
   Server,
   ServerMember,
@@ -23,6 +26,8 @@ export type {
   ServerMember,
   ChannelMessage,
   DmChannelSummary,
+  FriendEntry,
+  FriendshipListItem,
 } from '@/types/models'
 
 export interface AppState {
@@ -87,7 +92,14 @@ export interface AppState {
   voiceParticipantVolume: Record<string, number>
   /** Panel de vídeo (escenario) visible cuando hay pistas de cámara/pantalla. */
   isVideoStageOpen: boolean
+  /**
+   * Pistas de vídeo reales en la sala (desde `VideoStageHost` bajo `LiveKitRoom`).
+   * Permite a la columna de chat mostrar "Mostrar panel" sin `useTracks` allí.
+   */
+  voiceRoomHasRenderableVideo: boolean
   unreadCounts: Record<string, number>
+  /** Suma de no leídos en DMs cuyo canal figura en `dmChannels` (badge Inicio en el rail). */
+  unreadDmCount: number
   lastReadTimestamps: Record<string, string>
   /**
    * Draft de mensaje en curso por canal/DM. Lo mantenemos en el store (en
@@ -97,6 +109,12 @@ export interface AppState {
    * Las claves son UUIDs únicos entre `channels` y `dm_channels`.
    */
   drafts: Record<string, { body: string; replyToId: string | null }>
+  /** Amigos aceptados (GET /api/friends). */
+  friends: FriendEntry[]
+  /** Solicitudes pendientes entrantes y salientes. */
+  pendingRequests: { incoming: FriendshipListItem[]; outgoing: FriendshipListItem[] }
+  /** Carga de la lista de amigos/solicitudes. */
+  friendsListLoading: boolean
 }
 
 export interface AppActions {
@@ -108,6 +126,8 @@ export interface AppActions {
   setActiveServerId: (id: string | null) => void
   setActiveDmChannelId: (id: string | null) => void
   setDmChannels: (list: DmChannelSummary[]) => void
+  /** GET /api/friends; actualiza `friends` y `pendingRequests`. */
+  refreshFriends: () => Promise<void>
   /** Reemplaza completamente la lista de mensajes cacheada de un canal. */
   setChannelMessages: (channelId: string, messages: ChannelMessage[]) => void
   /** Añade un mensaje al canal (idempotente por `id`). */
@@ -137,6 +157,7 @@ export interface AppActions {
   setLivekitSpeakers: (speakers: Record<string, boolean>) => void
   setVoiceParticipantVolume: (userId: string, volume: number) => void
   setIsVideoStageOpen: (open: boolean) => void
+  setVoiceRoomHasRenderableVideo: (v: boolean) => void
   markChannelAsRead: (channelId: string) => void
   incrementUnread: (channelId: string) => void
   resetApp: () => void
@@ -185,9 +206,14 @@ const initialState: AppState = {
   livekitSpeakers: {},
   voiceParticipantVolume: {},
   isVideoStageOpen: true,
+  voiceRoomHasRenderableVideo: false,
   unreadCounts: {},
+  unreadDmCount: 0,
   lastReadTimestamps: loadLastReadTimestamps(),
   drafts: {},
+  friends: [],
+  pendingRequests: { incoming: [], outgoing: [] },
+  friendsListLoading: false,
 }
 
 function loadLastReadTimestamps(): Record<string, string> {
@@ -210,6 +236,13 @@ function persistLastReadTimestamps(ts: Record<string, string>) {
 function pickDefaultTextChannelId(channels: Channel[]): string | null {
   const text = channels.find((c) => c?.type === 'text' && !c.is_archived)
   return text?.id ?? null
+}
+
+function computeUnreadDmCount(
+  dmChannels: DmChannelSummary[],
+  unreadCounts: Record<string, number>,
+): number {
+  return dmChannels.reduce((acc, d) => acc + (unreadCounts[d.id] ?? 0), 0)
 }
 
 export const useAppStore = create<AppState & AppActions>((set, get) => ({
@@ -285,8 +318,13 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
             localScreenShareEnabled: false,
             localVoiceSpeaking: false,
             isVideoStageOpen: true,
+            voiceRoomHasRenderableVideo: false,
             channelsLoading: false,
             membersLoading: false,
+            friends: [],
+            pendingRequests: { incoming: [], outgoing: [] },
+            friendsListLoading: false,
+            unreadDmCount: 0,
           })
           return
         }
@@ -329,7 +367,7 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
     const dmChannels = Array.isArray(payload.dmChannels)
       ? payload.dmChannels.filter(Boolean)
       : []
-    set({
+    set((s) => ({
       profile: payload.profile ?? null,
       server,
       servers: server ? [server] : [],
@@ -354,7 +392,31 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
       localScreenShareEnabled: false,
       localVoiceSpeaking: false,
       isVideoStageOpen: true,
-    })
+      voiceRoomHasRenderableVideo: false,
+      friends: [],
+      pendingRequests: { incoming: [], outgoing: [] },
+      friendsListLoading: false,
+      unreadDmCount: computeUnreadDmCount(dmChannels, s.unreadCounts),
+    }))
+  },
+
+  refreshFriends: async () => {
+    const { accessToken } = get()
+    if (!accessToken) return
+    set({ friendsListLoading: true })
+    try {
+      const data = await apiGetJson<FriendsListResponse>('/api/friends', accessToken)
+      set({
+        friends: data.friends ?? [],
+        pendingRequests: {
+          incoming: data.pendingIncoming ?? [],
+          outgoing: data.pendingOutgoing ?? [],
+        },
+        friendsListLoading: false,
+      })
+    } catch {
+      set({ friendsListLoading: false })
+    }
   },
 
   setActiveTextChannelId: (activeTextChannelId) => {
@@ -367,7 +429,12 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
   setActiveVoiceChannelId: (activeVoiceChannelId) =>
     set(() => ({
       activeVoiceChannelId,
-      ...(activeVoiceChannelId == null ? { voiceParticipantVolume: {} } : {}),
+      ...(activeVoiceChannelId == null
+        ? {
+            voiceParticipantVolume: {},
+            voiceRoomHasRenderableVideo: false,
+          }
+        : {}),
     })),
   setActiveServerId: (activeServerId) =>
     set({
@@ -385,7 +452,11 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
     })
     if (activeDmChannelId) get().markChannelAsRead(activeDmChannelId)
   },
-  setDmChannels: (dmChannels) => set({ dmChannels }),
+  setDmChannels: (dmChannels) =>
+    set((s) => ({
+      dmChannels,
+      unreadDmCount: computeUnreadDmCount(dmChannels, s.unreadCounts),
+    })),
   setChannelMessages: (channelId, messages) =>
     set((s) => ({
       messagesByChannel: { ...s.messagesByChannel, [channelId]: messages },
@@ -553,6 +624,7 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
       }
     }),
   setIsVideoStageOpen: (isVideoStageOpen) => set({ isVideoStageOpen }),
+  setVoiceRoomHasRenderableVideo: (voiceRoomHasRenderableVideo) => set({ voiceRoomHasRenderableVideo }),
 
   markChannelAsRead: (channelId) =>
     set((s) => {
@@ -560,12 +632,23 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
       persistLastReadTimestamps(ts)
       const counts = { ...s.unreadCounts }
       delete counts[channelId]
-      return { unreadCounts: counts, lastReadTimestamps: ts }
+      return {
+        unreadCounts: counts,
+        lastReadTimestamps: ts,
+        unreadDmCount: computeUnreadDmCount(s.dmChannels, counts),
+      }
     }),
   incrementUnread: (channelId) =>
-    set((s) => ({
-      unreadCounts: { ...s.unreadCounts, [channelId]: (s.unreadCounts[channelId] ?? 0) + 1 },
-    })),
+    set((s) => {
+      const unreadCounts = {
+        ...s.unreadCounts,
+        [channelId]: (s.unreadCounts[channelId] ?? 0) + 1,
+      }
+      return {
+        unreadCounts,
+        unreadDmCount: computeUnreadDmCount(s.dmChannels, unreadCounts),
+      }
+    }),
 
   resetApp: () => set(initialState),
 

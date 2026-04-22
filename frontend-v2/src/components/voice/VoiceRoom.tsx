@@ -1,128 +1,116 @@
-import { lazy, Suspense, type ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { Loader2 } from 'lucide-react'
-import { MembersList } from '@/components/layout/MembersList'
-import { ServerRail } from '@/components/layout/ServerRail'
-import { UserAccountFooter } from '@/components/layout/UserAccountFooter'
+import { LiveKitRoom, RoomAudioRenderer, useRoomContext } from '@livekit/components-react'
+import '@livekit/components-styles'
+import { VoiceControlBar } from '@/components/voice/VoiceControlBar'
+import { VoiceConnectionProvider, useVoiceConnection } from '@/components/voice/voiceConnectionContext'
+import { roomOptionsHighQuality } from '@/components/voice/voiceQuality'
 import { useLiveKitVoiceToken } from '@/hooks/useLiveKitVoiceToken'
-import type { Server } from '@/types/models'
+import { useVoiceChannelSoundEffects } from '@/hooks/useVoiceChannelSoundEffects'
+import { useLiveKitSpeakers } from '@/hooks/useLiveKitSpeakers'
+import { useMatchMedia } from '@/hooks/useMatchMedia'
+
+function LiveKitSpeakerSync() {
+  useLiveKitSpeakers()
+  return null
+}
+
+function VoiceChannelSoundEffectsSync() {
+  useVoiceChannelSoundEffects()
+  return null
+}
+
+function LiveKitPageUnloadCleanup() {
+  const room = useRoomContext()
+  useEffect(() => {
+    const handler = () => room.disconnect()
+    window.addEventListener('beforeunload', handler)
+    window.addEventListener('pagehide', handler)
+    return () => {
+      window.removeEventListener('beforeunload', handler)
+      window.removeEventListener('pagehide', handler)
+    }
+  }, [room])
+  return null
+}
+
+/** Barra fija bajo mientras se obtiene el token o hay error; el sidebar de escritorio evita la duplicación. */
+function MobileVoiceStatusStrip() {
+  const mdUp = useMatchMedia('(min-width: 768px)')
+  const { liveKitReady, isLoading, error } = useVoiceConnection()
+  if (mdUp || liveKitReady) return null
+  return (
+    <div
+      className="border-border/60 bg-muted/90 supports-backdrop-filter:backdrop-blur-sm fixed right-0 bottom-0 left-0 z-[200] border-t px-3 py-2.5 text-center text-xs text-muted-foreground md:hidden"
+      role="status"
+    >
+      {error ? (
+        <p className="text-destructive leading-snug">{error}</p>
+      ) : (
+        <div className="flex items-center justify-center gap-2">
+          {isLoading ? <Loader2 className="text-primary size-4 shrink-0 animate-spin" aria-hidden /> : null}
+          <span>{isLoading ? 'Conectando a voz…' : 'Preparando conexión…'}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function VoiceSessionRoomChrome({ children }: { children: ReactNode }) {
+  const { liveKitReady } = useVoiceConnection()
+  const mdUp = useMatchMedia('(min-width: 768px)')
+  return (
+    <>
+      <RoomAudioRenderer />
+      <LiveKitSpeakerSync />
+      <VoiceChannelSoundEffectsSync />
+      <LiveKitPageUnloadCleanup />
+      {children}
+      {!mdUp && liveKitReady ? (
+        <div className="border-border/60 bg-muted/80 supports-backdrop-filter:backdrop-blur-sm fixed right-0 bottom-0 left-0 z-[190] border-t p-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] md:hidden">
+          <VoiceControlBar />
+        </div>
+      ) : null}
+    </>
+  )
+}
 
 export type VoiceSessionProps = {
   channelId: string
-  channelName?: string
-  servers: Server[]
-  activeServerId: string | null
-  onHome: () => void
-  onSelectServer: (id: string) => void
-  /** Solo contenido scrollable de la columna; voz y footer los fija la sesión debajo para no desmontar `VoiceControlBar`. */
-  renderNav: () => ReactNode
-  /** Main sin LiveKit (token cargando o error). */
-  renderMainDisconnected: () => ReactNode
-  /** Main dentro de LiveKit (puede usar useTracks, etc.). */
-  renderMainConnected: () => ReactNode
+  children: ReactNode
 }
 
 /**
- * Segundo nivel de code-splitting: el chunk con `livekit-client` / `@livekit/components-react`
- * solo se pide cuando ya hay token (el usuario ya eligió canal de voz y el API respondió).
+ * Conexión LiveKit: un único `LiveKitRoom` montado al unirse a voz, con `connect` solo
+ * cuando el token está listo — evita reemplazar el layout entero (sin chunk lazy bloqueando).
  */
-const VoiceSessionLiveKitLazy = lazy(async () => {
-  const m = await import('@/components/voice/VoiceSessionLiveKit')
-  return { default: m.VoiceSessionLiveKit }
-})
-
-function LiveKitChunkFallback() {
-  return (
-    <div className="text-muted-foreground flex h-full min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-2 px-4 py-8 text-xs">
-      <Loader2 className="text-primary size-6 animate-spin shrink-0" aria-hidden />
-      <span className="text-center leading-snug">Cargando motor de voz…</span>
-    </div>
-  )
-}
-
-export function VoiceSession({
-  channelId,
-  channelName,
-  servers,
-  activeServerId,
-  onHome,
-  onSelectServer,
-  renderNav,
-  renderMainDisconnected,
-  renderMainConnected,
-}: VoiceSessionProps) {
+export function VoiceSession({ channelId, children }: VoiceSessionProps) {
   const { token, serverUrl, error, isLoading } = useLiveKitVoiceToken(channelId)
-
-  const voiceLoadingPanel = (
-    <div className="text-muted-foreground flex flex-col items-center gap-2 py-3 text-xs">
-      <Loader2 className="text-primary size-6 animate-spin shrink-0" aria-hidden />
-      <span className="text-center leading-snug">Conectando a voz…</span>
-    </div>
-  )
-
-  const voiceErrorPanel = error ? (
-    <div className="text-destructive px-2 text-center text-xs leading-snug" role="alert">
-      {error}
-    </div>
-  ) : null
-
   const ready = Boolean(token && serverUrl)
-
-  const rail = (
-    <ServerRail
-      activeServerId={activeServerId}
-      servers={servers}
-      onHome={onHome}
-      onSelectServer={onSelectServer}
-      className="hidden h-full min-h-0 md:flex"
-    />
-  )
-
-  if (!ready) {
-    const panel = error
-      ? voiceErrorPanel
-      : isLoading
-        ? voiceLoadingPanel
-        : (
-            <p className="text-muted-foreground px-2 text-center text-xs">Preparando…</p>
-          )
-    const disconnectedVoiceChrome = (
-      <div className="border-border/60 bg-muted/80 shrink-0 border-t p-3 backdrop-blur-sm">
-        {panel}
-      </div>
-    )
-    return (
-      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
-        {rail}
-        <div className="hidden h-full min-h-0 w-[240px] shrink-0 flex-col overflow-hidden border-r border-border bg-muted md:flex">
-          <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
-            <div className="min-h-0 flex-1 overflow-hidden">{renderNav()}</div>
-            <div className="shrink-0">{disconnectedVoiceChrome}</div>
-            <UserAccountFooter />
-          </div>
-        </div>
-        <div className="bg-background flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          {renderMainDisconnected()}
-        </div>
-        <div className="hidden h-full min-h-0 w-[240px] shrink-0 flex-col overflow-hidden border-l border-border bg-muted lg:flex">
-          <MembersList className="h-full min-h-0 w-full border-0 bg-transparent" />
-        </div>
-      </div>
-    )
+  const connectionValue = {
+    liveKitReady: ready,
+    isLoading,
+    error: error ?? null,
   }
+  const roomOptions = roomOptionsHighQuality
 
   return (
-    <Suspense fallback={<LiveKitChunkFallback />}>
-      <VoiceSessionLiveKitLazy
-        token={token!}
-        serverUrl={serverUrl!}
-        channelName={channelName}
-        servers={servers}
-        activeServerId={activeServerId}
-        onHome={onHome}
-        onSelectServer={onSelectServer}
-        renderNav={renderNav}
-        renderMainConnected={renderMainConnected}
-      />
-    </Suspense>
+    <VoiceConnectionProvider value={connectionValue}>
+      <LiveKitRoom
+        token={token}
+        serverUrl={serverUrl}
+        connect={ready}
+        audio
+        video={false}
+        options={roomOptions}
+        className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+        onError={(e) => {
+          console.warn('[LiveKitRoom]', e)
+        }}
+      >
+        <VoiceSessionRoomChrome>{children}</VoiceSessionRoomChrome>
+      </LiveKitRoom>
+      <MobileVoiceStatusStrip />
+    </VoiceConnectionProvider>
   )
 }

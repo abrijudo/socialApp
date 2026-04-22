@@ -16,7 +16,6 @@ const setLocalCameraEnabled = vi.fn()
 const setLocalScreenShareEnabled = vi.fn()
 const setLocalVoiceSpeaking = vi.fn()
 const setNoiseFilterEnabled = vi.fn().mockResolvedValue(undefined)
-const setProcessor = vi.fn().mockResolvedValue(undefined)
 const createLocalScreenShareTracks = vi.fn()
 
 const on = vi.fn()
@@ -47,7 +46,6 @@ vi.mock('@livekit/components-react/krisp', () => ({
     setNoiseFilterEnabled,
     isNoiseFilterEnabled: false,
     isNoiseFilterPending: false,
-    processor: undefined,
   }),
 }))
 
@@ -80,6 +78,10 @@ vi.mock('@/store/useAppStore', () => ({
     }),
 }))
 
+function clickScreenShareButton(): void {
+  fireEvent.click(screen.getByRole('button', { name: 'Compartir pantalla' }))
+}
+
 describe('VoiceControlBar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -89,7 +91,6 @@ describe('VoiceControlBar', () => {
         return {
           track: {
             mediaStreamTrack: {} as MediaStreamTrack,
-            setProcessor,
           },
         }
       }
@@ -107,7 +108,7 @@ describe('VoiceControlBar', () => {
     ])
   })
 
-  it('activa micrófono con perfil fuerte de cancelación de ruido', async () => {
+  it('activa micrófono con perfil (Krisp: noiseSuppression off)', async () => {
     render(<VoiceControlBar />)
     fireEvent.click(screen.getByTitle('Micrófono'))
 
@@ -119,6 +120,9 @@ describe('VoiceControlBar', () => {
         autoGainControl: true,
         voiceIsolation: true,
         channelCount: 1,
+        sampleRate: 48_000,
+        sampleSize: 16,
+        latency: 0,
       }),
     )
   })
@@ -131,7 +135,7 @@ describe('VoiceControlBar', () => {
     expect(setActiveVoiceChannelId).toHaveBeenCalledWith(null)
   })
 
-  it('activa cámara con preset de alta calidad/bitrate', async () => {
+  it('activa cámara con preset de alta calidad (VP8 / ~3 Mbps)', async () => {
     render(<VoiceControlBar />)
     fireEvent.click(screen.getByTitle('Cámara'))
 
@@ -142,9 +146,10 @@ describe('VoiceControlBar', () => {
       }),
       expect.objectContaining({
         videoEncoding: expect.objectContaining({
-          maxBitrate: 6_000_000,
+          maxBitrate: 3_000_000,
           maxFramerate: 30,
         }),
+        videoCodec: 'vp8',
         degradationPreference: 'maintain-framerate',
       }),
     )
@@ -153,14 +158,14 @@ describe('VoiceControlBar', () => {
   it('activa compartir pantalla (web) con getDisplayMedia y publishTrack', async () => {
     render(<VoiceControlBar />)
     await act(async () => {
-      fireEvent.click(screen.getByTitle('Compartir pantalla'))
+      clickScreenShareButton()
     })
 
     await waitFor(() => {
       expect(createLocalScreenShareTracks).toHaveBeenCalledWith(
         expect.objectContaining({
-          contentHint: 'detail',
-          resolution: expect.objectContaining({ width: 1920, height: 1080 }),
+          contentHint: 'motion',
+          resolution: expect.objectContaining({ width: 1920, height: 1080, frameRate: 60 }),
           systemAudio: 'exclude',
           selfBrowserSurface: 'exclude',
           suppressLocalAudioPlayback: false,
@@ -173,7 +178,7 @@ describe('VoiceControlBar', () => {
         expect.objectContaining({
           videoCodec: 'vp9',
           screenShareEncoding: expect.objectContaining({
-            maxBitrate: 5_000_000,
+            maxBitrate: 8_000_000,
             maxFramerate: 60,
           }),
         }),
@@ -203,7 +208,7 @@ describe('VoiceControlBar', () => {
 
     render(<VoiceControlBar />)
     await act(async () => {
-      fireEvent.click(screen.getByTitle('Compartir pantalla'))
+      clickScreenShareButton()
     })
 
     await waitFor(() => {
@@ -224,9 +229,11 @@ describe('VoiceControlBar', () => {
   it('activa supresión de ruido IA con Krisp en micrófono local', async () => {
     render(<VoiceControlBar />)
     await act(async () => {
-      fireEvent.click(screen.getByTitle('Supresión de ruido IA'))
+      fireEvent.click(screen.getByRole('button', { name: 'Activar supresión de ruido IA' }))
     })
 
-    expect(setNoiseFilterEnabled).toHaveBeenCalledWith(true)
+    await waitFor(() => {
+      expect(setNoiseFilterEnabled).toHaveBeenCalledWith(true)
+    })
   })
 })

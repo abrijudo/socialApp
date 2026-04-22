@@ -7,9 +7,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Toaster } from '@/components/ui/sonner'
 import { SOCIALAPP_USER_KEY } from '@/lib/constants'
+import { isElectronAppShell } from '@/lib/electron'
 import { ElectronTitleBar } from './components/electron/ElectronTitleBar'
 import { UpdaterNag } from '@/components/electron/UpdaterNag'
 import { useAppStore } from '@/store/useAppStore'
+import { scheduleVoiceModulePrefetch } from '@/lib/scheduleVoicePrefetch'
 
 function readStoredUsernameHint(): string {
   try {
@@ -39,6 +41,11 @@ function App() {
   useEffect(() => {
     void initializeSession()
   }, [initializeSession])
+
+  useEffect(() => {
+    if (!initialBootDone) return
+    return scheduleVoiceModulePrefetch()
+  }, [initialBootDone])
 
   useEffect(() => {
     if (needsUsername) {
@@ -136,7 +143,7 @@ function App() {
   return (
     <>
       <div className="text-foreground flex h-[100dvh] max-h-[100dvh] min-h-0 w-full flex-col overflow-hidden">
-        <ElectronTitleBar />
+        {isElectronAppShell() ? <ElectronTitleBar /> : null}
         <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">{body}</div>
       </div>
       <UpdaterNag />

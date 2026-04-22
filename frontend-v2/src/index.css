@@ -127,6 +127,8 @@
     }
   html {
     @apply font-sans;
+    /* Tamaño raíz (~17,6px con navegador en 16px); escala toda la UI vía `rem` */
+    font-size: 110%;
     height: 100%;
     max-height: 100dvh;
     overflow: hidden;
@@ -168,6 +170,25 @@
 
 *::-webkit-scrollbar-thumb:hover {
   background-color: color-mix(in oklch, var(--muted-foreground) 50%, transparent);
+}
+
+/* Badge DM (ServerRail): pop-in al cambiar el contador */
+@keyframes dm-unread-pop {
+  0% {
+    transform: scale(0.5);
+    opacity: 0.65;
+  }
+  60% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.dm-rail-unread-badge {
+  animation: dm-unread-pop 0.3s cubic-bezier(0.34, 1.4, 0.64, 1);
 }
 
 /* Safe area (notch / home indicator) — usadas en el shell de AppLayout */

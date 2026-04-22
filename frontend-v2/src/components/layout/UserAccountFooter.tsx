@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { Copy, LogOut, UserCircle, Settings } from 'lucide-react'
+import { Copy, LogOut, UserCircle, Settings, UserRoundPlus } from 'lucide-react'
 import { toast } from 'sonner'
+import { FriendManager } from '@/components/friends/FriendManager'
 import { UserProfilePopup } from '@/components/modals/UserProfilePopup'
 import { Button } from '@/components/ui/button'
 import {
@@ -11,12 +12,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { USER_ACCOUNT_FOOTER_DOCK } from '@/lib/chatComposer'
 import { useAppStore } from '@/store/useAppStore'
 import { cn } from '@/lib/utils'
 
-/**
- * Pie de barra lateral: avatar, nombre y menú de cuenta (perfil, copiar ID, cerrar sesión).
- */
+/** Pie de barra lateral: avatar, nombre y menú (mismo layout en DMs y en servidor). */
 export function UserAccountFooter({ className }: { className?: string }) {
   const profile = useAppStore((s) => s.profile)
   const username = useAppStore((s) => s.username)
@@ -24,6 +24,7 @@ export function UserAccountFooter({ className }: { className?: string }) {
   const logout = useAppStore((s) => s.logout)
 
   const [profileOpen, setProfileOpen] = useState(false)
+  const [friendsOpen, setFriendsOpen] = useState(false)
 
   const displayName = profile?.display_name || profile?.username || username || 'Usuario'
   const handle = profile?.username ?? username ?? '…'
@@ -41,68 +42,76 @@ export function UserAccountFooter({ className }: { className?: string }) {
   return (
     <>
       <footer
-        className={cn(
-          'border-border mt-auto flex min-h-14 items-center gap-2 border-t p-3',
-          className,
-        )}
+        className={cn(USER_ACCOUNT_FOOTER_DOCK, 'w-full min-w-0 px-3 sm:px-4', className)}
       >
-        <div
-          className="bg-primary/15 text-primary flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-medium"
-          aria-hidden
-        >
-          {(profile?.display_name || profile?.username || '?').slice(0, 1).toUpperCase()}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-xs font-medium">{displayName}</div>
-          <div className="text-muted-foreground truncate text-[11px]">@{handle}</div>
-        </div>
+        <div className="flex h-full min-w-0 flex-1 items-center gap-3">
+          <div
+            className="bg-primary/15 text-primary flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-medium"
+            aria-hidden
+          >
+            {(profile?.display_name || profile?.username || '?').slice(0, 1).toUpperCase()}
+          </div>
+          <div className="min-w-0 min-h-0 flex-1">
+            <div className="truncate text-xs font-medium leading-tight">{displayName}</div>
+            <div className="text-muted-foreground mt-0.5 truncate text-[11px] leading-tight">@{handle}</div>
+          </div>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="text-muted-foreground hover:text-foreground size-8 shrink-0"
-              title="Cuenta y ajustes"
-              aria-label="Menú de cuenta y ajustes"
-            >
-              <Settings className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" side="top" className="w-52">
-            <DropdownMenuLabel className="font-normal">
-              <span className="text-foreground text-xs font-medium">Cuenta</span>
-            </DropdownMenuLabel>
-            <DropdownMenuItem
-              onSelect={() => {
-                setProfileOpen(true)
-              }}
-            >
-              <UserCircle className="size-4" />
-              Ver mi perfil
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void handleCopyUsername()}>
-              <Copy className="size-4" />
-              Copiar nombre de usuario
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              variant="destructive"
-              onSelect={() => {
-                void logout()
-              }}
-            >
-              <LogOut className="size-4" />
-              Cerrar sesión
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground hover:text-foreground size-8 shrink-0"
+                title="Cuenta y ajustes"
+                aria-label="Menú de cuenta y ajustes"
+              >
+                <Settings className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" side="top" className="w-52">
+              <DropdownMenuLabel className="font-normal">
+                <span className="text-foreground text-xs font-medium">Cuenta</span>
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                onSelect={() => {
+                  setProfileOpen(true)
+                }}
+              >
+                <UserCircle className="size-4" />
+                Ver mi perfil
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => {
+                  setFriendsOpen(true)
+                }}
+              >
+                <UserRoundPlus className="size-4" />
+                Amigos
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void handleCopyUsername()}>
+                <Copy className="size-4" />
+                Copiar nombre de usuario
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                onSelect={() => {
+                  void logout()
+                }}
+              >
+                <LogOut className="size-4" />
+                Cerrar sesión
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </footer>
 
       {userId ? (
         <UserProfilePopup open={profileOpen} onOpenChange={setProfileOpen} userId={userId} />
       ) : null}
+      <FriendManager open={friendsOpen} onOpenChange={setFriendsOpen} />
     </>
   )
 }

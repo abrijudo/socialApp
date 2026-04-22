@@ -1,7 +1,7 @@
-import type { ReactNode } from 'react'
 import { useMemo, useState } from 'react'
 import { Hash, MicOff, Plus, UserPlus, Video, Volume2 } from 'lucide-react'
 import { UserAccountFooter } from '@/components/layout/UserAccountFooter'
+import { VoiceSidebarDock } from '@/components/voice/VoiceSidebarDock'
 import { CreateChannelModal } from '@/components/modals/CreateChannelModal'
 import { InviteModal } from '@/components/modals/InviteModal'
 import { Button } from '@/components/ui/button'
@@ -11,23 +11,15 @@ import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/useAppStore'
 import type { Profile } from '@/types/models'
 
-export interface ServerSidebarProps {
-  voicePanel: ReactNode | null
-  /**
-   * En sesión de voz: la barra lateral cambia entre listado de servidor/DM sin
-   * desmontar el panel de voz; entonces `VoiceRoom` renderiza voz + footer fuera.
-   */
-  embeddedInVoiceSession?: boolean
-}
-
 /** Columna de canales de texto/voz del servidor activo. */
-export function ServerSidebar({ voicePanel, embeddedInVoiceSession = false }: ServerSidebarProps) {
+export function ServerSidebar() {
   const mobile = useMobileNav()
   const server = useAppStore((s) => s.server)
   const role = useAppStore((s) => s.role)
   const channels = useAppStore((s) => s.channels)
   const activeTextChannelId = useAppStore((s) => s.activeTextChannelId)
   const activeVoiceChannelId = useAppStore((s) => s.activeVoiceChannelId)
+  const inVoice = Boolean(activeVoiceChannelId)
   const setActiveTextChannelId = useAppStore((s) => s.setActiveTextChannelId)
   const setActiveVoiceChannelId = useAppStore((s) => s.setActiveVoiceChannelId)
   const userId = useAppStore((s) => s.userId)
@@ -83,7 +75,7 @@ export function ServerSidebar({ voicePanel, embeddedInVoiceSession = false }: Se
       className="bg-muted flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden"
       aria-label="Canales"
     >
-      <header className="border-border flex h-12 shrink-0 items-center gap-2 border-b px-3 shadow-sm">
+      <header className="border-border flex h-12 shrink-0 items-center gap-2 border-b px-3 shadow-sm sm:px-4">
         <h1 className="text-foreground min-w-0 flex-1 truncate text-sm font-semibold">
           {server?.name ?? 'Servidor'}
         </h1>
@@ -101,7 +93,7 @@ export function ServerSidebar({ voicePanel, embeddedInVoiceSession = false }: Se
         </Button>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 pt-3 pb-0">
         {channelsLoading ? (
           <div className="space-y-px px-0 py-0" aria-busy="true" aria-label="Cargando canales">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -145,7 +137,7 @@ export function ServerSidebar({ voicePanel, embeddedInVoiceSession = false }: Se
                           closeNavSheet()
                         }}
                         className={cn(
-                          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors duration-200 ease-in-out',
+                          'flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left text-sm transition-colors duration-200 ease-in-out',
                           active
                             ? 'bg-background/80 text-foreground font-medium'
                             : unread > 0
@@ -222,7 +214,7 @@ export function ServerSidebar({ voicePanel, embeddedInVoiceSession = false }: Se
                           closeNavSheet()
                         }}
                         className={cn(
-                          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-medium transition-colors duration-200 ease-in-out',
+                          'flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left text-sm font-medium transition-colors duration-200 ease-in-out',
                           voiceActive
                             ? 'bg-background/80 text-foreground'
                             : 'text-muted-foreground hover:bg-background/40 hover:text-foreground',
@@ -232,7 +224,7 @@ export function ServerSidebar({ voicePanel, embeddedInVoiceSession = false }: Se
                         <span className="truncate">{ch.name}</span>
                       </button>
                       {visibleUsers.length > 0 ? (
-                        <ul className="mt-0.5 flex flex-col gap-0.5 pr-2 pl-6" aria-label={`En voz: ${ch.name}`}>
+                        <ul className="mt-0.5 flex flex-col gap-0.5 pr-2 pl-5" aria-label={`En voz: ${ch.name}`}>
                           {visibleUsers.map((u) => {
                             const isSelf = u.userId === userId
                             const userProfile = profileByUserId.get(u.userId)
@@ -244,11 +236,11 @@ export function ServerSidebar({ voicePanel, embeddedInVoiceSession = false }: Se
                             <li key={u.userId}>
                               <div
                                 className={cn(
-                                  'text-muted-foreground flex items-center gap-2 rounded-md px-2 py-1 text-sm font-medium',
+                                  'text-muted-foreground flex items-center gap-3 rounded-md px-2 py-1.5 text-sm font-medium',
                                   'transition-colors duration-150 ease-in-out hover:bg-background/50 hover:text-foreground',
                                 )}
                               >
-                                <div className="bg-primary/20 flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full">
+                                <div className="bg-primary/20 flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full">
                                   {userProfile?.avatar_url ? (
                                     <img
                                       src={userProfile.avatar_url}
@@ -309,11 +301,13 @@ export function ServerSidebar({ voicePanel, embeddedInVoiceSession = false }: Se
         )}
       </div>
 
-      {!embeddedInVoiceSession && voicePanel ? (
-        <div className="shrink-0">{voicePanel}</div>
+      {inVoice ? (
+        <div className="shrink-0">
+          <VoiceSidebarDock />
+        </div>
       ) : null}
 
-      {!embeddedInVoiceSession ? <UserAccountFooter /> : null}
+      <UserAccountFooter />
 
       <CreateChannelModal
         isOpen={isCreateChannelOpen}

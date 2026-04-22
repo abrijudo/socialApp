@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { Loader2, Menu, Send, User, X } from 'lucide-react'
+import { Loader2, Menu, Send, X } from 'lucide-react'
 import { useMobileNav } from '@/components/layout/MobileNavContext'
 import { MessageItem } from '@/components/chat/MessageItem'
 import { MessageSkeleton } from '@/components/chat/MessageSkeleton'
@@ -7,6 +7,12 @@ import { Button } from '@/components/ui/button'
 import { appendDmMessageFromPostResponse } from '@/hooks/useDmMessages'
 import { useTypingIndicator } from '@/hooks/useTypingIndicator'
 import { apiPostJson } from '@/lib/api'
+import {
+  CHAT_COMPOSER_DOCK,
+  CHAT_COMPOSER_INPUT,
+  CHAT_COMPOSER_SEND_BUTTON,
+  CHAT_COMPOSER_SHELL,
+} from '@/lib/chatComposer'
 import { Input } from '@/components/ui/input'
 import { useAppStore } from '@/store/useAppStore'
 import type { ChannelMessage } from '@/types/models'
@@ -174,7 +180,7 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
       className="bg-background flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
       aria-label="Mensajes directos"
     >
-      <header className="border-border flex h-12 shrink-0 items-center gap-2 border-b px-3 shadow-sm sm:px-4">
+      <header className="border-border flex h-12 shrink-0 items-center gap-2 border-b bg-background px-3 shadow-sm sm:px-4">
         {mobile ? (
           <Button
             type="button"
@@ -187,20 +193,27 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
             <Menu className="size-5" aria-hidden />
           </Button>
         ) : null}
-        <User className="text-muted-foreground size-4 shrink-0" aria-hidden />
-        <span className="text-foreground min-w-0 flex-1 truncate text-sm font-semibold">
-          {peerLabel || 'Mensaje directo'}
-        </span>
-        {peer?.username ? (
-          <span className="text-muted-foreground ml-2 truncate text-xs">@{peer.username}</span>
-        ) : null}
+        <div
+          className="bg-primary/12 text-primary flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
+          aria-hidden
+        >
+          {peerWelcomeInitials(peerLabel, peer?.username ?? undefined)}
+        </div>
+        <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
+          <span className="text-muted-foreground shrink-0 text-sm" aria-hidden>
+            @
+          </span>
+          <span className="min-w-0 truncate text-sm font-semibold leading-tight tracking-tight text-foreground">
+            {peer?.username?.trim() || peerLabel || 'Mensaje directo'}
+          </span>
+        </div>
       </header>
 
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
-          className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3"
+          className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-gradient-to-b from-muted/15 to-background px-3 pt-3 pb-0"
           role="log"
           aria-label="Mensajes privados"
         >
@@ -220,7 +233,7 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
               username={peer?.username ?? undefined}
             />
           ) : (
-            <ul className="space-y-px">
+            <ul className="space-y-1">
               {messages.map((msg) => (
                 <li key={msg.id}>
                   <MessageItem
@@ -236,42 +249,47 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
           <div ref={endRef} aria-hidden />
         </div>
 
-        <div className="border-border bg-background shrink-0 border-t p-3">
-          {replyTo ? (
-            <div className="bg-muted/60 border-primary/40 mb-2 flex items-center gap-2 rounded-lg border-l-2 px-3 py-1.5">
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-medium text-primary/80">
-                  Respondiendo a {replyTo.profiles?.display_name || replyTo.profiles?.username || 'usuario'}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">{replyTo.body.slice(0, 100)}</p>
+        {(replyTo || typingUsers.length > 0 || sendError) && (
+          <div className="supports-[backdrop-filter]:bg-background/80 shrink-0 space-y-2 bg-background/95 px-3 pt-2 pb-0 backdrop-blur-sm">
+            {replyTo ? (
+              <div className="bg-muted/60 border-primary/40 flex items-center gap-2 rounded-lg border-l-2 px-3 py-1.5">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium text-primary/80">
+                    Respondiendo a {replyTo.profiles?.display_name || replyTo.profiles?.username || 'usuario'}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">{replyTo.body.slice(0, 100)}</p>
+                </div>
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-foreground shrink-0"
+                  onClick={() => setDraftReply(dmChannelId, null)}
+                  title="Cancelar respuesta"
+                >
+                  <X className="size-4" />
+                </button>
               </div>
-              <button
-                type="button"
-                className="text-muted-foreground hover:text-foreground shrink-0"
-                onClick={() => setDraftReply(dmChannelId, null)}
-                title="Cancelar respuesta"
-              >
-                <X className="size-4" />
-              </button>
-            </div>
-          ) : null}
-          {typingUsers.length > 0 ? (
-            <p className="text-muted-foreground mb-1 truncate text-xs animate-pulse">
-              {typingUsers.length === 1
-                ? `${typingUsers[0].username || 'Alguien'} está escribiendo…`
-                : `${typingUsers.map((u) => u.username || 'Alguien').join(', ')} están escribiendo…`}
-            </p>
-          ) : null}
-          {sendError ? (
-            <p className="text-destructive mb-2 text-xs" role="alert">
-              {sendError}
-            </p>
-          ) : null}
-          <form onSubmit={handleSubmit} className="flex items-center gap-2">
-            <div className="border-border/50 bg-muted flex min-w-0 flex-1 items-center gap-2 rounded-xl border px-4 py-2">
+            ) : null}
+            {typingUsers.length > 0 ? (
+              <p className="text-muted-foreground truncate text-xs animate-pulse">
+                {typingUsers.length === 1
+                  ? `${typingUsers[0].username || 'Alguien'} está escribiendo…`
+                  : `${typingUsers.map((u) => u.username || 'Alguien').join(', ')} están escribiendo…`}
+              </p>
+            ) : null}
+            {sendError ? (
+              <p className="text-destructive text-xs" role="alert">
+                {sendError}
+              </p>
+            ) : null}
+          </div>
+        )}
+
+        <div className={CHAT_COMPOSER_DOCK}>
+          <form onSubmit={handleSubmit} className="flex w-full min-w-0 items-center gap-2">
+            <div className={CHAT_COMPOSER_SHELL}>
               <Input
                 ref={inputRef}
-                className="h-9 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
+                className={CHAT_COMPOSER_INPUT}
                 placeholder={replyTo ? 'Escribe tu respuesta…' : 'Escribir mensaje privado…'}
                 value={draft}
                 onChange={(e) => {
@@ -290,7 +308,7 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
             <Button
               type="submit"
               size="icon"
-              className="size-9 shrink-0 rounded-lg"
+              className={CHAT_COMPOSER_SEND_BUTTON}
               disabled={sending || !draft.trim() || !accessToken}
             >
               {sending ? (

@@ -4,7 +4,7 @@ import { getAuthenticatedSupabase, getSupabaseBrowserClient } from '@/lib/supaba
 import { apiGetJson } from '@/lib/api'
 import { toast } from 'sonner'
 import { useAppStore } from '@/store/useAppStore'
-import type { ChannelMessage, Profile } from '@/types/models'
+import type { ChannelMessage, DmChannelSummary, Profile } from '@/types/models'
 
 /**
  * TTL para evitar refetches redundantes cuando el componente se desmonta y
@@ -13,6 +13,25 @@ import type { ChannelMessage, Profile } from '@/types/models'
  */
 const lastFetchedAt = new Map<string, number>()
 const FETCH_TTL_MS = 30_000
+
+/** Tras un mensaje de un DM que aún no estaba en la barra, GET /api/dm (debounce 200ms). */
+let dmListRefreshTimeout: ReturnType<typeof setTimeout> | null = null
+function scheduleRefreshDmListSummary(accessToken: string): void {
+  if (dmListRefreshTimeout) clearTimeout(dmListRefreshTimeout)
+  dmListRefreshTimeout = setTimeout(() => {
+    dmListRefreshTimeout = null
+    void (async () => {
+      try {
+        const list = await apiGetJson<DmChannelSummary[]>('/api/dm', accessToken)
+        if (Array.isArray(list)) {
+          useAppStore.getState().setDmChannels(list)
+        }
+      } catch {
+        /* noop */
+      }
+    })()
+  }, 200)
+}
 
 function profileForDmAuthor(dmChannelId: string, authorId: string): Profile | null {
   const s = useAppStore.getState()
@@ -108,12 +127,17 @@ export function useGlobalDmMessagesRealtime() {
               const profile = profileForDmAuthor(dmChId, authorId)
               const msg = rowToMessage(row, profile, dmChId)
               const state = useAppStore.getState()
+              const channelMissingFromSidebar = !state.dmChannels.some((d) => d.id === dmChId)
               state.appendDmChannelMessage(dmChId, msg)
+              if (channelMissingFromSidebar) {
+                scheduleRefreshDmListSummary(accessToken)
+              }
               if (userId && authorId !== userId) {
-                const preview =
-                  msg.body.length > 160 ? `${msg.body.slice(0, 157)}…` : msg.body
-                toast('Nuevo mensaje privado', { description: preview })
-                if (dmChId !== state.activeDmChannelId) {
+                const inThisChat = dmChId === state.activeDmChannelId
+                if (!inThisChat) {
+                  const preview =
+                    msg.body.length > 160 ? `${msg.body.slice(0, 157)}…` : msg.body
+                  toast('Nuevo mensaje privado', { description: preview })
                   state.incrementUnread(dmChId)
                 }
               }

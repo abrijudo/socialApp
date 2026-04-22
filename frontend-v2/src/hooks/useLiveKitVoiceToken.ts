@@ -1,13 +1,19 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { apiGetJson } from '@/lib/api'
 import { useAppStore } from '@/store/useAppStore'
 import type { LiveKitTokenResponse } from '@/types/models'
 
 export function useLiveKitVoiceToken(channelId: string | null) {
   const accessToken = useAppStore((s) => s.accessToken)
-  const activeServerId = useAppStore((s) => s.activeServerId)
+  const channels = useAppStore((s) => s.channels)
   const username = useAppStore((s) => s.username)
   const profile = useAppStore((s) => s.profile)
+
+  /** ID del servidor del canal de voz: no usar `activeServerId` (es null en DMs) o la sala LiveKit se invalida. */
+  const voiceServerId = useMemo(
+    () => (channelId ? channels.find((c) => c.id === channelId)?.server_id : undefined),
+    [channelId, channels],
+  )
 
   const [token, setToken] = useState<string | undefined>(undefined)
   const [serverUrl, setServerUrl] = useState<string | undefined>(undefined)
@@ -24,7 +30,7 @@ export function useLiveKitVoiceToken(channelId: string | null) {
     .slice(0, 20)
 
   useEffect(() => {
-    if (!channelId || !accessToken || !activeServerId) {
+    if (!channelId || !accessToken || !voiceServerId) {
       setToken(undefined)
       setServerUrl(undefined)
       setError(null)
@@ -38,7 +44,7 @@ export function useLiveKitVoiceToken(channelId: string | null) {
     setServerUrl(undefined)
     setIsLoading(true)
 
-    const room = `${activeServerId}:${channelId}`
+    const room = `${voiceServerId}:${channelId}`
     const qUser = encodeURIComponent(participantName)
     const qRoom = encodeURIComponent(room)
 
@@ -69,7 +75,7 @@ export function useLiveKitVoiceToken(channelId: string | null) {
     return () => {
       cancelled = true
     }
-  }, [accessToken, activeServerId, channelId, participantName])
+  }, [accessToken, channelId, participantName, voiceServerId])
 
   return { token, serverUrl, error, isLoading }
 }

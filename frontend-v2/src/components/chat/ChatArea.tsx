@@ -7,6 +7,12 @@ import { MessageItem } from '@/components/chat/MessageItem'
 import { MessageSkeleton } from '@/components/chat/MessageSkeleton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  CHAT_COMPOSER_DOCK,
+  CHAT_COMPOSER_INPUT,
+  CHAT_COMPOSER_SEND_BUTTON,
+  CHAT_COMPOSER_SHELL,
+} from '@/lib/chatComposer'
 import { useAppStore } from '@/store/useAppStore'
 import type { ChannelMessage } from '@/types/models'
 
@@ -164,7 +170,7 @@ export function ChatArea({ channelId, onAuthorClick }: ChatAreaProps) {
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3"
+        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 pt-3 pb-0"
         role="log"
         aria-label="Mensajes del canal"
       >
@@ -197,42 +203,47 @@ export function ChatArea({ channelId, onAuthorClick }: ChatAreaProps) {
         <div ref={endRef} aria-hidden />
       </div>
 
-      <div className="border-border bg-background shrink-0 border-t p-3">
-        {replyTo ? (
-          <div className="bg-muted/60 border-primary/40 mb-2 flex items-center gap-2 rounded-lg border-l-2 px-3 py-1.5">
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium text-primary/80">
-                Respondiendo a {replyTo.profiles?.display_name || replyTo.profiles?.username || 'usuario'}
-              </p>
-              <p className="truncate text-xs text-muted-foreground">{replyTo.body.slice(0, 100)}</p>
+      {(replyTo || typingUsers.length > 0 || sendError) && (
+        <div className="shrink-0 space-y-2 bg-background px-3 pt-2 pb-0">
+          {replyTo ? (
+            <div className="bg-muted/60 border-primary/40 flex items-center gap-2 rounded-lg border-l-2 px-3 py-1.5">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-primary/80">
+                  Respondiendo a {replyTo.profiles?.display_name || replyTo.profiles?.username || 'usuario'}
+                </p>
+                <p className="truncate text-xs text-muted-foreground">{replyTo.body.slice(0, 100)}</p>
+              </div>
+              <button
+                type="button"
+                className="text-muted-foreground hover:text-foreground shrink-0"
+                onClick={() => setDraftReply(channelId, null)}
+                title="Cancelar respuesta"
+              >
+                <X className="size-4" />
+              </button>
             </div>
-            <button
-              type="button"
-              className="text-muted-foreground hover:text-foreground shrink-0"
-              onClick={() => setDraftReply(channelId, null)}
-              title="Cancelar respuesta"
-            >
-              <X className="size-4" />
-            </button>
-          </div>
-        ) : null}
-        {typingUsers.length > 0 ? (
-          <p className="text-muted-foreground mb-1 truncate text-xs animate-pulse">
-            {typingUsers.length === 1
-              ? `${typingUsers[0].username || 'Alguien'} está escribiendo…`
-              : `${typingUsers.map((u) => u.username || 'Alguien').join(', ')} están escribiendo…`}
-          </p>
-        ) : null}
-        {sendError ? (
-          <p className="text-destructive mb-2 text-xs" role="alert">
-            {sendError}
-          </p>
-        ) : null}
-        <form onSubmit={handleSubmit} className="flex items-center gap-2">
-          <div className="border-border/50 bg-muted flex min-w-0 flex-1 items-center gap-2 rounded-xl border px-4 py-2">
+          ) : null}
+          {typingUsers.length > 0 ? (
+            <p className="text-muted-foreground truncate text-xs animate-pulse">
+              {typingUsers.length === 1
+                ? `${typingUsers[0].username || 'Alguien'} está escribiendo…`
+                : `${typingUsers.map((u) => u.username || 'Alguien').join(', ')} están escribiendo…`}
+            </p>
+          ) : null}
+          {sendError ? (
+            <p className="text-destructive text-xs" role="alert">
+              {sendError}
+            </p>
+          ) : null}
+        </div>
+      )}
+
+      <div className={CHAT_COMPOSER_DOCK}>
+        <form onSubmit={handleSubmit} className="flex w-full min-w-0 items-center gap-2">
+          <div className={CHAT_COMPOSER_SHELL}>
             <Input
               ref={inputRef}
-              className="h-9 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
+              className={CHAT_COMPOSER_INPUT}
               placeholder={replyTo ? 'Escribe tu respuesta…' : 'Escribir en el canal…'}
               value={draft}
               onChange={(e) => {
@@ -251,7 +262,7 @@ export function ChatArea({ channelId, onAuthorClick }: ChatAreaProps) {
           <Button
             type="submit"
             size="icon"
-            className="size-9 shrink-0 rounded-lg"
+            className={CHAT_COMPOSER_SEND_BUTTON}
             disabled={sending || !draft.trim() || !accessToken}
           >
             {sending ? (

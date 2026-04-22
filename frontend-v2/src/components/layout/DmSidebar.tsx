@@ -1,15 +1,24 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { MessageCircle, Plus } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Plus, UserPlus } from 'lucide-react'
 import { apiGetJson, apiPostJson } from '@/lib/api'
 import { UserAccountFooter } from '@/components/layout/UserAccountFooter'
+import { VoiceSidebarDock } from '@/components/voice/VoiceSidebarDock'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
 import { useMobileNav } from '@/components/layout/MobileNavContext'
 import { useAppStore } from '@/store/useAppStore'
-import type { DmChannelSummary } from '@/types/models'
+import type { ChannelMessage, DmChannelSummary } from '@/types/models'
 
 function normalizeUsernameInput(raw: string): string {
   return raw
@@ -38,26 +47,51 @@ function otherName(dm: DmChannelSummary): string {
   return p?.display_name?.trim() || p?.username || 'Usuario'
 }
 
-export type DmSidebarProps = {
-  /** Panel de controls de voz (mismo patrón que `ServerSidebar` al estar conectado a LiveKit). */
-  voicePanel?: ReactNode | null
-  /** Ver `ServerSidebar.embeddedInVoiceSession`. */
-  embeddedInVoiceSession?: boolean
+function otherSubtitle(dm: DmChannelSummary): string {
+  const bio = dm.otherUser?.bio?.trim()
+  if (bio) return bio
+  const u = dm.otherUser?.username
+  if (u) return `@${u}`
+  return ''
+}
+
+function lastMessageActivityMs(
+  channelId: string,
+  byChannel: Record<string, ChannelMessage[] | undefined>,
+): number {
+  const list = byChannel[channelId]
+  if (!list?.length) return 0
+  const last = list[list.length - 1]!
+  const t = new Date(last.created_at).getTime()
+  return Number.isFinite(t) ? t : 0
 }
 
 /** Columna de conversaciones DM (vista Inicio). */
-export function DmSidebar({
-  voicePanel = null,
-  embeddedInVoiceSession = false,
-}: DmSidebarProps) {
+export function DmSidebar() {
   const mobile = useMobileNav()
   const accessToken = useAppStore((s) => s.accessToken)
   const dmChannels = useAppStore((s) => s.dmChannels)
+  const dmMessagesByChannel = useAppStore((s) => s.dmMessagesByChannel)
   const activeDmChannelId = useAppStore((s) => s.activeDmChannelId)
   const unreadCounts = useAppStore((s) => s.unreadCounts)
   const setDmChannels = useAppStore((s) => s.setDmChannels)
   const setActiveDmChannelId = useAppStore((s) => s.setActiveDmChannelId)
+  const friends = useAppStore((s) => s.friends)
+  const activeVoiceChannelId = useAppStore((s) => s.activeVoiceChannelId)
+  const onlineUsers = useAppStore((s) => s.onlineUsers)
+  const inVoice = Boolean(activeVoiceChannelId)
   const [listLoading, setListLoading] = useState(false)
+  const [dmMenuOpen, setDmMenuOpen] = useState(false)
+
+  const dmChannelsNewestFirst = useMemo(() => {
+    if (dmChannels.length === 0) return dmChannels
+    return [...dmChannels].sort((a, b) => {
+      const ta = lastMessageActivityMs(a.id, dmMessagesByChannel)
+      const tb = lastMessageActivityMs(b.id, dmMessagesByChannel)
+      if (tb !== ta) return tb - ta
+      return a.id.localeCompare(b.id)
+    })
+  }, [dmChannels, dmMessagesByChannel])
 
   const refreshDmList = useCallback(async () => {
     if (!accessToken) return
@@ -79,12 +113,34 @@ export function DmSidebar({
     void refreshDmList()
   }, [accessToken, dmChannels.length, refreshDmList])
 
-  async function handleNewDm() {
+  const openOrCreateDmWithUserId = useCallback(
+    async (otherUserId: string) => {
+      if (!accessToken) return
+      try {
+        const res = await apiPostJson<{ id: string }>('/api/dm', accessToken, {
+          otherUserId,
+        })
+        await refreshDmList()
+        if (res?.id) {
+          setActiveDmChannelId(res.id)
+          mobile?.setNavSheetOpen(false)
+          setDmMenuOpen(false)
+          toast.success('Conversación abierta')
+        }
+      } catch (e) {
+        toast.error((e as Error).message || 'No se pudo abrir el DM.')
+      }
+    },
+    [accessToken, mobile, refreshDmList, setActiveDmChannelId],
+  )
+
+  async function handleNewDmByUsernamePrompt() {
+    setDmMenuOpen(false)
     const raw = window.prompt('Nombre de usuario del destinatario (sin @):', '')
     if (raw == null) return
     const key = normalizeUsernameInput(raw)
     if (key.length < 2) {
-      window.alert('El nombre debe tener al menos 2 caracteres válidos.')
+      toast.error('El nombre debe tener al menos 2 caracteres válidos.')
       return
     }
     if (!accessToken) return
@@ -93,64 +149,89 @@ export function DmSidebar({
     const { data: row, error } = await sb.from('profiles').select('user_id').eq('username', key).maybeSingle()
 
     if (error || !row?.user_id) {
-      window.alert('No se encontró un usuario con ese nombre.')
+      toast.error('No se encontró un usuario con ese nombre.')
       return
     }
-
-    try {
-      const res = await apiPostJson<{ id: string }>('/api/dm', accessToken, {
-        otherUserId: row.user_id,
-      })
-      await refreshDmList()
-      if (res?.id) {
-        setActiveDmChannelId(res.id)
-        mobile?.setNavSheetOpen(false)
-        toast.success('Conversación iniciada')
-      }
-    } catch (e) {
-      window.alert((e as Error).message || 'No se pudo crear el DM.')
-    }
+    await openOrCreateDmWithUserId(row.user_id)
   }
 
   return (
     <nav
-      className="bg-muted flex h-full min-h-0 w-full min-w-0 flex-col"
+      className="bg-muted flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden"
       aria-label="Mensajes directos"
     >
-      <header className="border-border flex h-12 shrink-0 items-center justify-between gap-2 border-b px-3 shadow-sm">
-        <div className="text-foreground flex min-w-0 items-center gap-2">
-          <MessageCircle className="text-muted-foreground size-4 shrink-0" aria-hidden />
-          <h1 className="truncate text-sm font-semibold">Mensajes directos</h1>
+      <header className="border-border flex h-12 shrink-0 items-center justify-between gap-2 border-b px-3 shadow-sm sm:px-4">
+        <div className="flex min-w-0 flex-1 items-center gap-3 pl-2">
+          <span className="w-8 shrink-0" aria-hidden />
+          <h1
+            className="min-w-0 flex-1 cursor-default text-[11px] font-bold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
+            title="Mensajes Directos"
+          >
+            Mensajes Directos
+          </h1>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-8 shrink-0"
-          title="Nuevo mensaje directo"
-          aria-label="Nuevo mensaje directo"
-          onClick={() => void handleNewDm()}
-        >
-          <Plus className="size-4" />
-        </Button>
+        <DropdownMenu open={dmMenuOpen} onOpenChange={setDmMenuOpen}>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground size-8 shrink-0 opacity-80 transition-opacity hover:opacity-100"
+              title="Nuevo mensaje directo"
+              aria-label="Nuevo mensaje directo"
+            >
+              <Plus className="size-3.5" aria-hidden />
+            </Button>
+          </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56 max-h-[min(60vh,22rem)] overflow-y-auto">
+              <DropdownMenuLabel className="text-muted-foreground text-xs font-medium">
+                Chatear con un amigo
+              </DropdownMenuLabel>
+              {friends.length === 0 ? (
+                <p className="text-muted-foreground px-2 py-1.5 text-xs">
+                  Aún no tienes amigos aceptados. Gestionálos en el menú de cuenta.
+                </p>
+              ) : (
+                friends.map((f) => (
+                  <DropdownMenuItem
+                    key={f.friendshipId}
+                    onSelect={() => void openOrCreateDmWithUserId(f.user.user_id)}
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      {f.user.display_name?.trim() || f.user.username}
+                    </span>
+                  </DropdownMenuItem>
+                ))
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => void handleNewDmByUsernamePrompt()}>
+                <UserPlus className="size-4" />
+                Buscar por nombre de usuario…
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {listLoading && dmChannels.length === 0 ? (
-          <div className="px-2 py-1" aria-busy="true" aria-label="Cargando conversaciones">
+          <div className="space-y-1 px-3 pt-2 pb-0" aria-busy="true" aria-label="Cargando conversaciones">
             {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} className="mb-1 h-8 w-full rounded-md" />
+              <Skeleton key={i} className="h-10 w-full rounded-lg" />
             ))}
           </div>
         ) : dmChannels.length === 0 ? (
-          <p className="text-muted-foreground px-2 py-4 text-center text-xs leading-relaxed">
+          <p className="text-muted-foreground px-3 py-6 text-center text-xs leading-relaxed">
             No tienes conversaciones. Pulsa + para buscar por nombre de usuario.
           </p>
         ) : (
-          <ul className="space-y-0.5">
-            {dmChannels.map((dm) => {
+          <ul className="space-y-1 px-3 pt-2 pb-0">
+            {dmChannelsNewestFirst.map((dm) => {
               const active = dm.id === activeDmChannelId
               const unread = unreadCounts[dm.id] ?? 0
+              const otherId = dm.otherUser?.user_id
+              const presence = otherId ? onlineUsers[otherId] : undefined
+              const isOnline = Boolean(presence)
+              const subtitle = otherSubtitle(dm)
               return (
                 <li key={dm.id}>
                   <button
@@ -160,23 +241,46 @@ export function DmSidebar({
                       mobile?.setNavSheetOpen(false)
                     }}
                     className={cn(
-                      'flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors duration-200 ease-in-out',
-                      active
-                        ? 'bg-muted text-foreground font-medium'
-                        : unread > 0
-                          ? 'text-foreground font-bold hover:bg-muted/60'
-                          : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                      'group flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-all duration-200',
+                      'bg-transparent',
+                      !active &&
+                        'hover:bg-muted/40 hover:translate-x-1 motion-reduce:hover:translate-x-0',
+                      // Verde solo en la conversación que tienes abierta
+                      active &&
+                        'bg-emerald-200/70 shadow-sm ring-1 ring-emerald-400/50 dark:bg-emerald-800/40 dark:ring-emerald-500/45',
                     )}
                   >
-                    <div
-                      className="bg-primary/15 text-primary flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
-                      aria-hidden
-                    >
-                      {otherInitials(dm)}
+                    <div className="relative shrink-0" aria-hidden>
+                      <div className="bg-primary/12 text-primary flex size-8 items-center justify-center rounded-full text-xs font-semibold">
+                        {otherInitials(dm)}
+                      </div>
+                      {otherId ? (
+                        <div
+                          className={cn(
+                            'absolute -bottom-0.5 -right-0.5 z-[1] size-3 rounded-full border-2 border-muted',
+                            isOnline ? 'bg-emerald-500' : 'bg-muted-foreground/90',
+                          )}
+                          title={isOnline ? 'En línea' : 'Desconectado'}
+                        />
+                      ) : null}
                     </div>
-                    <span className="min-w-0 flex-1 truncate">{otherName(dm)}</span>
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
+                      <div className="truncate text-sm font-semibold tracking-tight text-foreground">
+                        {otherName(dm)}
+                      </div>
+                      {subtitle ? (
+                        <p
+                          className={cn(
+                            'truncate text-xs text-muted-foreground/80',
+                            active && 'text-muted-foreground/90',
+                          )}
+                        >
+                          {subtitle}
+                        </p>
+                      ) : null}
+                    </div>
                     {unread > 0 && !active ? (
-                      <span className="bg-primary text-primary-foreground flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold">
+                      <span className="bg-destructive text-destructive-foreground flex h-5 min-w-5 shrink-0 items-center justify-center self-center rounded-full px-1 text-[10px] font-bold">
                         {unread > 99 ? '99+' : unread}
                       </span>
                     ) : null}
@@ -188,11 +292,13 @@ export function DmSidebar({
         )}
       </div>
 
-      {!embeddedInVoiceSession && voicePanel ? (
-        <div className="shrink-0">{voicePanel}</div>
+      {inVoice ? (
+        <div className="shrink-0">
+          <VoiceSidebarDock />
+        </div>
       ) : null}
 
-      {!embeddedInVoiceSession ? <UserAccountFooter className="p-2" /> : null}
+      <UserAccountFooter />
     </nav>
   )
 }

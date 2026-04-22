@@ -32,6 +32,7 @@ export function ServerRail({
 }: ServerRailProps) {
   const mobile = useMobileNav()
   const unreadCounts = useAppStore((s) => s.unreadCounts)
+  const unreadDmCount = useAppStore((s) => s.unreadDmCount)
   const channels = useAppStore((s) => s.channels)
 
   const serverHasUnread = (serverId: string) => {
@@ -55,24 +56,35 @@ export function ServerRail({
           '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
         )}
       >
-        <button
-          type="button"
-          title="Inicio — mensajes directos"
-          aria-label="Inicio — mensajes directos"
-          aria-current={activeServerId == null ? 'true' : undefined}
-          onClick={() => {
-            onHome()
-            mobile?.setNavSheetOpen(false)
-          }}
-          className={cn(
-            'flex size-12 shrink-0 items-center justify-center rounded-[20px] transition-colors',
-            activeServerId == null
-              ? 'bg-primary text-primary-foreground ring-2 ring-ring'
-              : 'bg-muted text-muted-foreground hover:bg-muted/80',
-          )}
-        >
-          <MessageCircle className="size-6" aria-hidden />
-        </button>
+        <div className="relative shrink-0">
+          <button
+            type="button"
+            title="Inicio — mensajes directos"
+            aria-label="Inicio — mensajes directos"
+            aria-current={activeServerId == null ? 'true' : undefined}
+            onClick={() => {
+              onHome()
+              mobile?.setNavSheetOpen(false)
+            }}
+            className={cn(
+              'flex size-12 shrink-0 items-center justify-center rounded-[20px] transition-colors',
+              activeServerId == null
+                ? 'bg-primary text-primary-foreground ring-2 ring-ring'
+                : 'bg-muted text-muted-foreground hover:bg-muted/80',
+            )}
+          >
+            <MessageCircle className="size-6" aria-hidden />
+          </button>
+          {unreadDmCount > 0 ? (
+            <span
+              key={unreadDmCount}
+              className="dm-rail-unread-badge absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full border-2 border-background bg-destructive text-[10px] font-bold leading-none text-white"
+              aria-label={`Mensajes directos no leídos: ${unreadDmCount > 99 ? 'más de 99' : unreadDmCount}`}
+            >
+              {unreadDmCount > 99 ? '99+' : unreadDmCount}
+            </span>
+          ) : null}
+        </div>
 
         <div className="flex w-full shrink-0 justify-center p-2" aria-hidden>
           <div className="bg-border h-px w-8 rounded-full" />

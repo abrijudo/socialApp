@@ -124,6 +124,176 @@ function handleError(res, err) {
   return res.status(isClientError ? 400 : 500).json({ error: message });
 }
 
+const FRIEND_PROFILE_FIELDS = 'user_id, display_name, username, avatar_url, status, bio, updated_at';
+
+/**
+ * @param {import('@supabase/supabase-js').SupabaseClient} sb
+ * @param {string} userId
+ */
+async function getFriendsPayload(sb, userId) {
+  const { data: rows, error } = await sb
+    .from('friendships')
+    .select('id, sender_id, receiver_id, status, created_at, updated_at')
+    .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`);
+  if (error) throw error;
+  const list = rows || [];
+  const otherIds = list.map((r) => (r.sender_id === userId ? r.receiver_id : r.sender_id));
+  const profileMap = await buildProfileMap(sb, otherIds, FRIEND_PROFILE_FIELDS);
+  const friends = [];
+  const pendingIncoming = [];
+  const pendingOutgoing = [];
+  for (const r of list) {
+    const other = r.sender_id === userId ? r.receiver_id : r.sender_id;
+    const user = profileMap[other] || { user_id: other, username: 'unknown', display_name: '', avatar_url: null, status: 'offline', bio: '', updated_at: null, last_login: null };
+    const item = { friendshipId: r.id, user, createdAt: r.created_at, status: r.status };
+    if (r.status === 'accepted') {
+      friends.push({ ...item, since: r.updated_at || r.created_at });
+    } else if (r.status === 'pending') {
+      if (r.receiver_id === userId) {
+        pendingIncoming.push(item);
+      } else {
+        pendingOutgoing.push(item);
+      }
+    }
+  }
+  return { friends, pendingIncoming, pendingOutgoing };
+}
+
+/** GET /api/friends */
+router.get('/friends', async (req, res) => {
+  try {
+    const sb = getSupabaseAdmin();
+    const payload = await getFriendsPayload(sb, req.userId);
+    return res.json(payload);
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
+/** POST /api/friends/request  body: { targetUsername?, targetUserId? } */
+router.post('/friends/request', async (req, res) => {
+  const body = z
+    .object({
+      targetUsername: z.string().min(1).max(32).optional(),
+      targetUserId: z.string().min(2).max(80).optional(),
+    })
+    .parse(req.body || {});
+  const rawUser = (body.targetUserId && body.targetUserId.trim()) || '';
+  const rawName = (body.targetUsername && body.targetUsername.trim()) || '';
+  if (!rawUser && !rawName) {
+    return res.status(400).json({ error: 'Indica targetUserId o targetUsername.' });
+  }
+  try {
+    const sb = getSupabaseAdmin();
+    let targetId = rawUser;
+    if (!targetId && rawName) {
+      const key = String(rawName)
+        .toLowerCase()
+        .replace(/\s+/g, '')
+        .replace(/[^a-z0-9._-]/g, '')
+        .slice(0, 20);
+      if (key.length < 2) {
+        return res.status(400).json({ error: 'El nombre de usuario no es válido (mínimo 2 caracteres).' });
+      }
+      const { data: p, error: pe } = await sb.from('profiles').select('user_id').eq('username', key).maybeSingle();
+      if (pe) throw pe;
+      if (!p?.user_id) {
+        return res.status(404).json({ error: 'No existe un usuario con ese nombre.' });
+      }
+      targetId = p.user_id;
+    }
+    if (!targetId || targetId === req.userId) {
+      throw new ClientError('No puedes enviarte una solicitud a ti mismo.');
+    }
+    const { data: otherProfile } = await sb.from('profiles').select('user_id').eq('user_id', targetId).maybeSingle();
+    if (!otherProfile) {
+      const fallbackUsername = `user_${String(targetId).slice(0, 8)}`;
+      await ensureProfile({ userId: targetId, username: fallbackUsername });
+    }
+    const { data: a } = await sb
+      .from('friendships')
+      .select('id, sender_id, receiver_id, status')
+      .eq('sender_id', req.userId)
+      .eq('receiver_id', targetId)
+      .maybeSingle();
+    const { data: b } = await sb
+      .from('friendships')
+      .select('id, sender_id, receiver_id, status')
+      .eq('sender_id', targetId)
+      .eq('receiver_id', req.userId)
+      .maybeSingle();
+    const existing = a || b;
+    if (existing) {
+      if (existing.status === 'accepted') {
+        throw new ClientError('Ya sois amigos.');
+      }
+      if (existing.sender_id === targetId) {
+        throw new ClientError('Ese usuario ya te ha enviado una solicitud. Revísala en recibidas.');
+      }
+      throw new ClientError('Ya has enviado una solicitud a ese usuario.');
+    }
+    const { data: ins, error: insErr } = await sb
+      .from('friendships')
+      .insert({ sender_id: req.userId, receiver_id: targetId, status: 'pending' })
+      .select('id, sender_id, receiver_id, status, created_at')
+      .single();
+    if (insErr) {
+      if (String(insErr.message || insErr).includes('unique') || insErr.code === '23505') {
+        return res.status(400).json({ error: 'Ya existe una relación o solicitud con ese usuario.' });
+      }
+      throw insErr;
+    }
+    return res.json({ ok: true, friendship: ins });
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
+/** PATCH /api/friends/respond  body: { friendshipId, action: 'accept' | 'decline' } */
+router.patch('/friends/respond', async (req, res) => {
+  const body = z
+    .object({
+      friendshipId: z.string().uuid(),
+      action: z.enum(['accept', 'decline']),
+    })
+    .parse(req.body || {});
+  try {
+    const sb = getSupabaseAdmin();
+    const { data: row, error: fErr } = await sb
+      .from('friendships')
+      .select('id, sender_id, receiver_id, status')
+      .eq('id', body.friendshipId)
+      .maybeSingle();
+    if (fErr) throw fErr;
+    if (!row) {
+      throw new ClientError('Solicitud no encontrada.');
+    }
+    if (row.sender_id !== req.userId && row.receiver_id !== req.userId) {
+      throw new ClientError('No tienes permiso para modificar esta solicitud.', 403);
+    }
+    if (row.status !== 'pending') {
+      throw new ClientError('Esta solicitud ya no está pendiente.');
+    }
+    if (body.action === 'decline') {
+      const { error: delErr } = await sb.from('friendships').delete().eq('id', body.friendshipId);
+      if (delErr) throw delErr;
+      return res.json({ ok: true, declined: true });
+    }
+    if (row.receiver_id !== req.userId) {
+      throw new ClientError('Solo el destinatario puede aceptar la solicitud.');
+    }
+    const { error: upErr } = await sb
+      .from('friendships')
+      .update({ status: 'accepted' })
+      .eq('id', body.friendshipId)
+      .eq('status', 'pending');
+    if (upErr) throw upErr;
+    return res.json({ ok: true, accepted: true });
+  } catch (err) {
+    return handleError(res, err);
+  }
+});
+
 /** Debe ser miembro del servidor (cualquier rol). */
 async function requireMember(serverId, userId) {
   return getUserRole(serverId, userId);

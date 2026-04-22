@@ -168,9 +168,34 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
     } catch { /* Realtime will reconcile */ }
   }
 
+  const replyToSnippet = replyTarget ? (
+    <div
+      className={cn(
+        'mb-2 flex min-w-0 items-start gap-1.5 border-l-2 border-primary/50 pl-2.5 text-left text-sm text-muted-foreground',
+        isDm && isOwn && 'border-primary/40',
+      )}
+    >
+      <CornerUpLeft className="mt-0.5 size-3.5 shrink-0 opacity-60" />
+      <div className="min-w-0">
+        <span className="font-medium text-foreground/90">{authorName(replyTarget)}</span>
+        <span className="ml-1.5 min-w-0 break-words opacity-80">
+          {replyTarget.body.slice(0, 100)}
+          {replyTarget.body.length > 100 ? '…' : ''}
+        </span>
+      </div>
+    </div>
+  ) : null
+
   return (
     <article
-      className="group relative flex flex-col rounded-md px-2 py-1.5 transition-colors duration-200 ease-in-out hover:bg-foreground/[0.04]"
+      className={cn(
+        'group relative flex w-full max-w-full flex-col rounded-md px-2 py-1.5 transition-colors duration-200 ease-in-out',
+        isDm
+          ? 'px-0 py-2.5 sm:px-1 hover:bg-transparent'
+          : 'hover:bg-foreground/[0.04]',
+        isDm && isOwn && 'items-end',
+        isDm && !isOwn && 'items-start',
+      )}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => {
         setHovered(false)
@@ -178,109 +203,257 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
         setConfirmDelete(false)
       }}
     >
-      {replyTarget ? (
-        <div className="mb-1 flex items-center gap-1.5 pl-4 text-xs text-muted-foreground">
+      {replyTarget && !isDm ? (
+        <div
+          className={cn(
+            'mb-1 flex min-w-0 max-w-full items-center gap-1.5 pl-4 text-xs text-muted-foreground',
+          )}
+        >
           <CornerUpLeft className="size-3 shrink-0 opacity-60" />
           <span className="font-medium text-foreground/70">{authorName(replyTarget)}</span>
-          <span className="min-w-0 truncate opacity-70">{replyTarget.body.slice(0, 80)}{replyTarget.body.length > 80 ? '…' : ''}</span>
+          <span className="min-w-0 flex-1 truncate opacity-70">
+            {replyTarget.body.slice(0, 80)}
+            {replyTarget.body.length > 80 ? '…' : ''}
+          </span>
         </div>
       ) : null}
 
-      <div className="flex gap-2">
-      <div
-        className={cn(
-          'flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
-          'bg-primary/12 text-primary',
-        )}
-        aria-hidden
-      >
-        {authorInitials(msg)}
-      </div>
-
-      <div className="min-w-0 flex-1">
-        <header className="flex flex-wrap items-baseline gap-x-2 gap-y-0">
-          <button
-            type="button"
-            className="text-foreground text-sm font-medium hover:underline"
-            onClick={() => onAuthorClick?.(msg.author_id)}
-          >
-            {authorName(msg)}
-          </button>
-          <time
-            className="text-muted-foreground text-xs"
-            dateTime={msg.created_at}
-            title={new Date(msg.created_at).toLocaleString('es')}
-          >
-            {formatMessageTime(msg.created_at)}
-          </time>
-          {msg.edited_at ? (
-            <span className="text-muted-foreground text-[11px]">(editado)</span>
-          ) : null}
-        </header>
-
-        {editing ? (
-          <div className="mt-1 flex items-center gap-2">
-            <input
-              ref={editInputRef}
-              type="text"
-              className="bg-muted border-border flex-1 rounded-md border px-2 py-1 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
-              value={editText}
-              onChange={(e) => setEditText(e.target.value)}
-              onKeyDown={handleEditKeyDown}
-              maxLength={1000}
-              disabled={editSaving}
-            />
-            <button
-              type="button"
-              className="text-muted-foreground hover:text-foreground"
-              onClick={() => setEditing(false)}
-              title="Cancelar"
-            >
-              <X className="size-4" />
-            </button>
+      {isDm ? (
+        isOwn ? (
+          <div className="flex w-full min-w-0 max-w-full justify-end">
+            <div className="flex w-full min-w-0 max-w-[min(100%,26rem)] flex-col items-stretch gap-1 text-right">
+              {editing ? (
+                <div className="bg-primary/15 border-primary/30 flex w-full min-w-0 items-center gap-2 rounded-2xl rounded-tr-sm border px-3 py-2.5">
+                  <input
+                    ref={editInputRef}
+                    type="text"
+                    className="min-w-0 flex-1 border-0 bg-transparent text-base text-foreground outline-none focus:ring-0"
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                    onKeyDown={handleEditKeyDown}
+                    maxLength={1000}
+                    disabled={editSaving}
+                  />
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-foreground shrink-0"
+                    onClick={() => setEditing(false)}
+                    title="Cancelar"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
+              ) : (
+                <div
+                  className={cn(
+                    'w-full min-w-0 text-left',
+                    'rounded-2xl rounded-tr-md border border-primary/30 bg-primary/20 text-foreground shadow-sm',
+                    !bodyIsOnlyImageUrl ? 'px-3.5 py-2.5' : 'overflow-hidden p-0',
+                  )}
+                >
+                  {replyToSnippet && bodyIsOnlyImageUrl ? (
+                    <div className="px-3.5 pt-2.5">{replyToSnippet}</div>
+                  ) : null}
+                  {replyToSnippet && !bodyIsOnlyImageUrl ? replyToSnippet : null}
+                  {bodyIsOnlyImageUrl ? null : (
+                    <p className="whitespace-pre-wrap break-words text-base leading-relaxed first:mt-0">{msg.body}</p>
+                  )}
+                  <div className={cn('min-w-0', bodyIsOnlyImageUrl && 'p-0', '[&>a]:mt-0')}>
+                    <MessageAttachment msg={msg} />
+                  </div>
+                  <div
+                    className={cn(
+                      'flex flex-wrap items-center justify-end gap-x-1.5 gap-y-0 text-sm text-muted-foreground',
+                      bodyIsOnlyImageUrl ? 'px-3 pb-2.5 pt-1.5' : 'mt-1.5',
+                    )}
+                  >
+                    <time dateTime={msg.created_at} title={new Date(msg.created_at).toLocaleString('es')}>
+                      {formatMessageTime(msg.created_at)}
+                    </time>
+                    {msg.edited_at ? <span className="opacity-80">(editado)</span> : null}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         ) : (
-          <>
-            {bodyIsOnlyImageUrl ? null : (
-              <p className="text-foreground mt-0.5 whitespace-pre-wrap break-words text-sm">{msg.body}</p>
-            )}
-            <MessageAttachment msg={msg} />
-          </>
-        )}
-
-        {grouped.length > 0 && !editing && supportsReactions ? (
-          <div className="mt-1 flex flex-wrap gap-1">
-            {grouped.map((g) => (
-              <button
-                key={g.emoji}
-                type="button"
-                onClick={() => void handleReaction(g.emoji)}
-                className={cn(
-                  'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors',
-                  g.hasOwn
-                    ? 'border-primary/40 bg-primary/10 text-foreground'
-                    : 'border-border bg-muted/50 text-muted-foreground hover:bg-muted',
-                )}
-              >
-                <span>{g.emoji}</span>
-                <span>{g.count}</span>
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => setEmojiPickerOpen((p) => !p)}
-              className="inline-flex items-center rounded-full border border-border bg-muted/50 px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted"
-              title="Reaccionar"
+          <div className="flex w-full min-w-0 max-w-full items-end gap-3">
+            <div
+              className={cn(
+                'flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold',
+                'bg-primary/12 text-primary',
+              )}
+              aria-hidden
             >
-              <Smile className="size-3.5" />
-            </button>
+              {authorInitials(msg)}
+            </div>
+            <div className="min-w-0 flex-1">
+              <header className="mb-1 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 pl-0.5">
+                <button
+                  type="button"
+                  className="text-foreground text-base font-semibold tracking-tight hover:underline"
+                  onClick={() => onAuthorClick?.(msg.author_id)}
+                >
+                  {authorName(msg)}
+                </button>
+                <time
+                  className="text-muted-foreground text-sm"
+                  dateTime={msg.created_at}
+                  title={new Date(msg.created_at).toLocaleString('es')}
+                >
+                  {formatMessageTime(msg.created_at)}
+                </time>
+                {msg.edited_at ? <span className="text-sm text-muted-foreground/90">(editado)</span> : null}
+              </header>
+              {editing ? (
+                <div className="bg-muted/90 border-border flex w-full min-w-0 max-w-full items-center gap-2 rounded-2xl rounded-tl-md border px-3 py-2.5">
+                  <input
+                    ref={editInputRef}
+                    type="text"
+                    className="min-w-0 flex-1 border-0 bg-transparent text-base text-foreground outline-none focus:ring-0"
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                    onKeyDown={handleEditKeyDown}
+                    maxLength={1000}
+                    disabled={editSaving}
+                  />
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-foreground shrink-0"
+                    onClick={() => setEditing(false)}
+                    title="Cancelar"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
+              ) : (
+                <div
+                  className={cn(
+                    'max-w-full border border-border/60 bg-muted/90 text-foreground shadow-sm',
+                    'rounded-2xl rounded-tl-md',
+                    bodyIsOnlyImageUrl && !replyToSnippet
+                      ? 'overflow-hidden p-0'
+                      : 'px-3.5 py-2.5',
+                  )}
+                >
+                  {replyToSnippet && bodyIsOnlyImageUrl ? (
+                    <div className="px-3.5 pt-2.5">{replyToSnippet}</div>
+                  ) : (
+                    replyToSnippet
+                  )}
+                  {bodyIsOnlyImageUrl ? null : (
+                    <p className="whitespace-pre-wrap break-words text-base leading-relaxed">{msg.body}</p>
+                  )}
+                  <div className="min-w-0 [&>a]:mt-0">
+                    <MessageAttachment msg={msg} />
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-        ) : null}
-      </div>
-      </div>
+        )
+      ) : (
+        <div className="flex w-full min-w-0 gap-2">
+          <div
+            className={cn(
+              'flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
+              'bg-primary/12 text-primary',
+            )}
+            aria-hidden
+          >
+            {authorInitials(msg)}
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <header className="flex flex-wrap items-baseline gap-x-2 gap-y-0">
+              <button
+                type="button"
+                className="text-foreground text-sm font-medium hover:underline"
+                onClick={() => onAuthorClick?.(msg.author_id)}
+              >
+                {authorName(msg)}
+              </button>
+              <time
+                className="text-muted-foreground text-xs"
+                dateTime={msg.created_at}
+                title={new Date(msg.created_at).toLocaleString('es')}
+              >
+                {formatMessageTime(msg.created_at)}
+              </time>
+              {msg.edited_at ? (
+                <span className="text-muted-foreground text-[11px]">(editado)</span>
+              ) : null}
+            </header>
+
+            {editing ? (
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  ref={editInputRef}
+                  type="text"
+                  className="bg-muted border-border flex-1 rounded-md border px-2 py-1 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
+                  value={editText}
+                  onChange={(e) => setEditText(e.target.value)}
+                  onKeyDown={handleEditKeyDown}
+                  maxLength={1000}
+                  disabled={editSaving}
+                />
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-foreground"
+                  onClick={() => setEditing(false)}
+                  title="Cancelar"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+            ) : (
+              <>
+                {bodyIsOnlyImageUrl ? null : (
+                  <p className="text-foreground mt-0.5 whitespace-pre-wrap break-words text-sm">{msg.body}</p>
+                )}
+                <MessageAttachment msg={msg} />
+              </>
+            )}
+
+            {grouped.length > 0 && !editing && supportsReactions ? (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {grouped.map((g) => (
+                  <button
+                    key={g.emoji}
+                    type="button"
+                    onClick={() => void handleReaction(g.emoji)}
+                    className={cn(
+                      'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors',
+                      g.hasOwn
+                        ? 'border-primary/40 bg-primary/10 text-foreground'
+                        : 'border-border bg-muted/50 text-muted-foreground hover:bg-muted',
+                    )}
+                  >
+                    <span>{g.emoji}</span>
+                    <span>{g.count}</span>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setEmojiPickerOpen((p) => !p)}
+                  className="inline-flex items-center rounded-full border border-border bg-muted/50 px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted"
+                  title="Reaccionar"
+                >
+                  <Smile className="size-3.5" />
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
 
       {hovered && !editing ? (
-        <div className="absolute -top-3 right-2 z-10 flex items-center gap-0.5 rounded-md border border-border bg-background px-1 py-0.5 shadow-md">
+        <div
+          className={cn(
+            'absolute -top-3 z-10 flex items-center gap-0.5 rounded-md border border-border bg-background px-1 py-0.5 shadow-md',
+            isDm && isOwn ? 'left-2 right-auto' : 'right-2',
+          )}
+        >
           {supportsReactions ? (
             <button
               type="button"
@@ -325,7 +498,12 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
       ) : null}
 
       {emojiPickerOpen && supportsReactions ? (
-        <div className="absolute -top-10 right-2 z-20 flex items-center gap-0.5 rounded-lg border border-border bg-background px-1.5 py-1 shadow-lg">
+        <div
+          className={cn(
+            'absolute -top-10 z-20 flex items-center gap-0.5 rounded-lg border border-border bg-background px-1.5 py-1 shadow-lg',
+            isDm && isOwn ? 'left-2' : 'right-2',
+          )}
+        >
           {QUICK_EMOJIS.map((emoji) => (
             <button
               key={emoji}
@@ -340,7 +518,12 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
       ) : null}
 
       {confirmDelete ? (
-        <div className="absolute -top-3 right-2 z-20 flex items-center gap-1.5 rounded-md border border-destructive/30 bg-background px-2 py-1 shadow-lg">
+        <div
+          className={cn(
+            'absolute -top-3 z-20 flex items-center gap-1.5 rounded-md border border-destructive/30 bg-background px-2 py-1 shadow-lg',
+            isDm && isOwn ? 'left-2' : 'right-2',
+          )}
+        >
           <span className="text-xs text-muted-foreground">¿Borrar?</span>
           <button
             type="button"
