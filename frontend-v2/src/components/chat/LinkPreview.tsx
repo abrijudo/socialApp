@@ -138,7 +138,8 @@ export const LinkPreview = memo(function LinkPreview({ url }: { url: string }) {
               className="absolute top-0 left-0 h-full w-full border-0"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen
-              referrerPolicy="strict-origin-when-cross-origin"
+              /** `file://` (app empaquetada): un referrer estricto puede provocar fallos del reproductor (p. ej. error 153). */
+              referrerPolicy="no-referrer"
             />
           </div>
         </div>

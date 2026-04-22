@@ -36,6 +36,11 @@ app.use((req, res, next) => {
 
 app.use(express.json({ limit: '1mb', type: (req) => req.originalUrl !== '/api/dm' }));
 
+/** Health check (p. ej. `wait-on` en `npm run electron:dev`) — responde antes del resto de `/api`. */
+app.get('/api/health', (req, res) => {
+  res.status(200).send('OK');
+});
+
 if (serveFrontendV2) {
   app.use(express.static(frontendV2Dist));
 }

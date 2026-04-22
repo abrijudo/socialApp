@@ -1,26 +1,26 @@
 {
   "name": "social-club",
   "private": true,
-  "version": "0.1.37",
+  "version": "0.1.38",
   "description": "Cliente de escritorio (Electron)",
   "author": "abrijudo",
   "type": "module",
   "main": "electron/main.mjs",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && cross-env NODE_ENV=production vite build",
     "test": "vitest run",
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
     "e2e:codegen": "playwright codegen http://127.0.0.1:5173",
     "lint": "eslint .",
     "preview": "vite preview",
-    "electron:dev": "concurrently -k -n api,vite,electron -c blue,green,magenta \"npm run dev:api --prefix ..\" \"cross-env ELECTRON_DEV=1 vite\" \"wait-on http://127.0.0.1:3000/api/health http://127.0.0.1:5174 && cross-env ELECTRON_START_URL=http://127.0.0.1:5174/ electron .\"",
+    "electron:dev": "concurrently -k -n api,vite,electron -c blue,green,magenta \"npm run dev:api --prefix ..\" \"cross-env ELECTRON_DEV=1 vite\" \"wait-on http-get://localhost:3000/api/health http-get://localhost:5174 && cross-env ELECTRON_START_URL=http://localhost:5174/ electron .\"",
     "electron:start": "electron .",
     "electron:pack": "npm run build && node scripts/ensure-electron-pack-assets.mjs && electron-builder --dir",
     "electron:dist": "npm run build && node scripts/ensure-electron-pack-assets.mjs && electron-builder",
     "electron:publish": "node scripts/electron-publish.mjs",
-    "electron:build": "npm run electron:publish"
+    "electron:build": "npm run electron:dist"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.8",

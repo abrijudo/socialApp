@@ -1,4 +1,9 @@
-@import "tailwindcss";
+/* Monorepo: desactiva el “auto source” (todo el working tree) para evitar bucle HMR con /src/index.css. */
+@import "tailwindcss" source(none);
+@source "./**/*.{ts,tsx,js,jsx,html,md,mdx}";
+@source "!./**/*.test.{ts,tsx}";
+@source "!./**/*.test.ts";
+@source "!./**/__tests__/**";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";

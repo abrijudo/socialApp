@@ -19,56 +19,83 @@ export default defineConfig(({ mode }) => {
   for (const [k, v] of Object.entries(mergedVite)) {
     if (v != null) process.env[k] = v
   }
+
+  const isProd = mode === 'production' || process.env.NODE_ENV === 'production'
+
   return {
-  /** Obligatorio para Electron (`file://`): rutas `/assets/...` no existen en disco. */
-  base: './',
-  /**
-   * Carga `VITE_*` desde `../.env` (raíz monorepo) y desde `frontend-v2/.env*`.
-   * Así `VITE_API_ORIGIN` puede vivir junto a Supabase/Livekit en el `.env` de la raíz
-   * (Vercel: URL pública **sin** `/api`, p. ej. `https://tu-proyecto.vercel.app`).
-   */
-  envDir: repoRoot,
-  plugins: [
-    react(),
-    tailwindcss(),
-    viteStaticCopy({
-      targets: [
-        {
-          src: 'node_modules/@livekit/krisp-noise-filter/dist/*',
-          dest: 'krisp',
-        },
-      ],
-    }),
-  ],
-  optimizeDeps: {
-    exclude: ['@livekit/krisp-noise-filter', 'livekit-client'],
-  },
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
+    /** Raíz del cliente (evita dudas en monorepo). */
+    root: path.resolve(__dirname),
+    /** Obligatorio para Electron (`file://`): rutas `/assets/...` no existen en disco. */
+    base: './',
+    /**
+     * Carga `VITE_*` desde `../.env` (raíz monorepo) y desde `frontend-v2/.env*`.
+     * Así `VITE_API_ORIGIN` puede vivir junto a Supabase/Livekit en el `.env` de la raíz
+     * (Vercel: URL pública **sin** `/api`, p. ej. `https://tu-proyecto.vercel.app`).
+     */
+    envDir: repoRoot,
+    plugins: [
+      react(),
+      tailwindcss(),
+      viteStaticCopy({
+        targets: [
+          {
+            src: 'node_modules/@livekit/krisp-noise-filter/dist/*',
+            dest: 'krisp',
+          },
+        ],
+      }),
+    ],
+    optimizeDeps: {
+      exclude: ['@livekit/krisp-noise-filter', 'livekit-client'],
     },
-  },
-  server: {
-    ...(isElectronDev ? { port: electronDevPort, strictPort: true } : {}),
-    proxy: {
-      '/api': { target: 'http://localhost:3000', changeOrigin: true },
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, './src'),
+      },
     },
-  },
-  build: {
-    /** ES moderno: menos polyfills y mejor codegen en Chromium/Electron embebido. */
-    target: 'es2022',
-    // Aumentamos el límite a 1000kB (1MB) porque el chunk de LiveKit (WebRTC) puede superar 500kB.
-    chunkSizeWarningLimit: 1000,
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          if (!id.includes('node_modules')) return
-          if (id.includes('livekit-client') || id.includes('@livekit')) return 'livekit-vendor'
-          if (id.includes('react-dom')) return 'react-vendor'
-          if (id.includes('node_modules/react/') || id.includes('node_modules\\react\\')) return 'react-vendor'
+    server: {
+      ...(isElectronDev ? { port: electronDevPort, strictPort: true } : {}),
+      proxy: {
+        '/api': { target: 'http://localhost:3000', changeOrigin: true },
+      },
+      watch: {
+        ignored: [
+          '**/node_modules/**',
+          '**/dist/**',
+          '**/.vite/**',
+          '**/release/**',
+          '**/electron-data-dev/**',
+          '**/.env*',
+          '**/*.tsbuildinfo',
+          // Raíz monorepo (../ respecto a frontend-v2): API, supabase, lockfile, etc.
+          '../backend/**',
+          '../node_modules/**',
+          '../server.js',
+          '../supabase/**',
+          '../*.json',
+          '../*.log',
+          '../*.db',
+        ],
+      },
+    },
+    build: {
+      /** ES moderno: menos polyfills y mejor codegen en Chromium/Electron embebido. */
+      target: 'es2022',
+      // Aumentamos el límite a 1000kB (1MB) porque el chunk de LiveKit (WebRTC) puede superar 500kB.
+      chunkSizeWarningLimit: 1000,
+      // En producción desactivar el watcher de Rollup por completo para que
+      // @tailwindcss/vite no entre en bucle al detectar cambios en dist/ durante el build.
+      ...(isProd ? { watch: null } : {}),
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return
+            if (id.includes('livekit-client') || id.includes('@livekit')) return 'livekit-vendor'
+            if (id.includes('react-dom')) return 'react-vendor'
+            if (id.includes('node_modules/react/') || id.includes('node_modules\\react\\')) return 'react-vendor'
+          },
         },
       },
     },
-  },
   }
 })
