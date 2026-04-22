@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
+import { LUX_ICON_STROKE, luxIconMessage, luxIconRow } from '@/lib/luxIcon'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { useAppStore } from '@/store/useAppStore'
@@ -34,11 +35,11 @@ function memberDisplayName(m: ServerMember): string {
 
 function statusDotClass(presence: PresenceStatus | undefined, offline: boolean): string {
   if (offline || !presence) {
-    return 'bg-muted-foreground/50 ring-background ring-2'
+    return 'bg-muted-foreground/55 lux-presence-dot--offline'
   }
-  if (presence === 'online') return 'bg-emerald-500 ring-background ring-2'
-  if (presence === 'idle') return 'bg-amber-400 ring-background ring-2'
-  return 'bg-destructive/90 ring-background ring-2'
+  if (presence === 'online') return 'bg-emerald-500 lux-presence-dot--online'
+  if (presence === 'idle') return 'bg-amber-400 lux-presence-dot--idle'
+  return 'bg-destructive/90 lux-presence-dot--dnd'
 }
 
 function presenceLabel(presence: PresenceStatus | undefined, offline: boolean): string {
@@ -115,13 +116,13 @@ const MemberRow = memo(function MemberRow({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="data-[state=open]:bg-background/50 flex w-full min-w-0 items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors duration-200 ease-in-out outline-none hover:bg-background/40"
+          className="data-[state=open]:bg-background/40 flex w-full min-w-0 items-center gap-3 rounded-[0.5rem] border border-transparent px-2.5 py-2 text-left outline-none transition-[color,background-color,border-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:border-border/40 hover:bg-background/25 hover:shadow-[inset_0_1px_0_0_oklch(1_0_0/0.04)]"
         >
           <div className="relative shrink-0">
             <div
               className={cn(
-                'flex size-8 items-center justify-center rounded-full text-[11px] font-medium',
-                'bg-primary/10 text-primary',
+                'lux-avatar flex size-8 items-center justify-center text-[11px] font-medium',
+                'bg-primary/12 text-primary',
               )}
               aria-hidden
             >
@@ -143,7 +144,13 @@ const MemberRow = memo(function MemberRow({
               {voiceChannelName ? ` · En voz: #${voiceChannelName}` : ''}
             </div>
           </div>
-          {voiceChannelName ? <Mic className="text-primary size-3.5 shrink-0" aria-hidden /> : null}
+          {voiceChannelName ? (
+            <Mic
+              className={cn(luxIconMessage, 'size-3.5 shrink-0 text-primary')}
+              strokeWidth={LUX_ICON_STROKE}
+              aria-hidden
+            />
+          ) : null}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56" onCloseAutoFocus={(e) => e.preventDefault()}>
@@ -165,9 +172,9 @@ const MemberRow = memo(function MemberRow({
                 disabled={actionBusy}
               >
                 {actionBusy ? (
-                  <Loader2 className="size-4 animate-spin" />
+                  <Loader2 className={cn(luxIconRow, 'size-4 animate-spin')} strokeWidth={LUX_ICON_STROKE} />
                 ) : (
-                  <UserPlus className="size-4" />
+                  <UserPlus className={cn(luxIconRow, 'size-4')} strokeWidth={LUX_ICON_STROKE} />
                 )}
                 <span>Enviar solicitud de amistad</span>
               </DropdownMenuItem>
@@ -196,7 +203,11 @@ const MemberRow = memo(function MemberRow({
                   }}
                   disabled={actionBusy}
                 >
-                  {actionBusy ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+                  {actionBusy ? (
+                    <Loader2 className={cn(luxIconRow, 'size-4 animate-spin')} strokeWidth={LUX_ICON_STROKE} />
+                  ) : (
+                    <Check className={cn(luxIconRow, 'size-4')} strokeWidth={LUX_ICON_STROKE} />
+                  )}
                   <span>Aceptar solicitud</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
@@ -212,7 +223,11 @@ const MemberRow = memo(function MemberRow({
                   }}
                   disabled={actionBusy}
                 >
-                  {actionBusy ? <Loader2 className="size-4 animate-spin" /> : <X className="size-4" />}
+                  {actionBusy ? (
+                    <Loader2 className={cn(luxIconRow, 'size-4 animate-spin')} strokeWidth={LUX_ICON_STROKE} />
+                  ) : (
+                    <X className={cn(luxIconRow, 'size-4')} strokeWidth={LUX_ICON_STROKE} />
+                  )}
                   <span>Rechazar</span>
                 </DropdownMenuItem>
               </>
@@ -272,14 +287,11 @@ export function MembersList({ className }: { className?: string }) {
 
   return (
     <aside
-      className={cn(
-        'flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-muted',
-        className,
-      )}
+      className={cn('flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden', className)}
       aria-label="Miembros del servidor"
     >
-      <header className="border-border flex h-12 shrink-0 items-center border-b px-3 shadow-sm sm:px-4">
-        <h2 className="text-foreground min-w-0 flex-1 truncate text-sm font-semibold">Miembros</h2>
+      <header className="border-b border-white/[0.05] bg-foreground/[0.02] shadow-[inset_0_-1px_0_0_oklch(0_0_0/0.08)] flex h-12 shrink-0 items-center px-3 sm:px-4">
+        <h2 className="text-foreground min-w-0 flex-1 truncate text-[0.8125rem] font-semibold tracking-tight">Miembros</h2>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
@@ -294,7 +306,7 @@ export function MembersList({ className }: { className?: string }) {
         <section aria-labelledby="members-online">
           <h3
             id="members-online"
-            className="text-muted-foreground px-0 pb-1 text-[11px] font-semibold tracking-wide uppercase"
+            className="text-muted-foreground/95 px-0 pb-1.5 text-[10px] font-semibold tracking-[0.12em] uppercase"
           >
             En línea — {onlineMembers.length}
           </h3>
@@ -316,7 +328,7 @@ export function MembersList({ className }: { className?: string }) {
         <section aria-labelledby="members-offline">
           <h3
             id="members-offline"
-            className="text-muted-foreground px-0 pb-1 text-[11px] font-semibold tracking-wide uppercase"
+            className="text-muted-foreground/95 px-0 pb-1.5 text-[10px] font-semibold tracking-[0.12em] uppercase"
           >
             Desconectados — {offlineMembers.length}
           </h3>

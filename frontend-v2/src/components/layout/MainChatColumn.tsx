@@ -6,6 +6,8 @@ import { HomeMainEmpty } from '@/components/layout/HomeMainEmpty'
 import { useMobileNav } from '@/components/layout/MobileNavContext'
 import { UserProfilePopup } from '@/components/modals/UserProfilePopup'
 import { Button } from '@/components/ui/button'
+import { LUX_ICON_STROKE, luxIconHeader, luxIconRow } from '@/lib/luxIcon'
+import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/useAppStore'
 import type { Channel } from '@/types/models'
 
@@ -13,23 +15,27 @@ export function ChannelHeader({ activeChannel }: { activeChannel: Channel | unde
   const mobile = useMobileNav()
 
   return (
-    <header className="border-border flex h-12 shrink-0 items-center gap-2 border-b px-3 shadow-sm sm:px-4">
+    <header className="lux-glass-header gap-2 sm:px-4">
       {mobile ? (
         <Button
           type="button"
           variant="ghost"
           size="icon"
-          className="md:hidden shrink-0"
+          className="lux-icon-button md:hidden shrink-0"
           aria-label="Abrir menú de navegación"
           onClick={() => mobile.openNavSheet()}
         >
-          <Menu className="size-5" aria-hidden />
+          <Menu className={cn(luxIconHeader)} strokeWidth={LUX_ICON_STROKE} aria-hidden />
         </Button>
       ) : null}
-      <span className="text-foreground min-w-0 flex-1 truncate text-sm font-semibold">
+      <span className="text-foreground/90 min-w-0 flex-1 truncate text-[0.75rem] font-medium tracking-tight sm:text-[0.78rem]">
         {activeChannel ? (
           <>
-            <Hash className="text-muted-foreground mr-1 inline size-4 align-text-bottom" aria-hidden />
+            <Hash
+              className="lux-icon mr-1.5 inline size-4 align-text-bottom text-muted-foreground/85"
+              strokeWidth={LUX_ICON_STROKE}
+              aria-hidden
+            />
             {activeChannel.name}
           </>
         ) : (
@@ -41,11 +47,11 @@ export function ChannelHeader({ activeChannel }: { activeChannel: Channel | unde
           type="button"
           variant="ghost"
           size="icon"
-          className="lg:hidden shrink-0"
+          className="lux-icon-button lg:hidden shrink-0"
           aria-label="Abrir lista de miembros"
           onClick={() => mobile.openMembersSheet()}
         >
-          <Users className="size-5" aria-hidden />
+          <Users className={cn(luxIconHeader)} strokeWidth={LUX_ICON_STROKE} aria-hidden />
         </Button>
       ) : null}
     </header>
@@ -84,13 +90,13 @@ export function MainChatColumn() {
 
   return (
     <div
-      className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
+      className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background/80"
       data-main-chat-column
     >
       {!isFloatingMode ? <ChannelHeader activeChannel={activeChannel} /> : null}
 
       {!isFloatingMode && inVoice && !isVideoStageOpen && voiceRoomHasRenderableVideo ? (
-        <div className="border-border flex h-12 shrink-0 items-center justify-end gap-2 border-b px-3 sm:px-4">
+        <div className="flex h-12 shrink-0 items-center justify-end gap-2 border-b border-white/[0.05] bg-foreground/[0.02] px-3 sm:px-4 [box-shadow:inset_0_-1px_0_0_rgba(0,0,0,0.12)]">
           <Button
             type="button"
             variant="outline"
@@ -98,7 +104,8 @@ export function MainChatColumn() {
             className="gap-1.5 text-xs"
             onClick={() => setIsVideoStageOpen(true)}
           >
-            <PanelTop className="size-3.5" aria-hidden /> Mostrar panel de vídeo
+            <PanelTop className={cn(luxIconRow, 'size-3.5')} strokeWidth={LUX_ICON_STROKE} aria-hidden />{' '}
+            Mostrar panel de vídeo
           </Button>
         </div>
       ) : null}

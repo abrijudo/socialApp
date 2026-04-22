@@ -11,6 +11,8 @@ node_modules
 release
 dist
 dist-ssr
+# Generado por scripts/ensure-electron-pack-assets.mjs antes de electron-builder
+build/icon.png
 *.local
 # URL del backend para builds (Electron); usa .env.production.example como plantilla
 .env.production

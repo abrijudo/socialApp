@@ -1,7 +1,7 @@
 {
   "name": "social-club",
   "private": true,
-  "version": "0.1.26",
+  "version": "0.1.28",
   "description": "Cliente de escritorio (Electron)",
   "author": "abrijudo",
   "type": "module",
@@ -14,9 +14,9 @@
     "preview": "vite preview",
     "electron:dev": "concurrently -k \"cross-env ELECTRON_DEV=1 vite\" \"wait-on http://localhost:5174 && cross-env ELECTRON_START_URL=http://localhost:5174/ electron .\"",
     "electron:start": "electron .",
-    "electron:pack": "npm run build && electron-builder --dir",
-    "electron:dist": "npm run build && electron-builder",
-    "electron:publish": "npm run build && electron-builder --publish always"
+    "electron:pack": "npm run build && node scripts/ensure-electron-pack-assets.mjs && electron-builder --dir",
+    "electron:dist": "npm run build && node scripts/ensure-electron-pack-assets.mjs && electron-builder",
+    "electron:publish": "npm run build && node scripts/ensure-electron-pack-assets.mjs && electron-builder --publish always"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.8",
@@ -81,6 +81,8 @@
     },
     "files": [
       "**/*",
+      "build/icon.png",
+      "dist/icon.png",
       "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
       "!src/**",
       "!**/*.{ts,tsx,cts,mts}",
@@ -94,10 +96,12 @@
       "!**/*.test.*"
     ],
     "asarUnpack": [
-      "**/node_modules/application-loopback/**/*"
+      "**/node_modules/application-loopback/**/*",
+      "dist/icon.png"
     ],
     "forceCodeSigning": false,
     "win": {
+      "icon": "../build/icon.ico",
       "target": [
         "nsis"
       ],
@@ -105,10 +109,16 @@
       "signAndEditExecutable": false
     },
     "nsis": {
-      "oneClick": true,
+      "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": false,
-      "deleteAppDataOnUninstall": false
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "../build/icon.ico",
+      "uninstallerIcon": "../build/icon.ico",
+      "installerSidebar": "../build/installerSidebar.bmp",
+      "uninstallerSidebar": "../build/installerSidebar.bmp",
+      "installerHeader": "../build/installerHeader.bmp",
+      "installerHeaderIcon": "../build/icon.ico"
     },
     "mac": {
       "target": [

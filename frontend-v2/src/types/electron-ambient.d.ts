@@ -10,8 +10,9 @@ export interface ElectronDesktopSourceInfo {
 
 export interface ElectronAPI {
   platform: string
-  windowMinimize: () => void
-  windowToggleMaximize: () => void
+  /** Controles de ventana (preload.cjs). */
+  windowMin: () => void
+  windowMax: () => void
   windowClose: () => void
   windowIsMaximized: () => Promise<boolean>
   onWindowState: (callback: (state: { maximized: boolean }) => void) => () => void

@@ -83,42 +83,44 @@
     --sidebar-ring: oklch(0.708 0 0);
 }
 
-/* Tema oscuro: Discord “clásico” (grises escalonados + blurple) con toque propio —
-   acento ~1 hue más violeta que #5865F2 para identidad sin parecer copia literal. */
+/* Tema oscuro “Calm & Expensive”: grises profundos con matiz frío (275–280),
+   un solo acento violeta contenido, bordes finos en lugar de sombras pesadas. */
 .dark {
-    --background: oklch(0.32 0.012 262);
-    --foreground: oklch(0.96 0.01 262);
-    --card: oklch(0.26 0.012 262);
-    --card-foreground: oklch(0.96 0.01 262);
-    --popover: oklch(0.28 0.012 262);
-    --popover-foreground: oklch(0.96 0.01 262);
-    --primary: oklch(0.58 0.2 276);
-    --primary-foreground: oklch(0.99 0.005 276);
-    --secondary: oklch(0.23 0.014 262);
-    --secondary-foreground: oklch(0.94 0.01 262);
-    --muted: oklch(0.3 0.012 262);
-    --muted-foreground: oklch(0.65 0.02 262);
-    --accent: oklch(0.34 0.016 262);
-    --accent-foreground: oklch(0.96 0.01 262);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 8%);
-    --input: oklch(1 0 0 / 12%);
-    --ring: oklch(0.58 0.14 276);
-    --chart-1: oklch(0.58 0.18 276);
-    --chart-2: oklch(0.45 0.02 262);
-    --chart-3: oklch(0.38 0.02 262);
-    --chart-4: oklch(0.32 0.012 262);
-    --chart-5: oklch(0.26 0.012 262);
-    /* Carril tipo lista de servidores: un paso más oscuro que el área principal */
-    --sidebar: oklch(0.188 0.014 262);
-    --sidebar-foreground: oklch(0.92 0.015 262);
-    --sidebar-primary: oklch(0.58 0.2 276);
-    --sidebar-primary-foreground: oklch(0.99 0.005 276);
-    --sidebar-accent: oklch(0.26 0.016 262);
-    --sidebar-accent-foreground: oklch(0.96 0.01 262);
-    --sidebar-border: oklch(1 0 0 / 6%);
-    --sidebar-ring: oklch(0.58 0.14 276);
-    --radius: 0.5rem;
+    --lux-ease: cubic-bezier(0.32, 0.72, 0, 1);
+    --lux-ease-snap: cubic-bezier(0.22, 1, 0.36, 1);
+    --background: oklch(0.195 0.022 276);
+    --foreground: oklch(0.955 0.012 276);
+    --card: oklch(0.168 0.024 278);
+    --card-foreground: oklch(0.955 0.012 276);
+    --popover: oklch(0.2 0.022 277);
+    --popover-foreground: oklch(0.955 0.012 276);
+    --primary: oklch(0.64 0.15 280);
+    --primary-foreground: oklch(0.99 0.01 280);
+    --secondary: oklch(0.23 0.02 276);
+    --secondary-foreground: oklch(0.92 0.014 276);
+    --muted: oklch(0.255 0.02 276);
+    --muted-foreground: oklch(0.62 0.028 268);
+    --accent: oklch(0.3 0.028 276);
+    --accent-foreground: oklch(0.96 0.01 276);
+    --destructive: oklch(0.65 0.2 25);
+    --border: oklch(1 0 0 / 0.09);
+    --input: oklch(1 0 0 / 0.1);
+    --ring: oklch(0.62 0.12 280);
+    --chart-1: oklch(0.6 0.16 280);
+    --chart-2: oklch(0.45 0.03 276);
+    --chart-3: oklch(0.38 0.03 276);
+    --chart-4: oklch(0.3 0.025 276);
+    --chart-5: oklch(0.22 0.02 276);
+    /* Carril servidores: el escalón más profundo, tinte violeta consistente */
+    --sidebar: oklch(0.132 0.026 280);
+    --sidebar-foreground: oklch(0.9 0.02 276);
+    --sidebar-primary: oklch(0.64 0.15 280);
+    --sidebar-primary-foreground: oklch(0.99 0.01 280);
+    --sidebar-accent: oklch(0.2 0.028 277);
+    --sidebar-accent-foreground: oklch(0.96 0.012 276);
+    --sidebar-border: oklch(1 0 0 / 0.07);
+    --sidebar-ring: oklch(0.58 0.12 280);
+    --radius: 0.625rem;
 }
 
 @layer base {
@@ -140,6 +142,10 @@
     overflow: hidden;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    letter-spacing: 0.01em;
+    }
+  .dark body {
+    letter-spacing: 0.012em;
     }
   #root {
     height: 100%;
@@ -197,6 +203,171 @@
 }
 @utility pb-safe {
   padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@utility lux-transition {
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform;
+  transition-duration: 280ms;
+  transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@utility lux-transition-colors {
+  transition-property: color, background-color, border-color;
+  transition-duration: 240ms;
+  transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Iconos Lucide: trazo + sombra; el color viene de `className` o herencia. */
+@layer components {
+  .lux-icon {
+    @apply [stroke-linecap:round] [stroke-linejoin:round];
+    filter: drop-shadow(0 0.5px 0.5px oklch(0 0 0 / 0.35));
+    transition:
+      color 200ms cubic-bezier(0.32, 0.72, 0, 1),
+      filter 200ms cubic-bezier(0.32, 0.72, 0, 1),
+      opacity 200ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .lux-icon-button:hover .lux-icon {
+    color: color-mix(in oklch, var(--foreground) 88%, var(--primary) 12%);
+    filter: drop-shadow(0 0.5px 1px oklch(0.58 0.12 280 / 0.28));
+  }
+
+  /* Línea de cita / reply (mensajes y previsualizador) */
+  .lux-reply-line {
+    border-left-width: 0.5px;
+    border-left-style: solid;
+    border-left-color: color-mix(in oklch, var(--muted-foreground) 50%, transparent);
+  }
+
+  .lux-reply-line-strong {
+    border-left-width: 1px;
+    border-left-style: solid;
+    border-left-color: color-mix(in oklch, var(--muted-foreground) 40%, transparent);
+  }
+}
+
+/* Fondo ambiental + grano: capas fijas, sin blur en scroll (rendimiento) */
+@layer components {
+  .lux-app-bg {
+    pointer-events: none;
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    background:
+      radial-gradient(120% 90% at 8% 0%, oklch(0.38 0.07 280 / 0.22) 0%, transparent 55%),
+      radial-gradient(90% 70% at 100% 15%, oklch(0.3 0.08 300 / 0.12) 0%, transparent 50%),
+      radial-gradient(80% 60% at 50% 100%, oklch(0.25 0.06 270 / 0.18) 0%, transparent 45%),
+      var(--background);
+  }
+
+  .lux-grain {
+    pointer-events: none;
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    opacity: 0.04;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='a'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23a)'/%3E%3C/svg%3E");
+  }
+
+  .lux-app-stack {
+    position: relative;
+    z-index: 2;
+  }
+
+  /**
+   * Paneles laterales: un escalón **más claro** que el chat, separación explícita
+   * hacia el centro con 1px rgba(255,255,255,0.05) — no bloques sólidos planos.
+   */
+  .lux-panel {
+    @apply min-h-0;
+    background: oklch(0.23 0.02 276 / 0.9);
+    box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
+  }
+
+  .lux-panel--sep-r {
+    border-right: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .lux-panel--sep-l {
+    border-left: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .lux-panel-rail {
+    @apply min-h-0;
+    background: oklch(0.198 0.022 278 / 0.94);
+    box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.03);
+  }
+
+  .lux-panel-rail--sep {
+    border-right: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .lux-chrome-header {
+    @apply flex h-12 shrink-0 items-center border-b border-border/90 px-3 sm:px-4;
+    box-shadow: inset 0 -1px 0 0 oklch(0 0 0 / 0.12);
+  }
+
+  /* Cabeceras de columna fijas: cristal sutil (no aplica a listas con scroll) */
+  .lux-glass-header {
+    @apply flex h-12 shrink-0 items-center px-3 sm:px-4;
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    background: color-mix(in oklch, var(--background) 68%, transparent);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.04),
+      inset 0 -1px 0 0 oklch(0 0 0 / 0.1);
+  }
+
+  .lux-glass-composer {
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    background: color-mix(in oklch, var(--background) 72%, transparent);
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.03);
+  }
+
+  .lux-main-column {
+    @apply bg-background/95;
+  }
+
+  .lux-avatar {
+    @apply box-border overflow-hidden rounded-full;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.12);
+  }
+
+  .lux-presence-dot--online {
+    box-shadow:
+      0 0 0 2px color-mix(in oklch, var(--background) 92%, transparent),
+      0 0 8px 0 rgba(52, 211, 153, 0.55);
+  }
+
+  .lux-presence-dot--idle {
+    box-shadow:
+      0 0 0 2px color-mix(in oklch, var(--background) 92%, transparent),
+      0 0 6px 0 rgba(251, 191, 36, 0.45);
+  }
+
+  .lux-presence-dot--dnd,
+  .lux-presence-dot--offline {
+    box-shadow: 0 0 0 2px color-mix(in oklch, var(--background) 92%, transparent);
+  }
+
+  /**
+   * Barra de título solo en Electron (ventana sin marco en Windows/Linux;
+   * en macOS los controles son nativos — el componente solo añade cromo visual).
+   */
+  .lux-electron-titlebar {
+    @apply relative z-20 flex h-9 w-full shrink-0 select-none items-center justify-between;
+    @apply border-b border-border/90 text-muted-foreground;
+    background: color-mix(in oklch, var(--card) 96%, transparent);
+    box-shadow:
+      inset 0 1px 0 0 oklch(1 0 0 / 0.06),
+      0 1px 0 0 oklch(0 0 0 / 0.2);
+  }
 }
 
 /*

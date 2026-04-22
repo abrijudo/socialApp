@@ -101,8 +101,9 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
-    /** Misma apariencia que el tema oscuro de la app (zinc-950) para no ver un corte bajo el chrome. */
-    backgroundColor: '#09090b',
+    icon: iconPath,
+    /** Alineado al fondo `oklch(0.195 0.022 276)` del tema (sin flash distinto al arrancar). */
+    backgroundColor: '#0e0d14',
     /** `useContentSize` evita borrosidad por diferencias tamaño cliente vs DIP en algunos layouts. */
     useContentSize: true,
     /**
@@ -167,6 +168,19 @@ function setupIpcWindowControls() {
     return w.isMaximized()
   })
 }
+
+/** Caché de usuario aislada en dev (evita “Acceso denegado” al compartir perfil con la app instalada). */
+if (process.env.NODE_ENV === 'development') {
+  app.setPath('userData', path.join(process.cwd(), 'electron-data-dev'))
+}
+
+// Descomenta si la ventana sale negra u otros fallos de GPU:
+// app.disableHardwareAcceleration();
+
+/** Ruta absoluta: empaquetado = recursos; desarrollo = public (Vite no copia a dist sin build). */
+const iconPath = app.isPackaged
+  ? path.join(process.resourcesPath, 'build', 'icon.png')
+  : path.join(__dirname, '..', 'public', 'icon.png')
 
 app.whenReady().then(() => {
   session.defaultSession.setPermissionCheckHandler((_wc, permission) => {

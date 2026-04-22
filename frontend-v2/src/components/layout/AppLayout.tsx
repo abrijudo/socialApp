@@ -40,7 +40,7 @@ function MobileSheets({
       <Sheet open={navSheetOpen} onOpenChange={setNavSheetOpen}>
         <SheetContent
           side="left"
-          className="flex h-[100dvh] max-h-[100dvh] min-h-0 w-[312px] max-w-[100vw] flex-col gap-0 bg-muted/80 p-0 backdrop-blur-sm"
+          className="flex h-[100dvh] max-h-[100dvh] min-h-0 w-[312px] max-w-[100vw] flex-col gap-0 border-border/80 bg-popover/95 p-0 backdrop-blur-md"
           onOverlayPointerDown={() => setNavSheetOpen(false)}
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
@@ -53,7 +53,7 @@ function MobileSheets({
               onSelectServer={onSelectServer}
               className="h-full min-h-0 shrink-0"
             />
-            <div className="border-border flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-l bg-muted">
+            <div className="lux-panel lux-panel--sep-l flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               {secondColumn}
             </div>
           </div>
@@ -64,7 +64,7 @@ function MobileSheets({
         <Sheet open={membersSheetOpen} onOpenChange={setMembersSheetOpen}>
           <SheetContent
             side="right"
-            className="flex h-[100dvh] max-h-[100dvh] min-h-0 w-[240px] max-w-[100vw] flex-col gap-0 bg-muted p-0"
+            className="lux-panel lux-panel--sep-l flex h-[100dvh] max-h-[100dvh] min-h-0 w-[240px] max-w-[100vw] flex-col gap-0 p-0"
             onOverlayPointerDown={() => setMembersSheetOpen(false)}
             onOpenAutoFocus={(e) => e.preventDefault()}
           >
@@ -106,13 +106,13 @@ function AppLayoutRow({
         onSelectServer={onSelectServer}
         className="hidden h-full min-h-0 md:flex"
       />
-      <div className="border-border hidden h-full min-h-0 w-[240px] shrink-0 flex-col overflow-hidden border-r bg-muted md:flex">
+      <div className="lux-panel lux-panel--sep-r hidden h-full min-h-0 w-[240px] shrink-0 flex-col overflow-hidden md:flex">
         {activeServerId ? <ServerSidebar /> : <DmSidebar />}
       </div>
 
       <div
         className={cn(
-          'bg-background flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden',
+          'lux-main-column text-foreground flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden',
           mainMobilePadVoice &&
             'pb-[max(4.75rem,calc(env(safe-area-inset-bottom,0px)+3.5rem))] md:pb-0',
         )}
@@ -121,7 +121,7 @@ function AppLayoutRow({
       </div>
 
       {activeServerId ? (
-        <div className="border-border hidden h-full min-h-0 w-[240px] shrink-0 flex-col overflow-hidden border-l bg-muted lg:flex">
+        <div className="lux-panel lux-panel--sep-l hidden h-full min-h-0 w-[240px] shrink-0 flex-col overflow-hidden lg:flex">
           <MembersList className="h-full min-h-0 w-full min-w-0 border-0 bg-transparent" />
         </div>
       ) : null}
@@ -183,7 +183,10 @@ export function AppLayout() {
 
   return (
     <MobileNavProvider showMembersButton={showMembersButton}>
-      <div className="bg-background text-foreground box-border flex h-[100dvh] max-h-[100dvh] min-h-0 w-full flex-col overflow-hidden pt-safe pb-safe">
+      <div className="relative isolate box-border flex h-[100dvh] max-h-[100dvh] min-h-0 w-full flex-col overflow-hidden bg-background text-foreground pt-safe pb-safe">
+        <div className="lux-app-bg" aria-hidden />
+        <div className="lux-grain" aria-hidden />
+        <div className="lux-app-stack box-border flex min-h-0 flex-1 flex-col overflow-hidden">
         {inVoice && activeVoiceChannelId && activeVoiceChannel ? (
           <VoiceSession channelId={activeVoiceChannelId}>
             <AppLayoutRow
@@ -205,6 +208,7 @@ export function AppLayout() {
             onSelectServer={selectServer}
           />
         )}
+        </div>
       </div>
 
       <MobileSheets

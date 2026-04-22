@@ -13,6 +13,8 @@ import {
   CHAT_COMPOSER_SEND_BUTTON,
   CHAT_COMPOSER_SHELL,
 } from '@/lib/chatComposer'
+import { LUX_ICON_STROKE, luxIconMessage } from '@/lib/luxIcon'
+import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/useAppStore'
 import type { ChannelMessage } from '@/types/models'
 
@@ -28,17 +30,19 @@ export interface ChatAreaProps {
 
 function ChannelEmptyWelcome({ channelName }: { channelName: string }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto p-3 text-center">
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto p-6 text-center">
       <div
-        className="bg-muted mb-4 flex size-20 shrink-0 items-center justify-center rounded-[20px]"
+        className="mb-5 flex size-[4.5rem] shrink-0 items-center justify-center rounded-[1.1rem] border border-border/45 bg-gradient-to-b from-muted/50 to-muted/20 p-[1px] shadow-[inset_0_1px_0_0_oklch(1_0_0/0.08)]"
         aria-hidden
       >
-        <Hash className="text-muted-foreground size-10" />
+        <div className="bg-card/30 flex h-full w-full items-center justify-center rounded-[1.02rem]">
+          <Hash className="lux-icon size-9 text-primary/75" strokeWidth={LUX_ICON_STROKE} />
+        </div>
       </div>
-      <h3 className="text-foreground max-w-lg text-2xl font-semibold tracking-tight">
+      <h3 className="text-foreground max-w-lg text-balance text-xl font-semibold tracking-tight sm:text-2xl">
         Te damos la bienvenida a #{channelName}
       </h3>
-      <p className="text-muted-foreground mt-2 max-w-md text-sm leading-relaxed">
+      <p className="text-muted-foreground mt-3 max-w-md text-[0.9375rem] leading-relaxed text-balance">
         Este es el comienzo del canal.
       </p>
     </div>
@@ -170,7 +174,7 @@ export function ChatArea({ channelId, onAuthorClick }: ChatAreaProps) {
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 pt-3 pb-0"
+        className="from-background flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-gradient-to-b via-background to-muted/8 px-3 pt-3 pb-0"
         role="log"
         aria-label="Mensajes del canal"
       >
@@ -204,22 +208,27 @@ export function ChatArea({ channelId, onAuthorClick }: ChatAreaProps) {
       </div>
 
       {(replyTo || typingUsers.length > 0 || sendError) && (
-        <div className="shrink-0 space-y-2 bg-background px-3 pt-2 pb-0">
+        <div className="shrink-0 space-y-2 border-t border-white/[0.05] bg-foreground/[0.03] px-3 pt-2 pb-0 [box-shadow:inset_0_1px_0_0_rgba(255,255,255,0.03)]">
           {replyTo ? (
-            <div className="bg-muted/60 border-primary/40 flex items-center gap-2 rounded-lg border-l-2 px-3 py-1.5">
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-medium text-primary/80">
-                  Respondiendo a {replyTo.profiles?.display_name || replyTo.profiles?.username || 'usuario'}
+            <div
+              className="flex items-start gap-3 rounded-r-[10px] border border-white/[0.08] border-l-[0.5px] border-l-[color-mix(in_oklch,var(--muted-foreground)_50%,transparent)] bg-foreground/[0.045] py-2.5 pl-3.5 pr-2.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.03)]"
+            >
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <p className="text-[0.65rem] font-medium uppercase tracking-[0.1em] text-muted-foreground/80">
+                  Respondiendo
                 </p>
-                <p className="truncate text-xs text-muted-foreground">{replyTo.body.slice(0, 100)}</p>
+                <p className="text-xs font-medium text-foreground/85">
+                  {replyTo.profiles?.display_name || replyTo.profiles?.username || 'Usuario'}
+                </p>
+                <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground/70">{replyTo.body.slice(0, 140)}</p>
               </div>
               <button
                 type="button"
-                className="text-muted-foreground hover:text-foreground shrink-0"
+                className="lux-icon-button text-muted-foreground mt-0.5 shrink-0 rounded-md p-1 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
                 onClick={() => setDraftReply(channelId, null)}
                 title="Cancelar respuesta"
               >
-                <X className="size-4" />
+                <X className={cn(luxIconMessage, 'size-4')} strokeWidth={LUX_ICON_STROKE} />
               </button>
             </div>
           ) : null}
@@ -262,13 +271,13 @@ export function ChatArea({ channelId, onAuthorClick }: ChatAreaProps) {
           <Button
             type="submit"
             size="icon"
-            className={CHAT_COMPOSER_SEND_BUTTON}
+            className={cn(CHAT_COMPOSER_SEND_BUTTON, 'lux-icon-button')}
             disabled={sending || !draft.trim() || !accessToken}
           >
             {sending ? (
-              <Loader2 className="size-4 animate-spin" aria-hidden />
+              <Loader2 className={cn(luxIconMessage, 'size-4 animate-spin')} strokeWidth={LUX_ICON_STROKE} aria-hidden />
             ) : (
-              <Send className="size-4" aria-hidden />
+              <Send className={cn(luxIconMessage, 'size-4')} strokeWidth={LUX_ICON_STROKE} aria-hidden />
             )}
             <span className="sr-only">Enviar</span>
           </Button>

@@ -2,6 +2,7 @@ import { memo, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { CornerUpLeft, Pencil, Reply, Smile, Trash2, X } from 'lucide-react'
 import { apiDeleteJson, apiPatchJson, apiPostJson } from '@/lib/api'
 import { formatMessageTime } from '@/lib/formatMessageTime'
+import { LUX_ICON_STROKE, luxIconMessage, luxIconSm } from '@/lib/luxIcon'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/useAppStore'
 import type { ChannelMessage } from '@/types/models'
@@ -43,7 +44,7 @@ function MessageAttachment({ msg }: { msg: ChannelMessage }) {
       href={src}
       target="_blank"
       rel="noreferrer"
-      className="border-border/50 bg-muted/20 mt-2 block max-w-md overflow-hidden rounded-xl border"
+      className="border-border/60 bg-muted/25 mt-2 block max-w-md overflow-hidden rounded-[0.75rem] border shadow-[inset_0_1px_0_0_oklch(1_0_0/0.06)] transition-[border-color,box-shadow] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:border-primary/20"
     >
       <img src={src} alt="" className="max-h-80 w-full object-contain" loading="lazy" />
     </a>
@@ -74,7 +75,6 @@ export interface MessageItemProps {
 export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick, onReply, replyTarget }: MessageItemProps) {
   const userId = useAppStore((s) => s.userId)
   const accessToken = useAppStore((s) => s.accessToken)
-  const [hovered, setHovered] = useState(false)
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState('')
@@ -107,6 +107,8 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
   // tienen tabla `dm_message_reactions`. Ocultamos el picker en DMs para
   // evitar un endpoint inexistente y no perder la reacción optimista.
   const supportsReactions = !isDm
+
+  const keepActionBarVisible = emojiPickerOpen || confirmDelete
 
   async function handleReaction(emoji: string) {
     if (!accessToken || !supportsReactions) return
@@ -171,17 +173,21 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
   const replyToSnippet = replyTarget ? (
     <div
       className={cn(
-        'mb-2 flex min-w-0 items-start gap-1.5 border-l-2 border-primary/50 pl-2.5 text-left text-sm text-muted-foreground',
-        isDm && isOwn && 'border-primary/40',
+        'lux-reply-line mb-3.5 flex min-w-0 items-start gap-2.5 pl-3.5 text-left text-[0.8125rem] text-muted-foreground/75',
+        isDm && isOwn && 'opacity-95',
       )}
     >
-      <CornerUpLeft className="mt-0.5 size-3.5 shrink-0 opacity-60" />
-      <div className="min-w-0">
-        <span className="font-medium text-foreground/90">{authorName(replyTarget)}</span>
-        <span className="ml-1.5 min-w-0 break-words opacity-80">
+      <CornerUpLeft
+        className={cn('lux-icon mt-0.5 size-3.5 shrink-0 opacity-55', 'group-hover/msg:opacity-90')}
+        strokeWidth={LUX_ICON_STROKE}
+        aria-hidden
+      />
+      <div className="min-w-0 space-y-0.5">
+        <span className="font-medium text-foreground/80">{authorName(replyTarget)}</span>
+        <p className="min-w-0 break-words text-[0.8rem] leading-snug text-muted-foreground/70">
           {replyTarget.body.slice(0, 100)}
           {replyTarget.body.length > 100 ? '…' : ''}
-        </span>
+        </p>
       </div>
     </div>
   ) : null
@@ -189,32 +195,35 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
   return (
     <article
       className={cn(
-        'group relative flex w-full max-w-full flex-col rounded-md px-2 py-1.5 transition-colors duration-200 ease-in-out',
-        isDm
-          ? 'px-0 py-2.5 sm:px-1 hover:bg-transparent'
-          : 'hover:bg-foreground/[0.04]',
+        'group/msg relative flex w-full max-w-full flex-col rounded-lg px-2 py-1.5',
+        'transition-[background-color,box-shadow] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]',
+        isDm ? 'px-0 py-2.5 sm:px-1' : 'hover:bg-foreground/[0.018]',
+        isDm && !isOwn && 'hover:bg-foreground/[0.012]',
+        isDm && isOwn && 'hover:bg-foreground/[0.01]',
         isDm && isOwn && 'items-end',
         isDm && !isOwn && 'items-start',
       )}
-      onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => {
-        setHovered(false)
         setEmojiPickerOpen(false)
         setConfirmDelete(false)
       }}
     >
       {replyTarget && !isDm ? (
         <div
-          className={cn(
-            'mb-1 flex min-w-0 max-w-full items-center gap-1.5 pl-4 text-xs text-muted-foreground',
-          )}
+          className="lux-reply-line mb-3.5 ml-0.5 flex min-w-0 max-w-full items-baseline gap-2 pl-3.5"
         >
-          <CornerUpLeft className="size-3 shrink-0 opacity-60" />
-          <span className="font-medium text-foreground/70">{authorName(replyTarget)}</span>
-          <span className="min-w-0 flex-1 truncate opacity-70">
-            {replyTarget.body.slice(0, 80)}
-            {replyTarget.body.length > 80 ? '…' : ''}
-          </span>
+          <CornerUpLeft
+            className="lux-icon size-3 shrink-0 self-center opacity-50 group-hover/msg:opacity-80"
+            strokeWidth={LUX_ICON_STROKE}
+            aria-hidden
+          />
+          <div className="min-w-0 flex-1 space-y-0.5 text-[0.6875rem]">
+            <span className="block font-medium text-foreground/75">{authorName(replyTarget)}</span>
+            <p className="line-clamp-2 text-muted-foreground/65">
+            {replyTarget.body.slice(0, 100)}
+            {replyTarget.body.length > 100 ? '…' : ''}
+            </p>
+          </div>
         </div>
       ) : null}
 
@@ -240,15 +249,16 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
                     onClick={() => setEditing(false)}
                     title="Cancelar"
                   >
-                    <X className="size-4" />
+                    <X className={cn(luxIconMessage, 'size-4')} strokeWidth={LUX_ICON_STROKE} />
                   </button>
                 </div>
               ) : (
                 <div
                   className={cn(
                     'w-full min-w-0 text-left',
-                    'rounded-2xl rounded-tr-md border border-primary/30 bg-primary/20 text-foreground shadow-sm',
-                    !bodyIsOnlyImageUrl ? 'px-3.5 py-2.5' : 'overflow-hidden p-0',
+                    'rounded-[1.05rem] rounded-tr-[0.55rem] border border-primary/25 bg-primary/12 text-foreground',
+                    'shadow-[inset_0_1px_0_0_oklch(1_0_0/0.12),0_0_0_1px_oklch(0.62_0.12_280/0.08)]',
+                    !bodyIsOnlyImageUrl ? 'px-4 py-3' : 'overflow-hidden p-0',
                   )}
                 >
                   {replyToSnippet && bodyIsOnlyImageUrl ? (
@@ -256,7 +266,9 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
                   ) : null}
                   {replyToSnippet && !bodyIsOnlyImageUrl ? replyToSnippet : null}
                   {bodyIsOnlyImageUrl ? null : (
-                    <p className="whitespace-pre-wrap break-words text-base leading-relaxed first:mt-0">{msg.body}</p>
+                    <p className="text-foreground/95 mt-0 whitespace-pre-wrap break-words text-[0.9375rem] leading-[1.64] first:mt-0">
+                      {msg.body}
+                    </p>
                   )}
                   <div className={cn('min-w-0', bodyIsOnlyImageUrl && 'p-0', '[&>a]:mt-0')}>
                     <MessageAttachment msg={msg} />
@@ -277,10 +289,10 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
             </div>
           </div>
         ) : (
-          <div className="flex w-full min-w-0 max-w-full items-end gap-3">
+          <div className="flex w-full min-w-0 max-w-full items-end gap-3.5">
             <div
               className={cn(
-                'flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold',
+                'lux-avatar flex size-10 shrink-0 items-center justify-center text-sm font-semibold',
                 'bg-primary/12 text-primary',
               )}
               aria-hidden
@@ -288,22 +300,22 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
               {authorInitials(msg)}
             </div>
             <div className="min-w-0 flex-1">
-              <header className="mb-1 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 pl-0.5">
+              <header className="mb-2.5 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 pl-0.5">
                 <button
                   type="button"
-                  className="text-foreground text-base font-semibold tracking-tight hover:underline"
+                  className="text-foreground text-[0.9rem] font-semibold tracking-tight hover:underline"
                   onClick={() => onAuthorClick?.(msg.author_id)}
                 >
                   {authorName(msg)}
                 </button>
                 <time
-                  className="text-muted-foreground text-sm"
+                  className="text-muted-foreground/90 text-[0.7rem] font-medium tabular-nums tracking-wide"
                   dateTime={msg.created_at}
                   title={new Date(msg.created_at).toLocaleString('es')}
                 >
                   {formatMessageTime(msg.created_at)}
                 </time>
-                {msg.edited_at ? <span className="text-sm text-muted-foreground/90">(editado)</span> : null}
+                {msg.edited_at ? <span className="text-[0.65rem] text-muted-foreground/80">(editado)</span> : null}
               </header>
               {editing ? (
                 <div className="bg-muted/90 border-border flex w-full min-w-0 max-w-full items-center gap-2 rounded-2xl rounded-tl-md border px-3 py-2.5">
@@ -323,17 +335,17 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
                     onClick={() => setEditing(false)}
                     title="Cancelar"
                   >
-                    <X className="size-4" />
+                    <X className={cn(luxIconMessage, 'size-4')} strokeWidth={LUX_ICON_STROKE} />
                   </button>
                 </div>
               ) : (
                 <div
                   className={cn(
-                    'max-w-full border border-border/60 bg-muted/90 text-foreground shadow-sm',
-                    'rounded-2xl rounded-tl-md',
+                    'max-w-full border border-border/70 bg-muted/50 text-foreground',
+                    'rounded-[1.05rem] rounded-tl-[0.55rem] shadow-[inset_0_1px_0_0_oklch(1_0_0/0.06)]',
                     bodyIsOnlyImageUrl && !replyToSnippet
                       ? 'overflow-hidden p-0'
-                      : 'px-3.5 py-2.5',
+                      : 'px-4 py-3',
                   )}
                 >
                   {replyToSnippet && bodyIsOnlyImageUrl ? (
@@ -342,7 +354,9 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
                     replyToSnippet
                   )}
                   {bodyIsOnlyImageUrl ? null : (
-                    <p className="whitespace-pre-wrap break-words text-base leading-relaxed">{msg.body}</p>
+                    <p className="text-foreground/95 mt-0 whitespace-pre-wrap break-words text-[0.9375rem] leading-[1.64]">
+                      {msg.body}
+                    </p>
                   )}
                   <div className="min-w-0 [&>a]:mt-0">
                     <MessageAttachment msg={msg} />
@@ -353,10 +367,10 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
           </div>
         )
       ) : (
-        <div className="flex w-full min-w-0 gap-2">
+        <div className="flex w-full min-w-0 gap-3.5">
           <div
             className={cn(
-              'flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
+              'lux-avatar flex size-10 shrink-0 items-center justify-center text-xs font-semibold',
               'bg-primary/12 text-primary',
             )}
             aria-hidden
@@ -365,32 +379,32 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
           </div>
 
           <div className="min-w-0 flex-1">
-            <header className="flex flex-wrap items-baseline gap-x-2 gap-y-0">
+            <header className="mb-2 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
               <button
                 type="button"
-                className="text-foreground text-sm font-medium hover:underline"
+                className="text-foreground/95 text-[0.9rem] font-semibold tracking-tight hover:underline"
                 onClick={() => onAuthorClick?.(msg.author_id)}
               >
                 {authorName(msg)}
               </button>
               <time
-                className="text-muted-foreground text-xs"
+                className="text-muted-foreground/85 text-[0.65rem] font-medium tabular-nums tracking-wide"
                 dateTime={msg.created_at}
                 title={new Date(msg.created_at).toLocaleString('es')}
               >
                 {formatMessageTime(msg.created_at)}
               </time>
               {msg.edited_at ? (
-                <span className="text-muted-foreground text-[11px]">(editado)</span>
+                <span className="text-[0.6rem] text-muted-foreground/75">(editado)</span>
               ) : null}
             </header>
 
             {editing ? (
-              <div className="mt-1 flex items-center gap-2">
+              <div className="mt-1.5 flex items-center gap-2">
                 <input
                   ref={editInputRef}
                   type="text"
-                  className="bg-muted border-border flex-1 rounded-md border px-2 py-1 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
+                  className="bg-muted/80 border-border/80 flex-1 rounded-[0.5rem] border px-2.5 py-1.5 text-[0.8125rem] text-foreground shadow-[inset_0_1px_0_0_oklch(1_0_0/0.04)] outline-none focus:ring-1 focus:ring-primary/30"
                   value={editText}
                   onChange={(e) => setEditText(e.target.value)}
                   onKeyDown={handleEditKeyDown}
@@ -403,30 +417,32 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
                   onClick={() => setEditing(false)}
                   title="Cancelar"
                 >
-                  <X className="size-4" />
+                  <X className={cn(luxIconMessage, 'size-4')} strokeWidth={LUX_ICON_STROKE} />
                 </button>
               </div>
             ) : (
               <>
                 {bodyIsOnlyImageUrl ? null : (
-                  <p className="text-foreground mt-0.5 whitespace-pre-wrap break-words text-sm">{msg.body}</p>
+                  <p className="text-foreground/95 max-w-[min(100%,65ch)] text-pretty whitespace-pre-wrap break-words text-[0.875rem] leading-[1.64]">
+                    {msg.body}
+                  </p>
                 )}
                 <MessageAttachment msg={msg} />
               </>
             )}
 
             {grouped.length > 0 && !editing && supportsReactions ? (
-              <div className="mt-1 flex flex-wrap gap-1">
+              <div className="mt-1.5 flex flex-wrap gap-1">
                 {grouped.map((g) => (
                   <button
                     key={g.emoji}
                     type="button"
                     onClick={() => void handleReaction(g.emoji)}
                     className={cn(
-                      'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors',
+                      'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[0.7rem] transition-[background-color,border-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:scale-[1.02] active:scale-[0.98]',
                       g.hasOwn
-                        ? 'border-primary/40 bg-primary/10 text-foreground'
-                        : 'border-border bg-muted/50 text-muted-foreground hover:bg-muted',
+                        ? 'border-primary/35 bg-primary/10 text-foreground shadow-[inset_0_1px_0_0_oklch(1_0_0/0.08)]'
+                        : 'border-border/80 bg-muted/40 text-muted-foreground hover:border-border hover:bg-muted/60 hover:text-foreground/90',
                     )}
                   >
                     <span>{g.emoji}</span>
@@ -436,10 +452,10 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
                 <button
                   type="button"
                   onClick={() => setEmojiPickerOpen((p) => !p)}
-                  className="inline-flex items-center rounded-full border border-border bg-muted/50 px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted"
+                  className="inline-flex items-center rounded-full border border-border/80 bg-muted/40 px-1.5 py-0.5 text-[0.7rem] text-muted-foreground transition-[background-color,border-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:border-border hover:bg-muted/60 hover:text-foreground/90"
                   title="Reaccionar"
                 >
-                  <Smile className="size-3.5" />
+                  <Smile className={cn(luxIconSm, 'text-muted-foreground/85')} strokeWidth={LUX_ICON_STROKE} />
                 </button>
               </div>
             ) : null}
@@ -447,10 +463,14 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
         </div>
       )}
 
-      {hovered && !editing ? (
+      {!editing ? (
         <div
           className={cn(
-            'absolute -top-3 z-10 flex items-center gap-0.5 rounded-md border border-border bg-background px-1 py-0.5 shadow-md',
+            'absolute -top-2.5 z-10 flex items-center gap-0.5 rounded-md border border-white/[0.08] bg-card/80 px-1 py-0.5',
+            'shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06),0_2px_12px_rgba(0,0,0,0.2)]',
+            'translate-y-0.5 opacity-0 pointer-events-none backdrop-blur-sm transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]',
+            'group-hover/msg:translate-y-0 group-hover/msg:opacity-100 group-hover/msg:pointer-events-auto',
+            keepActionBarVisible && 'translate-y-0 opacity-100 pointer-events-auto',
             isDm && isOwn ? 'left-2 right-auto' : 'right-2',
           )}
         >
@@ -458,20 +478,20 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
             <button
               type="button"
               onClick={() => setEmojiPickerOpen((p) => !p)}
-              className="inline-flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="inline-flex size-7 items-center justify-center rounded-[0.3rem] text-muted-foreground transition-[background-color,color,transform,opacity] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-foreground/[0.07] hover:text-foreground active:scale-[0.95]"
               title="Reaccionar"
             >
-              <Smile className="size-4" />
+              <Smile className={cn(luxIconMessage, 'text-muted-foreground/90')} strokeWidth={LUX_ICON_STROKE} />
             </button>
           ) : null}
           {onReply ? (
             <button
               type="button"
               onClick={() => onReply(msg)}
-              className="inline-flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="inline-flex size-7 items-center justify-center rounded-[0.3rem] text-muted-foreground transition-[background-color,color,transform,opacity] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-foreground/[0.07] hover:text-foreground active:scale-[0.95]"
               title="Responder"
             >
-              <Reply className="size-4" />
+              <Reply className={cn(luxIconMessage, 'text-muted-foreground/90')} strokeWidth={LUX_ICON_STROKE} />
             </button>
           ) : null}
           {isOwn ? (
@@ -479,18 +499,21 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
               <button
                 type="button"
                 onClick={startEdit}
-                className="inline-flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                className="inline-flex size-7 items-center justify-center rounded-[0.3rem] text-muted-foreground transition-[background-color,color,transform,opacity] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-foreground/[0.07] hover:text-foreground active:scale-[0.95]"
                 title="Editar"
               >
-                <Pencil className="size-4" />
+                <Pencil className={cn(luxIconMessage, 'text-muted-foreground/90')} strokeWidth={LUX_ICON_STROKE} />
               </button>
               <button
                 type="button"
                 onClick={() => setConfirmDelete(true)}
-                className="inline-flex size-7 items-center justify-center rounded text-destructive/70 hover:bg-destructive/10 hover:text-destructive"
+                className="inline-flex size-7 items-center justify-center rounded-[0.3rem] text-destructive/75 transition-[background-color,color,transform,opacity] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-destructive/12 hover:text-destructive active:scale-[0.95]"
                 title="Borrar"
               >
-                <Trash2 className="size-4" />
+                <Trash2
+                  className={cn(luxIconMessage, 'text-destructive/75')}
+                  strokeWidth={LUX_ICON_STROKE}
+                />
               </button>
             </>
           ) : null}
@@ -500,7 +523,8 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
       {emojiPickerOpen && supportsReactions ? (
         <div
           className={cn(
-            'absolute -top-10 z-20 flex items-center gap-0.5 rounded-lg border border-border bg-background px-1.5 py-1 shadow-lg',
+            'absolute -top-10 z-20 flex items-center gap-0.5 rounded-[0.5rem] border border-border/90 bg-card px-1.5 py-1',
+            'shadow-[inset_0_1px_0_0_oklch(1_0_0/0.06),0_8px_24px_oklch(0_0_0/0.35)]',
             isDm && isOwn ? 'left-2' : 'right-2',
           )}
         >
@@ -520,7 +544,8 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
       {confirmDelete ? (
         <div
           className={cn(
-            'absolute -top-3 z-20 flex items-center gap-1.5 rounded-md border border-destructive/30 bg-background px-2 py-1 shadow-lg',
+            'absolute -top-3 z-20 flex items-center gap-1.5 rounded-[0.45rem] border border-destructive/35 bg-card px-2 py-1',
+            'shadow-[inset_0_1px_0_0_oklch(1_0_0/0.06),0_8px_24px_oklch(0_0_0/0.35)]',
             isDm && isOwn ? 'left-2' : 'right-2',
           )}
         >

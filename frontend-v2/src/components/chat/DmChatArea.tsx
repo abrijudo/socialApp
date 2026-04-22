@@ -13,6 +13,8 @@ import {
   CHAT_COMPOSER_SEND_BUTTON,
   CHAT_COMPOSER_SHELL,
 } from '@/lib/chatComposer'
+import { LUX_ICON_STROKE, luxIconHeader, luxIconMessage } from '@/lib/luxIcon'
+import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import { useAppStore } from '@/store/useAppStore'
 import type { ChannelMessage } from '@/types/models'
@@ -42,17 +44,17 @@ function DmEmptyWelcome({
   const initials = peerWelcomeInitials(displayName, username)
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto p-3 text-center">
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto p-6 text-center">
       <div
-        className="bg-muted mb-4 flex size-20 shrink-0 items-center justify-center rounded-[20px] text-lg font-semibold text-primary"
+        className="from-primary/18 to-primary/5 text-primary mb-5 flex size-[4.5rem] shrink-0 items-center justify-center rounded-[1.1rem] bg-gradient-to-br text-lg font-semibold shadow-[inset_0_1px_0_0_oklch(1_0_0/0.12)]"
         aria-hidden
       >
         {initials}
       </div>
-      <h3 className="text-foreground max-w-lg text-2xl font-semibold tracking-tight">
-        Este es el comienzo de tu historial de mensajes directos con @{at}
+      <h3 className="text-foreground max-w-lg text-balance text-xl font-semibold tracking-tight sm:text-2xl">
+        Este es el comienzo de tu historial con @{at}
       </h3>
-      <p className="text-muted-foreground mt-2 max-w-md text-sm leading-relaxed">
+      <p className="text-muted-foreground mt-3 max-w-md text-[0.9375rem] leading-relaxed text-balance">
         Enviá un mensaje para iniciar la conversación.
       </p>
     </div>
@@ -177,10 +179,10 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
 
   return (
     <main
-      className="bg-background flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+      className="bg-background/85 flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
       aria-label="Mensajes directos"
     >
-      <header className="border-border flex h-12 shrink-0 items-center gap-2 border-b bg-background px-3 shadow-sm sm:px-4">
+      <header className="lux-glass-header gap-2 sm:px-4">
         {mobile ? (
           <Button
             type="button"
@@ -190,11 +192,11 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
             aria-label="Abrir menú de navegación"
             onClick={() => mobile.openNavSheet()}
           >
-            <Menu className="size-5" aria-hidden />
+            <Menu className={cn(luxIconHeader)} strokeWidth={LUX_ICON_STROKE} aria-hidden />
           </Button>
         ) : null}
         <div
-          className="bg-primary/12 text-primary flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
+          className="from-primary/18 to-primary/5 text-primary lux-avatar flex size-8 shrink-0 items-center justify-center bg-gradient-to-br text-xs font-semibold"
           aria-hidden
         >
           {peerWelcomeInitials(peerLabel, peer?.username ?? undefined)}
@@ -203,7 +205,7 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
           <span className="text-muted-foreground shrink-0 text-sm" aria-hidden>
             @
           </span>
-          <span className="min-w-0 truncate text-sm font-semibold leading-tight tracking-tight text-foreground">
+          <span className="text-foreground/90 min-w-0 truncate text-[0.75rem] font-medium leading-tight tracking-tight sm:text-[0.78rem]">
             {peer?.username?.trim() || peerLabel || 'Mensaje directo'}
           </span>
         </div>
@@ -213,7 +215,7 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
-          className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-gradient-to-b from-muted/15 to-background px-3 pt-3 pb-0"
+          className="from-muted/10 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-gradient-to-b to-background px-3 pt-3 pb-0"
           role="log"
           aria-label="Mensajes privados"
         >
@@ -250,22 +252,29 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
         </div>
 
         {(replyTo || typingUsers.length > 0 || sendError) && (
-          <div className="supports-[backdrop-filter]:bg-background/80 shrink-0 space-y-2 bg-background/95 px-3 pt-2 pb-0 backdrop-blur-sm">
+          <div className="shrink-0 space-y-2 border-t border-white/[0.05] bg-foreground/[0.03] px-3 pt-2 pb-0 [box-shadow:inset_0_1px_0_0_rgba(255,255,255,0.03)]">
             {replyTo ? (
-              <div className="bg-muted/60 border-primary/40 flex items-center gap-2 rounded-lg border-l-2 px-3 py-1.5">
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-medium text-primary/80">
-                    Respondiendo a {replyTo.profiles?.display_name || replyTo.profiles?.username || 'usuario'}
+              <div
+                className="flex items-start gap-3 rounded-r-[10px] border border-white/[0.08] border-l-[0.5px] border-l-[color-mix(in_oklch,var(--muted-foreground)_50%,transparent)] bg-foreground/[0.045] py-2.5 pl-3.5 pr-2.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.03)]"
+              >
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <p className="text-[0.65rem] font-medium uppercase tracking-[0.1em] text-muted-foreground/80">
+                    Respondiendo
                   </p>
-                  <p className="truncate text-xs text-muted-foreground">{replyTo.body.slice(0, 100)}</p>
+                  <p className="text-xs font-medium text-foreground/85">
+                    {replyTo.profiles?.display_name || replyTo.profiles?.username || 'Usuario'}
+                  </p>
+                  <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground/70">
+                    {replyTo.body.slice(0, 140)}
+                  </p>
                 </div>
                 <button
                   type="button"
-                  className="text-muted-foreground hover:text-foreground shrink-0"
+                  className="lux-icon-button text-muted-foreground mt-0.5 shrink-0 rounded-md p-1 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
                   onClick={() => setDraftReply(dmChannelId, null)}
                   title="Cancelar respuesta"
                 >
-                  <X className="size-4" />
+                  <X className={cn(luxIconMessage, 'size-4')} strokeWidth={LUX_ICON_STROKE} />
                 </button>
               </div>
             ) : null}
@@ -308,13 +317,13 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
             <Button
               type="submit"
               size="icon"
-              className={CHAT_COMPOSER_SEND_BUTTON}
+              className={cn(CHAT_COMPOSER_SEND_BUTTON, 'lux-icon-button')}
               disabled={sending || !draft.trim() || !accessToken}
             >
               {sending ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden />
+                <Loader2 className={cn(luxIconMessage, 'size-4 animate-spin')} strokeWidth={LUX_ICON_STROKE} aria-hidden />
               ) : (
-                <Send className="size-4" aria-hidden />
+                <Send className={cn(luxIconMessage, 'size-4')} strokeWidth={LUX_ICON_STROKE} aria-hidden />
               )}
               <span className="sr-only">Enviar</span>
             </Button>

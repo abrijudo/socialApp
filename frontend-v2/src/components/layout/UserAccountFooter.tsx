@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { USER_ACCOUNT_FOOTER_DOCK } from '@/lib/chatComposer'
+import { LUX_ICON_STROKE, luxIconRow } from '@/lib/luxIcon'
 import { useAppStore } from '@/store/useAppStore'
 import { cn } from '@/lib/utils'
 
@@ -46,14 +47,16 @@ export function UserAccountFooter({ className }: { className?: string }) {
       >
         <div className="flex h-full min-w-0 flex-1 items-center gap-3">
           <div
-            className="bg-primary/15 text-primary flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-medium"
+            className="from-primary/20 to-primary/5 text-primary lux-avatar flex size-8 shrink-0 items-center justify-center bg-gradient-to-br text-xs font-semibold"
             aria-hidden
           >
             {(profile?.display_name || profile?.username || '?').slice(0, 1).toUpperCase()}
           </div>
           <div className="min-w-0 min-h-0 flex-1">
-            <div className="truncate text-xs font-medium leading-tight">{displayName}</div>
-            <div className="text-muted-foreground mt-0.5 truncate text-[11px] leading-tight">@{handle}</div>
+            <div className="truncate text-xs font-semibold leading-tight tracking-tight">{displayName}</div>
+            <div className="text-muted-foreground mt-0.5 truncate text-[0.65rem] leading-tight tracking-wide">
+              @{handle}
+            </div>
           </div>
 
           <DropdownMenu>
@@ -62,11 +65,11 @@ export function UserAccountFooter({ className }: { className?: string }) {
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="text-muted-foreground hover:text-foreground size-8 shrink-0"
+                className="lux-icon-button text-muted-foreground hover:text-foreground size-8 shrink-0"
                 title="Cuenta y ajustes"
                 aria-label="Menú de cuenta y ajustes"
               >
-                <Settings className="size-4" />
+                <Settings className={cn(luxIconRow, 'size-4')} strokeWidth={LUX_ICON_STROKE} />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="top" className="w-52">
@@ -78,7 +81,7 @@ export function UserAccountFooter({ className }: { className?: string }) {
                   setProfileOpen(true)
                 }}
               >
-                <UserCircle className="size-4" />
+                <UserCircle className={cn(luxIconRow, 'size-4')} strokeWidth={LUX_ICON_STROKE} />
                 Ver mi perfil
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -86,11 +89,11 @@ export function UserAccountFooter({ className }: { className?: string }) {
                   setFriendsOpen(true)
                 }}
               >
-                <UserRoundPlus className="size-4" />
+                <UserRoundPlus className={cn(luxIconRow, 'size-4')} strokeWidth={LUX_ICON_STROKE} />
                 Amigos
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void handleCopyUsername()}>
-                <Copy className="size-4" />
+                <Copy className={cn(luxIconRow, 'size-4')} strokeWidth={LUX_ICON_STROKE} />
                 Copiar nombre de usuario
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -100,7 +103,7 @@ export function UserAccountFooter({ className }: { className?: string }) {
                   void logout()
                 }}
               >
-                <LogOut className="size-4" />
+                <LogOut className={cn(luxIconRow, 'size-4')} strokeWidth={LUX_ICON_STROKE} />
                 Cerrar sesión
               </DropdownMenuItem>
             </DropdownMenuContent>

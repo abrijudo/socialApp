@@ -7,6 +7,7 @@ import { InviteModal } from '@/components/modals/InviteModal'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useMobileNav } from '@/components/layout/MobileNavContext'
+import { LUX_ICON_STROKE, luxIconRow, luxIconSm } from '@/lib/luxIcon'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/useAppStore'
 import type { Profile } from '@/types/models'
@@ -72,24 +73,24 @@ export function ServerSidebar() {
 
   return (
     <nav
-      className="bg-muted flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden"
+      className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden"
       aria-label="Canales"
     >
-      <header className="border-border flex h-12 shrink-0 items-center gap-2 border-b px-3 shadow-sm sm:px-4">
-        <h1 className="text-foreground min-w-0 flex-1 truncate text-sm font-semibold">
+      <header className="border-b border-white/[0.05] bg-foreground/[0.02] shadow-[inset_0_-1px_0_0_oklch(0_0_0/0.08)] flex h-12 shrink-0 items-center gap-2 px-3 sm:px-4">
+        <h1 className="text-foreground/90 min-w-0 flex-1 truncate text-[0.72rem] font-medium tracking-tight sm:text-[0.75rem]">
           {server?.name ?? 'Servidor'}
         </h1>
         <Button
           type="button"
           variant="ghost"
           size="icon"
-          className="size-8 shrink-0"
+          className="lux-icon-button size-8 shrink-0"
           title="Invitar personas"
           aria-label="Invitar personas"
           disabled={!serverId}
           onClick={() => setIsInviteOpen(true)}
         >
-          <UserPlus className="size-4" aria-hidden />
+          <UserPlus className={cn(luxIconRow, 'size-4')} strokeWidth={LUX_ICON_STROKE} aria-hidden />
         </Button>
       </header>
 
@@ -106,7 +107,7 @@ export function ServerSidebar() {
               <div className="flex items-center justify-between gap-2 px-0 pb-1">
                 <h2
                   id="label-text-ch"
-                  className="text-muted-foreground text-[11px] font-semibold tracking-wide uppercase"
+                  className="text-muted-foreground/95 text-[10px] font-semibold tracking-[0.14em] uppercase"
                 >
                   Texto
                 </h2>
@@ -115,12 +116,12 @@ export function ServerSidebar() {
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="text-muted-foreground size-6 shrink-0"
+                    className="lux-icon-button text-muted-foreground size-6 shrink-0"
                     title="Crear canal de texto"
                     aria-label="Crear canal de texto"
                     onClick={() => openCreateChannel('text')}
                   >
-                    <Plus className="size-3.5" aria-hidden />
+                    <Plus className={cn(luxIconSm, 'size-3.5')} strokeWidth={LUX_ICON_STROKE} aria-hidden />
                   </Button>
                 ) : null}
               </div>
@@ -137,18 +138,26 @@ export function ServerSidebar() {
                           closeNavSheet()
                         }}
                         className={cn(
-                          'flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left text-sm transition-colors duration-200 ease-in-out',
+                          'group/channel flex w-full items-center gap-3 rounded-[0.5rem] border border-transparent px-2.5 py-2 text-left text-[0.75rem] font-medium sm:text-[0.78rem]',
+                          'lux-transition [transition-property:color,background-color,border-color,box-shadow,transform] hover:border-border/50 hover:bg-background/30 hover:shadow-[inset_0_1px_0_0_oklch(1_0_0/0.04)] active:scale-[0.99]',
                           active
-                            ? 'bg-background/80 text-foreground font-medium'
+                            ? 'border-primary/30 bg-primary/12 text-foreground font-semibold shadow-[inset_0_0_0_1px_oklch(0.62_0.12_280/0.2),inset_0_1px_0_0_oklch(1_0_0/0.08)]'
                             : unread > 0
-                              ? 'text-foreground font-bold hover:bg-background/40'
-                              : 'text-muted-foreground font-medium hover:bg-background/40 hover:text-foreground',
+                              ? 'text-foreground font-semibold'
+                              : 'text-muted-foreground hover:text-foreground/95',
                         )}
                       >
-                        <Hash className="size-4 shrink-0 opacity-70" aria-hidden />
+                        <Hash
+                          className={cn(
+                            luxIconRow,
+                            'size-4 shrink-0 opacity-70 transition-[opacity,transform,filter] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover/channel:scale-[1.04] group-hover/channel:opacity-100 group-hover/channel:text-foreground/90',
+                          )}
+                          strokeWidth={LUX_ICON_STROKE}
+                          aria-hidden
+                        />
                         <span className="min-w-0 flex-1 truncate">{ch.name}</span>
                         {unread > 0 && !active ? (
-                          <span className="bg-primary text-primary-foreground flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold">
+                          <span className="bg-primary/90 text-primary-foreground flex size-5 shrink-0 items-center justify-center rounded-md text-[10px] font-bold tabular-nums shadow-[0_0_0_1px_oklch(1_0_0/0.1)]">
                             {unread > 99 ? '99+' : unread}
                           </span>
                         ) : null}
@@ -163,7 +172,7 @@ export function ServerSidebar() {
               <div className="flex items-center justify-between gap-2 px-0 pb-1">
                 <h2
                   id="label-voice-ch"
-                  className="text-muted-foreground text-[11px] font-semibold tracking-wide uppercase"
+                  className="text-muted-foreground/95 text-[10px] font-semibold tracking-[0.14em] uppercase"
                 >
                   Voz
                 </h2>
@@ -172,12 +181,12 @@ export function ServerSidebar() {
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="text-muted-foreground size-6 shrink-0"
+                    className="lux-icon-button text-muted-foreground size-6 shrink-0"
                     title="Crear canal de voz"
                     aria-label="Crear canal de voz"
                     onClick={() => openCreateChannel('voice')}
                   >
-                    <Plus className="size-3.5" aria-hidden />
+                    <Plus className={cn(luxIconSm, 'size-3.5')} strokeWidth={LUX_ICON_STROKE} aria-hidden />
                   </Button>
                 ) : null}
               </div>
@@ -214,13 +223,21 @@ export function ServerSidebar() {
                           closeNavSheet()
                         }}
                         className={cn(
-                          'flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left text-sm font-medium transition-colors duration-200 ease-in-out',
+                          'group/channel flex w-full items-center gap-3 rounded-[0.5rem] border border-transparent px-2.5 py-2 text-left text-[0.75rem] font-medium sm:text-[0.78rem]',
+                          'lux-transition [transition-property:color,background-color,border-color,box-shadow,transform] hover:border-border/50 hover:bg-background/30 hover:shadow-[inset_0_1px_0_0_oklch(1_0_0/0.04)] active:scale-[0.99]',
                           voiceActive
-                            ? 'bg-background/80 text-foreground'
-                            : 'text-muted-foreground hover:bg-background/40 hover:text-foreground',
+                            ? 'border-primary/25 bg-primary/10 text-foreground font-semibold shadow-[inset_0_0_0_1px_oklch(0.62_0.12_280/0.18),inset_0_1px_0_0_oklch(1_0_0/0.08)]'
+                            : 'text-muted-foreground hover:text-foreground/95',
                         )}
                       >
-                        <Volume2 className="size-4 shrink-0 opacity-70" aria-hidden />
+                        <Volume2
+                          className={cn(
+                            luxIconRow,
+                            'size-4 shrink-0 opacity-70 transition-[opacity,transform,filter] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover/channel:scale-[1.04] group-hover/channel:opacity-100 group-hover/channel:text-foreground/90',
+                          )}
+                          strokeWidth={LUX_ICON_STROKE}
+                          aria-hidden
+                        />
                         <span className="truncate">{ch.name}</span>
                       </button>
                       {visibleUsers.length > 0 ? (
@@ -236,11 +253,11 @@ export function ServerSidebar() {
                             <li key={u.userId}>
                               <div
                                 className={cn(
-                                  'text-muted-foreground flex items-center gap-3 rounded-md px-2 py-1.5 text-sm font-medium',
-                                  'transition-colors duration-150 ease-in-out hover:bg-background/50 hover:text-foreground',
+                                  'text-muted-foreground flex items-center gap-3 rounded-md px-2 py-1.5 text-[0.75rem] font-medium sm:text-[0.78rem]',
+                                  'lux-transition [transition-property:color,background-color,transform] hover:bg-background/25 hover:text-foreground/95',
                                 )}
                               >
-                                <div className="bg-primary/20 flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full">
+                                <div className="bg-primary/20 lux-avatar flex size-8 shrink-0 items-center justify-center">
                                   {userProfile?.avatar_url ? (
                                     <img
                                       src={userProfile.avatar_url}
@@ -271,13 +288,15 @@ export function ServerSidebar() {
                                 ) : null}
                                 {u.isCameraOn ? (
                                   <Video
-                                    className="text-muted-foreground size-3.5 shrink-0 opacity-90"
+                                    className={cn(luxIconSm, 'text-muted-foreground size-3.5 shrink-0 opacity-90')}
+                                    strokeWidth={LUX_ICON_STROKE}
                                     aria-label="Cámara activa"
                                   />
                                 ) : null}
                                 {u.isMuted ? (
                                   <MicOff
-                                    className="text-muted-foreground size-3.5 shrink-0 opacity-90"
+                                    className={cn(luxIconSm, 'text-muted-foreground size-3.5 shrink-0 opacity-90')}
+                                    strokeWidth={LUX_ICON_STROKE}
                                     aria-label="Usuario muteado"
                                   />
                                 ) : null}

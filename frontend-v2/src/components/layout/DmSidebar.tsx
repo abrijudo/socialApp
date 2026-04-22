@@ -4,6 +4,7 @@ import { apiGetJson, apiPostJson } from '@/lib/api'
 import { UserAccountFooter } from '@/components/layout/UserAccountFooter'
 import { VoiceSidebarDock } from '@/components/voice/VoiceSidebarDock'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
+import { LUX_ICON_STROKE, luxIconSm } from '@/lib/luxIcon'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
@@ -157,17 +158,17 @@ export function DmSidebar() {
 
   return (
     <nav
-      className="bg-muted flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden"
+      className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden"
       aria-label="Mensajes directos"
     >
-      <header className="border-border flex h-12 shrink-0 items-center justify-between gap-2 border-b px-3 shadow-sm sm:px-4">
+      <header className="border-b border-white/[0.05] bg-foreground/[0.02] shadow-[inset_0_-1px_0_0_oklch(0_0_0/0.08)] flex h-12 shrink-0 items-center justify-between px-3 sm:px-4">
         <div className="flex min-w-0 flex-1 items-center gap-3 pl-2">
           <span className="w-8 shrink-0" aria-hidden />
           <h1
-            className="min-w-0 flex-1 cursor-default text-[11px] font-bold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
+            className="min-w-0 flex-1 cursor-default text-[10px] font-semibold text-muted-foreground/95 uppercase tracking-[0.16em] transition-colors duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:text-foreground/90"
             title="Mensajes Directos"
           >
-            Mensajes Directos
+            Mensajes directos
           </h1>
         </div>
         <DropdownMenu open={dmMenuOpen} onOpenChange={setDmMenuOpen}>
@@ -176,11 +177,11 @@ export function DmSidebar() {
               type="button"
               variant="ghost"
               size="icon"
-              className="text-muted-foreground size-8 shrink-0 opacity-80 transition-opacity hover:opacity-100"
+              className="lux-icon-button text-muted-foreground size-8 shrink-0 opacity-90 transition-opacity hover:opacity-100"
               title="Nuevo mensaje directo"
               aria-label="Nuevo mensaje directo"
             >
-              <Plus className="size-3.5" aria-hidden />
+              <Plus className={cn(luxIconSm, 'size-3.5')} strokeWidth={LUX_ICON_STROKE} aria-hidden />
             </Button>
           </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56 max-h-[min(60vh,22rem)] overflow-y-auto">
@@ -205,7 +206,7 @@ export function DmSidebar() {
               )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => void handleNewDmByUsernamePrompt()}>
-                <UserPlus className="size-4" />
+                <UserPlus className={cn(luxIconSm, 'size-4')} strokeWidth={LUX_ICON_STROKE} />
                 Buscar por nombre de usuario…
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -241,24 +242,24 @@ export function DmSidebar() {
                       mobile?.setNavSheetOpen(false)
                     }}
                     className={cn(
-                      'group flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-all duration-200',
+                      'group/dm flex w-full items-center gap-3 rounded-[0.65rem] border border-transparent px-2.5 py-2 text-left',
+                      'transition-[color,background-color,border-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]',
                       'bg-transparent',
                       !active &&
-                        'hover:bg-muted/40 hover:translate-x-1 motion-reduce:hover:translate-x-0',
-                      // Verde solo en la conversación que tienes abierta
+                        'hover:translate-x-0.5 hover:border-border/40 hover:bg-background/20 hover:shadow-[inset_0_1px_0_0_oklch(1_0_0/0.04)] motion-reduce:hover:translate-x-0',
                       active &&
-                        'bg-emerald-200/70 shadow-sm ring-1 ring-emerald-400/50 dark:bg-emerald-800/40 dark:ring-emerald-500/45',
+                        'border-primary/30 bg-primary/10 shadow-[inset_0_0_0_1px_oklch(0.62_0.12_280/0.18),inset_0_1px_0_0_oklch(1_0_0/0.08)]',
                     )}
                   >
                     <div className="relative shrink-0" aria-hidden>
-                      <div className="bg-primary/12 text-primary flex size-8 items-center justify-center rounded-full text-xs font-semibold">
+                      <div className="from-primary/15 to-primary/5 text-primary lux-avatar flex size-8 items-center justify-center bg-gradient-to-br text-xs font-semibold">
                         {otherInitials(dm)}
                       </div>
                       {otherId ? (
                         <div
                           className={cn(
-                            'absolute -bottom-0.5 -right-0.5 z-[1] size-3 rounded-full border-2 border-muted',
-                            isOnline ? 'bg-emerald-500' : 'bg-muted-foreground/90',
+                            'absolute -bottom-0.5 -right-0.5 z-[1] size-3 rounded-full border-2 border-background/85',
+                            isOnline ? 'bg-emerald-500 lux-presence-dot--online' : 'lux-presence-dot--offline bg-muted-foreground/85',
                           )}
                           title={isOnline ? 'En línea' : 'Desconectado'}
                         />
@@ -280,7 +281,7 @@ export function DmSidebar() {
                       ) : null}
                     </div>
                     {unread > 0 && !active ? (
-                      <span className="bg-destructive text-destructive-foreground flex h-5 min-w-5 shrink-0 items-center justify-center self-center rounded-full px-1 text-[10px] font-bold">
+                      <span className="bg-destructive/90 text-destructive-foreground flex h-5 min-w-5 shrink-0 items-center justify-center self-center rounded-md px-1 text-[10px] font-bold tabular-nums shadow-[0_0_0_1px_oklch(1_0_0/0.1)]">
                         {unread > 99 ? '99+' : unread}
                       </span>
                     ) : null}
