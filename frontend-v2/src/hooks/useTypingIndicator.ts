@@ -1,30 +1,26 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { getAuthenticatedSupabase, getSupabaseBrowserClient } from '@/lib/supabase'
 import { useAppStore } from '@/store/useAppStore'
 
-export interface TypingUser {
-  userId: string
-  username: string
-}
+const TYPING_IDLE_MS = 3000
 
 /**
- * Supabase Presence-based typing indicator for a channel.
- * Returns `typingUsers` (excluding self) and `reportTyping()` to call on input change.
+ * Supabase Presence en `typing:${channelId}`: emite “escribiendo” y actualiza
+ * `typingUsernamesByChannel` en el store (excluye al usuario actual).
  */
 export function useTypingIndicator(channelId: string | null) {
   const userId = useAppStore((s) => s.userId)
   const accessToken = useAppStore((s) => s.accessToken)
   const profile = useAppStore((s) => s.profile)
   const username = profile?.username ?? ''
-  const [typingUsers, setTypingUsers] = useState<TypingUser[]>([])
+  const setTypingUsernamesForChannel = useAppStore((s) => s.setTypingUsernamesForChannel)
   const channelRef = useRef<RealtimeChannel | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const trackedRef = useRef(false)
 
   useEffect(() => {
     if (!channelId || !accessToken || !userId) {
-      setTypingUsers([])
       return
     }
 
@@ -34,10 +30,6 @@ export function useTypingIndicator(channelId: string | null) {
     void (async () => {
       try {
         const supabase = await getAuthenticatedSupabase(accessToken)
-        // Si el efecto ya se limpió durante el await anterior, no creamos el
-        // canal ni lo suscribimos: de lo contrario dejaríamos un
-        // RealtimeChannel colgado que `cleanup` no puede remover porque
-        // `localChannel` fue null en el momento del return.
         if (cancelled) return
 
         const channel = supabase.channel(`typing:${channelId}`, {
@@ -47,16 +39,23 @@ export function useTypingIndicator(channelId: string | null) {
         channelRef.current = channel
 
         const flush = () => {
-          const state = channel.presenceState() as Record<string, { user_id?: string; username?: string }[]>
-          const users: TypingUser[] = []
+          const state = channel.presenceState() as Record<
+            string,
+            { user_id?: string; username?: string }[]
+          >
+          const byUser = new Map<string, string>()
           for (const rows of Object.values(state)) {
             for (const row of rows) {
               if (row.user_id && row.user_id !== userId) {
-                users.push({ userId: row.user_id, username: row.username ?? '' })
+                const name = (row.username ?? '').trim() || 'Alguien'
+                if (!byUser.has(row.user_id)) byUser.set(row.user_id, name)
               }
             }
           }
-          setTypingUsers(users)
+          const names = Array.from(byUser.values()).sort((a, b) =>
+            a.localeCompare(b, 'es', { sensitivity: 'base' }),
+          )
+          setTypingUsernamesForChannel(channelId, names)
         }
 
         channel
@@ -70,7 +69,7 @@ export function useTypingIndicator(channelId: string | null) {
         }
         channel.subscribe()
       } catch {
-        // Silently ignore
+        /* noop */
       }
     })()
 
@@ -78,17 +77,31 @@ export function useTypingIndicator(channelId: string | null) {
       cancelled = true
       channelRef.current = null
       trackedRef.current = false
-      setTypingUsers([])
-      if (timerRef.current) clearTimeout(timerRef.current)
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+      setTypingUsernamesForChannel(channelId, [])
       if (localChannel) {
         void localChannel.untrack().catch(() => {})
         const supabase = getSupabaseBrowserClient()
         void supabase.removeChannel(localChannel)
       }
     }
-  }, [channelId, accessToken, userId])
+  }, [channelId, accessToken, userId, setTypingUsernamesForChannel])
 
-  function reportTyping() {
+  const stopTyping = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+    const ch = channelRef.current
+    if (!trackedRef.current || !ch) return
+    trackedRef.current = false
+    void ch.untrack().catch(() => {})
+  }, [])
+
+  const reportTyping = useCallback(() => {
     const ch = channelRef.current
     if (!ch) return
 
@@ -101,8 +114,8 @@ export function useTypingIndicator(channelId: string | null) {
     timerRef.current = setTimeout(() => {
       trackedRef.current = false
       void ch.untrack().catch(() => {})
-    }, 2500)
-  }
+    }, TYPING_IDLE_MS)
+  }, [userId, username])
 
-  return { typingUsers, reportTyping }
+  return { reportTyping, stopTyping }
 }

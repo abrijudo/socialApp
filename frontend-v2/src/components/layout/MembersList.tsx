@@ -290,7 +290,7 @@ export function MembersList({ className }: { className?: string }) {
       className={cn('flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden', className)}
       aria-label="Miembros del servidor"
     >
-      <header className="border-b border-white/[0.05] bg-foreground/[0.02] shadow-[inset_0_-1px_0_0_oklch(0_0_0/0.08)] flex h-12 shrink-0 items-center px-3 sm:px-4">
+      <header className="border-b border-border/80 bg-muted/25 shadow-[inset_0_-1px_0_0_oklch(0_0_0/0.08)] flex h-12 shrink-0 items-center px-3 sm:px-4">
         <h2 className="text-foreground min-w-0 flex-1 truncate text-[0.8125rem] font-semibold tracking-tight">Miembros</h2>
       </header>
 

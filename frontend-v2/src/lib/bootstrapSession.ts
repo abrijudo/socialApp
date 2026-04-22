@@ -46,6 +46,11 @@ function deriveUsername(user: User): string {
   return normalizeUsername(fromMeta || fromEmail || '')
 }
 
+/** Expuesto para `onAuthStateChange` (mismo criterio que al iniciar sesión). */
+export function usernameFromSupabaseUser(user: User): string {
+  return deriveUsername(user)
+}
+
 async function trySignInAnonymously(
   sb: SupabaseClient,
   usernameRaw: string,

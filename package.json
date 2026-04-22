@@ -10,6 +10,7 @@
     "test:api": "node scripts/test-api.js",
     "test:frontend": "npm --prefix frontend-v2 test",
     "test:e2e": "npx playwright test",
+    "test:e2e:client": "npm run e2e --prefix frontend-v2",
     "test:all": "node scripts/test-all.mjs",
     "test:all:run": "node scripts/run-all-tests.mjs",
     "dev": "npm run dev:api",
@@ -20,6 +21,7 @@
     "cors": "^2.8.6",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "link-preview-js": "^4.0.0",
     "livekit-client": "^2.17.2",
     "livekit-server-sdk": "^2.8.0",
     "zod": "^4.3.6"

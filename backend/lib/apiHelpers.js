@@ -24,6 +24,52 @@ function enrichItems(items, profileMap, idKey = 'author_id', profileKey = 'profi
   }));
 }
 
+/**
+ * Cuando un mensaje tiene `parent_message_id` y el padre no va en el mismo lote,
+ * carga el padre e inyecta `parent_message` con `profiles` (misma forma que enriqueItems).
+ * `channelKey` = columna de ámbito (`channel_id` o `dm_channel_id`).
+ */
+async function attachParentMessages(
+  sb,
+  items,
+  { table, channelKey, channelId, parentSelect, profileFields = MINIMAL_PROFILE_FIELDS } = {},
+) {
+  if (!items?.length) return items;
+  const byId = new Map();
+  for (const m of items) {
+    if (m?.id) byId.set(m.id, m);
+  }
+  const pids = [...new Set((items || []).map((m) => m.parent_message_id).filter(Boolean))];
+  if (!pids.length) return items;
+  const missing = pids.filter((id) => !byId.has(id));
+  if (missing.length) {
+    const { data: extra, error } = await sb
+      .from(table)
+      .select(parentSelect)
+      .eq(channelKey, channelId)
+      .in('id', missing);
+    if (error) throw error;
+    for (const r of extra || []) {
+      if (r?.id) byId.set(r.id, r);
+    }
+  }
+  const parentRows = pids
+    .map((id) => byId.get(id))
+    .filter(Boolean);
+  const parentAuthorIds = parentRows.map((m) => m.author_id);
+  const profileMap = await buildProfileMap(sb, parentAuthorIds, profileFields);
+  return (items || []).map((m) => {
+    if (!m.parent_message_id) return m;
+    const p = byId.get(m.parent_message_id);
+    if (!p) return m;
+    return {
+      ...m,
+      parent_message: enrichItems([p], profileMap)[0],
+    };
+  });
+}
+
+
 const DM_SUMMARY_PROFILE_FIELDS = 'user_id, display_name, username, avatar_url, status';
 
 /**
@@ -53,6 +99,7 @@ async function listDmChannelSummaries(sb, userId) {
 module.exports = {
   buildProfileMap,
   enrichItems,
+  attachParentMessages,
   listDmChannelSummaries,
   DEFAULT_PROFILE_FIELDS,
   MINIMAL_PROFILE_FIELDS,

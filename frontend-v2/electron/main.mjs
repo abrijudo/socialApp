@@ -182,7 +182,32 @@ const iconPath = app.isPackaged
   ? path.join(process.resourcesPath, 'build', 'icon.png')
   : path.join(__dirname, '..', 'public', 'icon.png')
 
+/**
+ * Fija Content-Security-Policy en el documento del renderer para silenciar el aviso de Electron
+ * en build empaquetado (sin `unsafe-eval`). En Vite dev se permite lo necesario para HMR.
+ */
+function setupContentSecurityPolicy() {
+  const isViteDev = Boolean(devServerUrl)
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    if (details.resourceType !== 'mainFrame') {
+      return callback({ responseHeaders: details.responseHeaders })
+    }
+    const csp = isViteDev
+      ? "default-src 'self'; base-uri 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http: blob:; font-src 'self' data: https:; connect-src 'self' https: wss: http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; media-src 'self' blob: https:; worker-src 'self' blob:; frame-src 'self' https:;"
+      : "default-src 'self'; base-uri 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http: blob:; font-src 'self' data: https:; connect-src 'self' https: wss:; media-src 'self' blob: https:; worker-src 'self' blob:; frame-src 'self' https:;"
+    const sh = { ...(details.responseHeaders || {}) }
+    for (const k of Object.keys(sh)) {
+      if (k.toLowerCase() === 'content-security-policy') {
+        delete sh[k]
+      }
+    }
+    sh['Content-Security-Policy'] = [csp]
+    callback({ responseHeaders: sh })
+  })
+}
+
 app.whenReady().then(() => {
+  setupContentSecurityPolicy()
   session.defaultSession.setPermissionCheckHandler((_wc, permission) => {
     if (
       permission === 'media' ||

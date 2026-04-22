@@ -6,7 +6,9 @@ const { getSupabaseAdmin } = require('../services/supabaseAdmin');
 const { uploadMedia, MAX_SIZE, ALLOWED_TYPES } = require('../services/storageService');
 const { ensureProfile, getBootstrapPayload } = require('../services/bootstrapService');
 const { listParticipantsByVoiceChannels } = require('../services/voicePresenceService');
-const { buildProfileMap, enrichItems, listDmChannelSummaries, MINIMAL_PROFILE_FIELDS } = require('../lib/apiHelpers');
+const { buildProfileMap, enrichItems, attachParentMessages, listDmChannelSummaries, MINIMAL_PROFILE_FIELDS } = require('../lib/apiHelpers');
+const { fetchLinkPreview } = require('../services/linkPreviewService');
+const { logPreviewWarn } = require('../lib/previewLogger');
 
 const router = express.Router();
 
@@ -123,6 +125,21 @@ function handleError(res, err) {
     message.includes('No tienes acceso');
   return res.status(isClientError ? 400 : 500).json({ error: message });
 }
+
+/** GET /api/preview?url= — Open Graph vía proxy (evita CORS en el cliente). Requiere sesión. */
+router.get('/preview', async (req, res) => {
+  try {
+    const raw = String(req.query.url ?? '').trim();
+    if (raw.length > 2048) {
+      return res.status(400).json({ ok: false, error: 'URL demasiado larga.' });
+    }
+    const result = await fetchLinkPreview(raw);
+    return res.json(result);
+  } catch (err) {
+    logPreviewWarn('error en GET /api/preview', err);
+    return res.status(500).json({ ok: false, error: 'No se pudo obtener la vista previa.' });
+  }
+});
 
 const FRIEND_PROFILE_FIELDS = 'user_id, display_name, username, avatar_url, status, bio, updated_at';
 
@@ -879,7 +896,18 @@ router.get('/messages/:channelId', async (req, res) => {
       reactions: reactionsMap[m.id] || [],
       replyCount: replyCountMap[m.id] || 0,
     }));
-    return res.json({ messages: enriched, hasMore: (raw || []).length >= limit });
+    const withParents = await attachParentMessages(
+      sb,
+      enriched,
+      {
+        table: 'messages',
+        channelKey: 'channel_id',
+        channelId: params.channelId,
+        parentSelect:
+          'id, channel_id, author_id, body, created_at, edited_at, message_type, media_data, media_mime, media_name, media_duration_ms, parent_message_id',
+      },
+    );
+    return res.json({ messages: withParents, hasMore: (raw || []).length >= limit });
   } catch (err) {
     return handleError(res, err);
   }
@@ -900,6 +928,19 @@ router.post('/messages', async (req, res) => {
     }).parse(req.body);
 
     await requireMemberByChannel(body.channelId, req.userId);
+
+    if (body.parentMessageId) {
+      const sbCheck = getSupabaseAdmin();
+      const { data: pRow, error: pErr } = await sbCheck
+        .from('messages')
+        .select('id, channel_id')
+        .eq('id', body.parentMessageId)
+        .maybeSingle();
+      if (pErr) throw pErr;
+      if (!pRow || pRow.channel_id !== body.channelId) {
+        return res.status(400).json({ error: 'Mensaje citado no válido.' });
+      }
+    }
 
     const text = (body.text || '').trim();
     const mediaSource = body.mediaUrl || body.mediaData;
@@ -931,10 +972,21 @@ router.post('/messages', async (req, res) => {
         media_name: body.mediaName || null,
         media_duration_ms: body.mediaDurationMs ?? null,
       })
-      .select('id, channel_id, author_id, body, created_at, message_type, media_data, media_mime, media_name, media_duration_ms')
+      .select('id, channel_id, author_id, body, created_at, message_type, media_data, media_mime, media_name, media_duration_ms, parent_message_id')
       .single();
     if (error) throw error;
-    return res.json(data);
+    const [withParent] = await attachParentMessages(
+      sb,
+      [data],
+      {
+        table: 'messages',
+        channelKey: 'channel_id',
+        channelId: body.channelId,
+        parentSelect:
+          'id, channel_id, author_id, body, created_at, edited_at, message_type, media_data, media_mime, media_name, media_duration_ms, parent_message_id',
+      },
+    );
+    return res.json(withParent);
   } catch (err) {
     return handleError(res, err);
   }
@@ -1068,11 +1120,33 @@ router.get('/dm/:dmChannelId/messages', async (req, res) => {
     const sb = getSupabaseAdmin();
     const { data: member } = await sb.from('dm_participants').select('user_id').eq('dm_channel_id', dmChannelId).eq('user_id', req.userId).single();
     if (!member) throw new Error('No tienes acceso a este DM.');
-    const { data, error } = await sb.from('dm_messages').select('id, dm_channel_id, author_id, body, created_at, edited_at, message_type, media_data, media_name').eq('dm_channel_id', dmChannelId).order('created_at', { ascending: true }).limit(100);
+    const before = req.query.before;
+    const limit = Math.min(100, parseInt(req.query.limit, 10) || 50);
+    let q = sb
+      .from('dm_messages')
+      .select('id, dm_channel_id, author_id, body, created_at, edited_at, message_type, media_data, media_mime, media_name, parent_message_id')
+      .eq('dm_channel_id', dmChannelId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (before) q = q.lt('created_at', before);
+    const { data: raw, error } = await q;
     if (error) throw error;
+    const data = (raw || []).filter(Boolean).reverse();
     const authorIds = [...new Set((data || []).map(m => m.author_id))];
     const profilesMap = await buildProfileMap(sb, authorIds, MINIMAL_PROFILE_FIELDS);
-    return res.json(enrichItems(data || [], profilesMap));
+    const items = enrichItems(data || [], profilesMap);
+    const withParents = await attachParentMessages(
+      sb,
+      items,
+      {
+        table: 'dm_messages',
+        channelKey: 'dm_channel_id',
+        channelId: dmChannelId,
+        parentSelect:
+          'id, dm_channel_id, author_id, body, created_at, edited_at, message_type, media_data, media_mime, media_name, parent_message_id',
+      },
+    );
+    return res.json({ messages: withParents, hasMore: (raw || []).length >= limit });
   } catch (err) {
     return handleError(res, err);
   }
@@ -1083,10 +1157,12 @@ router.post('/dm/:dmChannelId/messages', async (req, res) => {
     const { dmChannelId } = z.object({ dmChannelId: idSchema }).parse(req.params);
     const body = z.object({
       text: z.string().max(1000).optional().default(''),
+      messageType: z.enum(['text', 'image', 'file', 'video', 'audio']).optional(),
       mediaUrl: z.string().url().optional(),
       mediaData: z.string().optional(),
       mediaMime: z.string().optional(),
       mediaName: z.string().optional(),
+      parentMessageId: z.string().uuid().optional(),
     }).parse(req.body || {});
     const sb = getSupabaseAdmin();
     const { data: member } = await sb.from('dm_participants').select('user_id').eq('dm_channel_id', dmChannelId).eq('user_id', req.userId).single();
@@ -1094,17 +1170,50 @@ router.post('/dm/:dmChannelId/messages', async (req, res) => {
     const text = (body.text || '').trim();
     const hasMedia = Boolean(body.mediaUrl || body.mediaData);
     if (!text && !hasMedia) throw new Error('Mensaje vacío.');
+    const mime = body.mediaMime || '';
+    const resolvedType = hasMedia
+      ? (body.messageType
+          || (mime.startsWith('image/') ? 'image' : 'file'))
+      : (body.messageType && body.messageType !== 'text' ? body.messageType : 'text');
+    const fallbackBody =
+      resolvedType === 'image' ? '[imagen]'
+      : resolvedType === 'file' ? '[archivo]'
+        : resolvedType === 'video' ? '[video]'
+          : resolvedType === 'audio' ? '[audio]' : null;
+    if (body.parentMessageId) {
+      const { data: pRow, error: pErr } = await sb
+        .from('dm_messages')
+        .select('id, dm_channel_id')
+        .eq('id', body.parentMessageId)
+        .maybeSingle();
+      if (pErr) throw pErr;
+      if (!pRow || pRow.dm_channel_id !== dmChannelId) {
+        return res.status(400).json({ error: 'Mensaje citado no válido.' });
+      }
+    }
     const { data, error } = await sb.from('dm_messages').insert({
       dm_channel_id: dmChannelId,
       author_id: req.userId,
-      body: text || '[archivo]',
-      message_type: hasMedia ? 'file' : 'text',
+      body: text || fallbackBody || '',
+      message_type: hasMedia ? resolvedType : 'text',
       media_data: body.mediaUrl || body.mediaData || null,
       media_mime: body.mediaMime || null,
       media_name: body.mediaName || null,
-    }).select('id, dm_channel_id, author_id, body, created_at, message_type, media_data').single();
+      parent_message_id: body.parentMessageId || null,
+    }).select('id, dm_channel_id, author_id, body, created_at, message_type, media_data, media_mime, media_name, edited_at, parent_message_id').single();
     if (error) throw error;
-    return res.json(data);
+    const [withParent] = await attachParentMessages(
+      sb,
+      [data],
+      {
+        table: 'dm_messages',
+        channelKey: 'dm_channel_id',
+        channelId: dmChannelId,
+        parentSelect:
+          'id, dm_channel_id, author_id, body, created_at, edited_at, message_type, media_data, media_mime, media_name, parent_message_id',
+      },
+    );
+    return res.json(withParent);
   } catch (err) {
     return handleError(res, err);
   }

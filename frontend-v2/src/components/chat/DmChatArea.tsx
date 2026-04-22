@@ -1,12 +1,21 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Loader2, Menu, Send, X } from 'lucide-react'
+import { toast } from 'sonner'
 import { useMobileNav } from '@/components/layout/MobileNavContext'
-import { MessageItem } from '@/components/chat/MessageItem'
 import { MessageSkeleton } from '@/components/chat/MessageSkeleton'
+import { VirtualizedMessageList } from '@/components/chat/VirtualizedMessageList'
+import { ComposerAttachmentButton } from '@/components/chat/ComposerAttachmentButton'
+import { TypingIndicator } from '@/components/chat/TypingIndicator'
 import { Button } from '@/components/ui/button'
 import { appendDmMessageFromPostResponse } from '@/hooks/useDmMessages'
 import { useTypingIndicator } from '@/hooks/useTypingIndicator'
-import { apiPostJson } from '@/lib/api'
+import { apiGetJson, apiPostJson } from '@/lib/api'
+import {
+  isAllowedComposerMime,
+  MAX_COMPOSER_ATTACHMENT_BYTES,
+} from '@/lib/attachmentConstants'
+import { oldestPersistedMessage } from '@/lib/messagePagination'
+import { uploadFileToMessagesMedia } from '@/lib/uploadMessagesMedia'
 import {
   CHAT_COMPOSER_DOCK,
   CHAT_COMPOSER_INPUT,
@@ -14,13 +23,14 @@ import {
   CHAT_COMPOSER_SHELL,
 } from '@/lib/chatComposer'
 import { LUX_ICON_STROKE, luxIconHeader, luxIconMessage } from '@/lib/luxIcon'
+import { makeOptimisticChannelMessage } from '@/lib/optimisticMessage'
 import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import { useAppStore } from '@/store/useAppStore'
-import type { ChannelMessage } from '@/types/models'
+import type { ChannelMessage, DmMessagesResponse } from '@/types/models'
 
 const EMPTY_DM_MESSAGES: ChannelMessage[] = []
-const EMPTY_DRAFT = { body: '', replyToId: null as string | null }
+const EMPTY_DRAFT = { body: '' }
 
 function peerWelcomeInitials(displayName: string, username: string | undefined): string {
   const label = displayName.trim() || username || '?'
@@ -83,14 +93,27 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
     dmChannelId ? s.drafts[dmChannelId] ?? EMPTY_DRAFT : EMPTY_DRAFT,
   )
   const setDraftBody = useAppStore((s) => s.setDraftBody)
-  const setDraftReply = useAppStore((s) => s.setDraftReply)
   const clearDraft = useAppStore((s) => s.clearDraft)
-  const { typingUsers, reportTyping } = useTypingIndicator(dmChannelId)
-  const [sending, setSending] = useState(false)
+  const replyingToMessage = useAppStore((s) => s.replyingToMessage)
+  const setReplyingToMessage = useAppStore((s) => s.setReplyingToMessage)
+  const userId = useAppStore((s) => s.userId)
+  const profile = useAppStore((s) => s.profile)
+  const appendDmChannelMessage = useAppStore((s) => s.appendDmChannelMessage)
+  const updateDmMessage = useAppStore((s) => s.updateDmMessage)
+  const hasMoreOlder = useAppStore((s) =>
+    dmChannelId ? s.dmMessagesHasMoreByChannel[dmChannelId] === true : false,
+  )
+  const loadingOlder = useAppStore((s) =>
+    dmChannelId ? s.dmMessagesLoadingOlderByChannel[dmChannelId] ?? false : false,
+  )
+  const readBaselineAt = useAppStore((s) =>
+    dmChannelId ? s.viewEnterReadBaseline[dmChannelId] ?? null : null,
+  )
+  const { reportTyping, stopTyping } = useTypingIndicator(dmChannelId)
+  const [isPosting, setIsPosting] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
   const [sendError, setSendError] = useState<string | null>(null)
-  const endRef = useRef<HTMLDivElement>(null)
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const isNearBottomRef = useRef(true)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const messagesById = useMemo(() => {
@@ -100,30 +123,12 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
   }, [messages])
 
   const draft = draftEntry.body
-  const replyTo: ChannelMessage | null = draftEntry.replyToId
-    ? messagesById.get(draftEntry.replyToId) ?? null
-    : null
+  const replyTo: ChannelMessage | null =
+    replyingToMessage?.channel_id === dmChannelId ? replyingToMessage : null
 
   const peer = dmChannels.find((d) => d.id === dmChannelId)?.otherUser
   const peerLabel =
     peer?.display_name?.trim() || peer?.username || (peer ? `Usuario ${peer.user_id.slice(0, 6)}` : '')
-
-  const handleScroll = useCallback(() => {
-    const el = scrollContainerRef.current
-    if (!el) return
-    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
-  }, [])
-
-  useLayoutEffect(() => {
-    if (isNearBottomRef.current) {
-      endRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
-  }, [messages])
-
-  useLayoutEffect(() => {
-    isNearBottomRef.current = true
-    endRef.current?.scrollIntoView({ behavior: 'instant' })
-  }, [dmChannelId])
 
   useEffect(() => {
     setSendError(null)
@@ -131,19 +136,126 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
 
   useEffect(() => {
     if (!dmChannelId) return
-    if (draftEntry.replyToId && !messagesById.has(draftEntry.replyToId)) {
-      setDraftReply(dmChannelId, null)
-    }
-  }, [dmChannelId, draftEntry.replyToId, messagesById, setDraftReply])
+    const r = useAppStore.getState().replyingToMessage
+    if (r && r.channel_id !== dmChannelId) setReplyingToMessage(null)
+  }, [dmChannelId, setReplyingToMessage])
+
+  useEffect(() => {
+    if (!dmChannelId || !replyTo) return
+    if (!messagesById.has(replyTo.id)) setReplyingToMessage(null)
+  }, [dmChannelId, replyTo, messagesById, setReplyingToMessage])
 
   const handleReply = useCallback(
     (msg: ChannelMessage) => {
-      if (!dmChannelId) return
-      setDraftReply(dmChannelId, msg.id)
+      setReplyingToMessage(msg)
       inputRef.current?.focus()
     },
-    [dmChannelId, setDraftReply],
+    [setReplyingToMessage],
   )
+
+  const handleAttachment = useCallback(
+    async (file: File) => {
+      if (!dmChannelId || !accessToken || isUploading || isPosting) return
+      if (file.size > MAX_COMPOSER_ATTACHMENT_BYTES) {
+        toast.error('El archivo supera 5 MB.')
+        return
+      }
+      if (!isAllowedComposerMime(file.type, file.name)) {
+        toast.error('Solo imágenes o PDF.')
+        return
+      }
+      stopTyping()
+      setSendError(null)
+      const caption = draft.trim()
+      const parentId = replyTo?.id ?? null
+      const messageType: 'image' | 'file' = file.type.startsWith('image/') ? 'image' : 'file'
+      const placeholderBody =
+        caption || (messageType === 'image' ? '[imagen]' : '[archivo]')
+      const previewUrl = URL.createObjectURL(file)
+      const opt = makeOptimisticChannelMessage(
+        dmChannelId,
+        userId,
+        placeholderBody,
+        profile,
+        parentId,
+        {
+          messageType,
+          mediaData: previewUrl,
+          mediaMime: file.type || 'application/octet-stream',
+          mediaName: file.name,
+        },
+      )
+      appendDmChannelMessage(dmChannelId, opt)
+      setIsUploading(true)
+      setUploadProgress(0)
+      try {
+        const { url } = await uploadFileToMessagesMedia(file, accessToken, setUploadProgress)
+        const created = await apiPostJson<Record<string, unknown>>(
+          `/api/dm/${dmChannelId}/messages`,
+          accessToken,
+          {
+            text: caption,
+            messageType,
+            mediaUrl: url,
+            mediaMime: file.type || undefined,
+            mediaName: file.name,
+            ...(parentId ? { parentMessageId: parentId } : {}),
+          },
+        )
+        URL.revokeObjectURL(previewUrl)
+        appendDmMessageFromPostResponse(dmChannelId, created)
+        clearDraft(dmChannelId)
+        setReplyingToMessage(null)
+      } catch (err) {
+        URL.revokeObjectURL(previewUrl)
+        updateDmMessage(opt.id, { localStatus: 'failed' })
+        const message = (err as Error).message || 'No se pudo subir o enviar'
+        setSendError(message)
+        toast.error(message)
+      } finally {
+        setIsUploading(false)
+        setUploadProgress(0)
+      }
+    },
+    [
+      accessToken,
+      appendDmChannelMessage,
+      clearDraft,
+      draft,
+      dmChannelId,
+      isPosting,
+      isUploading,
+      profile,
+      replyTo?.id,
+      setReplyingToMessage,
+      stopTyping,
+      updateDmMessage,
+      userId,
+    ],
+  )
+
+  const loadOlderMessages = useCallback(async () => {
+    if (!dmChannelId || !accessToken) return
+    const st = useAppStore.getState()
+    const list = st.dmMessagesByChannel[dmChannelId] ?? []
+    if (!list.length) return
+    if (st.dmMessagesHasMoreByChannel[dmChannelId] !== true) return
+    if (st.dmMessagesLoadingOlderByChannel[dmChannelId]) return
+    const oldest = oldestPersistedMessage(list)
+    if (!oldest) return
+    st.setDmMessagesLoadingOlder(dmChannelId, true)
+    try {
+      const data = await apiGetJson<DmMessagesResponse>(
+        `/api/dm/${dmChannelId}/messages?limit=50&before=${encodeURIComponent(oldest.created_at)}`,
+        accessToken,
+      )
+      st.prependDmChannelMessages(dmChannelId, data.messages ?? [], data.hasMore)
+    } catch {
+      /* reintento al volver arriba */
+    } finally {
+      st.setDmMessagesLoadingOlder(dmChannelId, false)
+    }
+  }, [dmChannelId, accessToken])
 
   if (!dmChannelId) {
     return (
@@ -156,24 +268,30 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     const text = draft.trim()
-    if (!text || !accessToken || sending || !dmChannelId) return
+    if (!text || !accessToken || isPosting || isUploading || !dmChannelId) return
+    stopTyping()
     setSendError(null)
-    setSending(true)
+    setIsPosting(true)
+    const parentId = replyTo?.id ?? null
+    const opt = makeOptimisticChannelMessage(dmChannelId, userId, text, profile, parentId)
+    appendDmChannelMessage(dmChannelId, opt)
+    clearDraft(dmChannelId)
     try {
       const created = await apiPostJson<Record<string, unknown>>(
         `/api/dm/${dmChannelId}/messages`,
         accessToken,
         {
           text,
-          ...(replyTo ? { parentMessageId: replyTo.id } : {}),
+          ...(parentId ? { parentMessageId: parentId } : {}),
         },
       )
       appendDmMessageFromPostResponse(dmChannelId, created)
-      clearDraft(dmChannelId)
+      setReplyingToMessage(null)
     } catch (err) {
+      updateDmMessage(opt.id, { localStatus: 'failed' })
       setSendError((err as Error).message || 'No se pudo enviar')
     } finally {
-      setSending(false)
+      setIsPosting(false)
     }
   }
 
@@ -213,9 +331,7 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
 
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div
-          ref={scrollContainerRef}
-          onScroll={handleScroll}
-          className="from-muted/10 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-gradient-to-b to-background px-3 pt-3 pb-0"
+          className="from-muted/10 flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-gradient-to-b to-background px-3 pt-3 pb-0"
           role="log"
           aria-label="Mensajes privados"
         >
@@ -235,92 +351,98 @@ export function DmChatArea({ dmChannelId }: DmChatAreaProps) {
               username={peer?.username ?? undefined}
             />
           ) : (
-            <ul className="space-y-1">
-              {messages.map((msg) => (
-                <li key={msg.id}>
-                  <MessageItem
-                    msg={msg}
-                    isDm
-                    onReply={handleReply}
-                    replyTarget={msg.parent_message_id ? messagesById.get(msg.parent_message_id) ?? null : null}
-                  />
-                </li>
-              ))}
-            </ul>
+            <VirtualizedMessageList
+              listKey={dmChannelId}
+              messages={messages}
+              messagesById={messagesById}
+              onReply={handleReply}
+              isDm
+              readBaselineAt={readBaselineAt}
+              hasMoreOlder={hasMoreOlder}
+              loadingOlder={loadingOlder}
+              onLoadOlder={loadOlderMessages}
+              className="min-h-0 w-full min-w-0 flex-1"
+            />
           )}
-          <div ref={endRef} aria-hidden />
         </div>
 
-        {(replyTo || typingUsers.length > 0 || sendError) && (
-          <div className="shrink-0 space-y-2 border-t border-white/[0.05] bg-foreground/[0.03] px-3 pt-2 pb-0 [box-shadow:inset_0_1px_0_0_rgba(255,255,255,0.03)]">
-            {replyTo ? (
-              <div
-                className="flex items-start gap-3 rounded-r-[10px] border border-white/[0.08] border-l-[0.5px] border-l-[color-mix(in_oklch,var(--muted-foreground)_50%,transparent)] bg-foreground/[0.045] py-2.5 pl-3.5 pr-2.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.03)]"
-              >
-                <div className="min-w-0 flex-1 space-y-1.5">
-                  <p className="text-[0.65rem] font-medium uppercase tracking-[0.1em] text-muted-foreground/80">
-                    Respondiendo
-                  </p>
-                  <p className="text-xs font-medium text-foreground/85">
-                    {replyTo.profiles?.display_name || replyTo.profiles?.username || 'Usuario'}
-                  </p>
-                  <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground/70">
-                    {replyTo.body.slice(0, 140)}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  className="lux-icon-button text-muted-foreground mt-0.5 shrink-0 rounded-md p-1 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
-                  onClick={() => setDraftReply(dmChannelId, null)}
-                  title="Cancelar respuesta"
-                >
-                  <X className={cn(luxIconMessage, 'size-4')} strokeWidth={LUX_ICON_STROKE} />
-                </button>
-              </div>
-            ) : null}
-            {typingUsers.length > 0 ? (
-              <p className="text-muted-foreground truncate text-xs animate-pulse">
-                {typingUsers.length === 1
-                  ? `${typingUsers[0].username || 'Alguien'} está escribiendo…`
-                  : `${typingUsers.map((u) => u.username || 'Alguien').join(', ')} están escribiendo…`}
-              </p>
-            ) : null}
-            {sendError ? (
-              <p className="text-destructive text-xs" role="alert">
-                {sendError}
-              </p>
-            ) : null}
+        {sendError ? (
+          <div className="border-border/60 bg-muted/20 shrink-0 border-t px-3 pt-2 [box-shadow:inset_0_1px_0_0_color-mix(in_oklch,var(--foreground)_4%,transparent)]">
+            <p className="text-destructive text-xs" role="alert">
+              {sendError}
+            </p>
           </div>
-        )}
+        ) : null}
+
+        <TypingIndicator channelId={dmChannelId} />
+
+        {replyTo ? (
+          <div className="border-border/50 bg-card/30 shrink-0 border-t border-border/30 px-3 pt-2 pb-1.5 [box-shadow:inset_0_1px_0_0_color-mix(in_oklch,var(--foreground)_3%,transparent)]">
+            <div className="border-border/60 bg-muted/25 flex items-start gap-2.5 rounded-lg border px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-[0.65rem] font-medium text-muted-foreground/90">
+                  Respondiendo a{' '}
+                  <span className="text-foreground/90">
+                    @{(replyTo.profiles?.username || replyTo.profiles?.display_name || 'usuario').replace(/^@/, '')}
+                  </span>
+                </p>
+                <p className="text-muted-foreground line-clamp-1 text-xs">{replyTo.body.slice(0, 120)}</p>
+              </div>
+              <button
+                type="button"
+                className="lux-icon-button text-muted-foreground hover:bg-muted/50 shrink-0 rounded-md p-1 transition-colors hover:text-foreground"
+                onClick={() => setReplyingToMessage(null)}
+                title="Cancelar respuesta"
+              >
+                <X className={cn(luxIconMessage, 'size-4')} strokeWidth={LUX_ICON_STROKE} />
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className={CHAT_COMPOSER_DOCK}>
           <form onSubmit={handleSubmit} className="flex w-full min-w-0 items-center gap-2">
-            <div className={CHAT_COMPOSER_SHELL}>
+            <div className={cn(CHAT_COMPOSER_SHELL, 'gap-2')}>
+              <ComposerAttachmentButton
+                onFileSelected={handleAttachment}
+                disabled={!accessToken || isPosting || isUploading}
+              />
               <Input
                 ref={inputRef}
                 className={CHAT_COMPOSER_INPUT}
-                placeholder={replyTo ? 'Escribe tu respuesta…' : 'Escribir mensaje privado…'}
+                placeholder={
+                  isUploading
+                    ? 'Subiendo archivo…'
+                    : replyTo
+                      ? 'Escribe tu respuesta…'
+                      : 'Escribir mensaje privado…'
+                }
                 value={draft}
                 onChange={(e) => {
                   setDraftBody(dmChannelId, e.target.value)
                   reportTyping()
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Escape' && replyTo) setDraftReply(dmChannelId, null)
+                  if (e.key === 'Escape' && replyTo) setReplyingToMessage(null)
                 }}
                 maxLength={1000}
-                disabled={sending || !accessToken}
+                disabled={!accessToken || isUploading}
                 autoComplete="off"
                 aria-label="Mensaje"
               />
+              {isUploading && uploadProgress > 0 && uploadProgress < 100 ? (
+                <span className="text-muted-foreground w-8 shrink-0 text-[0.65rem] tabular-nums" aria-hidden>
+                  {uploadProgress}%
+                </span>
+              ) : null}
             </div>
             <Button
               type="submit"
               size="icon"
               className={cn(CHAT_COMPOSER_SEND_BUTTON, 'lux-icon-button')}
-              disabled={sending || !draft.trim() || !accessToken}
+              disabled={isPosting || isUploading || !draft.trim() || !accessToken}
             >
-              {sending ? (
+              {isPosting || isUploading ? (
                 <Loader2 className={cn(luxIconMessage, 'size-4 animate-spin')} strokeWidth={LUX_ICON_STROKE} aria-hidden />
               ) : (
                 <Send className={cn(luxIconMessage, 'size-4')} strokeWidth={LUX_ICON_STROKE} aria-hidden />

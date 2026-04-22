@@ -1,11 +1,16 @@
 import { memo, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { CornerUpLeft, Pencil, Reply, Smile, Trash2, X } from 'lucide-react'
+import { FileText, Pencil, Reply, Smile, Trash2, X } from 'lucide-react'
 import { apiDeleteJson, apiPatchJson, apiPostJson } from '@/lib/api'
 import { formatMessageTime } from '@/lib/formatMessageTime'
+import { isMediaPlaceholderBody } from '@/lib/messageBodyUtils'
+import { isOptimisticMessageId } from '@/lib/optimisticMessage'
 import { LUX_ICON_STROKE, luxIconMessage, luxIconSm } from '@/lib/luxIcon'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/useAppStore'
 import type { ChannelMessage } from '@/types/models'
+import { firstHttpUrlInText } from '@/lib/extractFirstHttpUrl'
+import { LinkPreview } from '@/components/chat/LinkPreview'
+import { RichTextRenderer } from '@/components/chat/RichTextRenderer'
 
 const QUICK_EMOJIS = ['👍', '❤️', '😂', '🔥', '👀', '🎉', '✅', '😮']
 
@@ -33,21 +38,158 @@ function looksLikeImageUrl(text: string): boolean {
   }
 }
 
-function MessageAttachment({ msg }: { msg: ChannelMessage }) {
-  const fromMedia = msg.media_data && msg.media_mime?.startsWith('image/') ? msg.media_data : null
+function MessageMediaBlock({ msg }: { msg: ChannelMessage }) {
   const body = msg.body.trim()
-  const fromBody = !fromMedia && body && looksLikeImageUrl(body) ? body : null
-  const src = fromMedia || fromBody
-  if (!src) return null
+  if (msg.media_data && msg.media_mime?.startsWith('image/')) {
+    return (
+      <a
+        href={msg.media_data}
+        target="_blank"
+        rel="noreferrer"
+        className="border-border/60 bg-muted/25 mt-2 block w-fit max-w-sm overflow-hidden rounded-md border shadow-[inset_0_1px_0_0_oklch(1_0_0/0.06)] transition-[border-color,box-shadow] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:border-primary/20"
+      >
+        <img
+          src={msg.media_data}
+          alt=""
+          className="max-h-80 w-full object-contain"
+          loading="lazy"
+        />
+      </a>
+    )
+  }
+  if (
+    msg.media_data &&
+    (msg.media_mime === 'application/pdf' || /\.pdf$/i.test((msg.media_name || '').trim()))
+  ) {
+    const label = (msg.media_name || 'documento.pdf').trim() || 'documento.pdf'
+    return (
+      <div className="border-border/60 bg-muted/50 mt-2 flex min-w-0 max-w-sm items-center gap-2.5 rounded-md border px-3 py-2.5 shadow-[inset_0_1px_0_0_oklch(1_0_0/0.04)]">
+        <FileText
+          className={cn(luxIconMessage, 'text-muted-foreground shrink-0')}
+          strokeWidth={LUX_ICON_STROKE}
+          aria-hidden
+        />
+        <span className="min-w-0 flex-1 truncate text-sm text-foreground/90" title={label}>
+          {label}
+        </span>
+        <a
+          href={msg.media_data}
+          target="_blank"
+          rel="noreferrer"
+          className="text-primary hover:text-primary/90 shrink-0 text-xs font-medium underline-offset-2 hover:underline"
+          download
+        >
+          Descargar
+        </a>
+      </div>
+    )
+  }
+  if (!msg.media_data && body && looksLikeImageUrl(body)) {
+    return (
+      <a
+        href={body}
+        target="_blank"
+        rel="noreferrer"
+        className="border-border/60 bg-muted/25 mt-2 block w-fit max-w-sm overflow-hidden rounded-md border shadow-[inset_0_1px_0_0_oklch(1_0_0/0.06)] transition-[border-color,box-shadow] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:border-primary/20"
+      >
+        <img src={body} alt="" className="max-h-80 w-full object-contain" loading="lazy" />
+      </a>
+    )
+  }
+  return null
+}
+
+/**
+ * Cita con estilo Discord: conector L (border), mini-avatar, @usuario, snippet
+ * inmediatamente **encima** de la fila de nombre/hora del mensaje actual.
+ */
+function DiscordReplyCitation({
+  target,
+  align = 'left',
+}: {
+  target: ChannelMessage
+  align?: 'left' | 'right'
+}) {
+  const uname = (target.profiles?.username || target.profiles?.display_name || 'usuario')
+    .trim()
+    .replace(/^@/, '')
+  const replySnippetText =
+    target.body.length > 100 ? `${target.body.slice(0, 100)}…` : target.body
+
+  if (align === 'right') {
+    return (
+      <div
+        className="relative z-0 mb-1.5 w-full min-w-0 pl-0.5 text-right"
+        role="note"
+        aria-label={`En respuesta a @${uname}`}
+      >
+        <div
+          className="pointer-events-none absolute top-1.5 right-0.5 h-4 w-6 border-r-2 border-t-2 border-muted-foreground/50 rounded-tr-md"
+          aria-hidden
+        />
+        <div
+          className="group/cite flex min-w-0 cursor-pointer flex-row-reverse items-center justify-end gap-2 pr-8 text-xs text-muted-foreground transition-colors duration-200 hover:text-foreground"
+          role="button"
+          tabIndex={0}
+        >
+          <div className="line-clamp-1 min-w-0 flex-1 pl-1 text-right">
+            <RichTextRenderer
+              content={replySnippetText}
+              variant="reply"
+              className="!text-muted-foreground/90 transition-colors [color:unset] group-hover/cite:!text-foreground [&_p]:!text-inherit"
+            />
+          </div>
+          <span className="shrink-0 font-semibold">
+            @{uname}
+          </span>
+          <div
+            className={cn(
+              'flex size-4 shrink-0 items-center justify-center overflow-hidden rounded-full text-[0.5rem] font-semibold',
+              'bg-muted/70 text-muted-foreground ring-1 ring-border/50',
+            )}
+          >
+            {authorInitials(target)}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <a
-      href={src}
-      target="_blank"
-      rel="noreferrer"
-      className="border-border/60 bg-muted/25 mt-2 block max-w-md overflow-hidden rounded-[0.75rem] border shadow-[inset_0_1px_0_0_oklch(1_0_0/0.06)] transition-[border-color,box-shadow] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] hover:border-primary/20"
+    <div
+      className="relative z-0 mb-1.5 w-full min-w-0 pl-0.5"
+      role="note"
+      aria-label={`En respuesta a @${uname}`}
     >
-      <img src={src} alt="" className="max-h-80 w-full object-contain" loading="lazy" />
-    </a>
+      <div
+        className="pointer-events-none absolute top-1.5 left-0.5 h-4 w-6 border-l-2 border-t-2 border-muted-foreground/50 rounded-tl-md"
+        aria-hidden
+      />
+      <div
+        className="group/cite flex min-w-0 cursor-pointer items-center gap-2 pl-8 text-xs text-muted-foreground transition-colors duration-200 hover:text-foreground"
+        role="button"
+        tabIndex={0}
+      >
+        <div
+          className={cn(
+            'flex size-4 shrink-0 items-center justify-center overflow-hidden rounded-full text-[0.5rem] font-semibold',
+            'bg-muted/70 text-muted-foreground ring-1 ring-border/50',
+          )}
+        >
+          {authorInitials(target)}
+        </div>
+        <span className="shrink-0 font-semibold">
+          @{uname}
+        </span>
+        <div className="line-clamp-1 min-w-0 flex-1 text-left">
+          <RichTextRenderer
+            content={replySnippetText}
+            variant="reply"
+            className="!text-muted-foreground/90 transition-colors [color:unset] group-hover/cite:!text-foreground [&_p]:!text-inherit"
+          />
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -75,6 +217,8 @@ export interface MessageItemProps {
 export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick, onReply, replyTarget }: MessageItemProps) {
   const userId = useAppStore((s) => s.userId)
   const accessToken = useAppStore((s) => s.accessToken)
+  const isPending = isOptimisticMessageId(msg.id) || msg.localStatus === 'sending'
+  const isFailed = msg.localStatus === 'failed'
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState('')
@@ -88,6 +232,28 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
   const bodyIsOnlyImageUrl = useMemo(
     () => Boolean(bodyTrimmed) && looksLikeImageUrl(bodyTrimmed) && !msg.media_data,
     [bodyTrimmed, msg.media_data],
+  )
+
+  const linkPreviewUrl = useMemo(
+    () => (!editing && !bodyIsOnlyImageUrl ? firstHttpUrlInText(msg.body) : null),
+    [editing, bodyIsOnlyImageUrl, msg.body],
+  )
+
+  const showRichText = useMemo(
+    () =>
+      !bodyIsOnlyImageUrl &&
+      !(isMediaPlaceholderBody(bodyTrimmed) && Boolean(msg.media_data)),
+    [bodyIsOnlyImageUrl, bodyTrimmed, msg.media_data],
+  )
+
+  /** Burbuja “solo imagen” a pantalla: URL legacy, o placeholder [imagen] con adjunto. */
+  const compactImageBubble = useMemo(
+    () =>
+      bodyIsOnlyImageUrl ||
+      (isMediaPlaceholderBody(bodyTrimmed) &&
+        Boolean(msg.media_data) &&
+        (msg.media_mime?.startsWith('image/') || msg.message_type === 'image')),
+    [bodyIsOnlyImageUrl, bodyTrimmed, msg.media_data, msg.media_mime, msg.message_type],
   )
 
   const reactions = msg.reactions
@@ -111,7 +277,7 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
   const keepActionBarVisible = emojiPickerOpen || confirmDelete
 
   async function handleReaction(emoji: string) {
-    if (!accessToken || !supportsReactions) return
+    if (!accessToken || !supportsReactions || isPending) return
     setEmojiPickerOpen(false)
     const prev = [...(reactions ?? [])]
     const hasOwn = prev.some((r) => r.userId === userId && r.emoji === emoji)
@@ -127,6 +293,7 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
   }
 
   function startEdit() {
+    if (isPending || isFailed) return
     setEditText(msg.body)
     setEditing(true)
     setTimeout(() => editInputRef.current?.focus(), 0)
@@ -162,6 +329,11 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
   }
 
   async function handleDelete() {
+    if (isOptimisticMessageId(msg.id)) {
+      removeMsg(msg.id)
+      setConfirmDelete(false)
+      return
+    }
     if (!accessToken) return
     removeMsg(msg.id)
     setConfirmDelete(false)
@@ -170,36 +342,16 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
     } catch { /* Realtime will reconcile */ }
   }
 
-  const replyToSnippet = replyTarget ? (
-    <div
-      className={cn(
-        'lux-reply-line mb-3.5 flex min-w-0 items-start gap-2.5 pl-3.5 text-left text-[0.8125rem] text-muted-foreground/75',
-        isDm && isOwn && 'opacity-95',
-      )}
-    >
-      <CornerUpLeft
-        className={cn('lux-icon mt-0.5 size-3.5 shrink-0 opacity-55', 'group-hover/msg:opacity-90')}
-        strokeWidth={LUX_ICON_STROKE}
-        aria-hidden
-      />
-      <div className="min-w-0 space-y-0.5">
-        <span className="font-medium text-foreground/80">{authorName(replyTarget)}</span>
-        <p className="min-w-0 break-words text-[0.8rem] leading-snug text-muted-foreground/70">
-          {replyTarget.body.slice(0, 100)}
-          {replyTarget.body.length > 100 ? '…' : ''}
-        </p>
-      </div>
-    </div>
-  ) : null
-
   return (
     <article
       className={cn(
         'group/msg relative flex w-full max-w-full flex-col rounded-lg px-2 py-1.5',
-        'transition-[background-color,box-shadow] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]',
-        isDm ? 'px-0 py-2.5 sm:px-1' : 'hover:bg-foreground/[0.018]',
-        isDm && !isOwn && 'hover:bg-foreground/[0.012]',
-        isDm && isOwn && 'hover:bg-foreground/[0.01]',
+        'transition-[background-color,box-shadow,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]',
+        (isPending || isFailed) && 'opacity-80',
+        isFailed && 'ring-destructive/35 ring-1',
+        isDm ? 'px-0 py-2.5 sm:px-1' : 'hover:bg-muted/20',
+        isDm && !isOwn && 'hover:bg-muted/15',
+        isDm && isOwn && 'hover:bg-muted/12',
         isDm && isOwn && 'items-end',
         isDm && !isOwn && 'items-start',
       )}
@@ -208,25 +360,6 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
         setConfirmDelete(false)
       }}
     >
-      {replyTarget && !isDm ? (
-        <div
-          className="lux-reply-line mb-3.5 ml-0.5 flex min-w-0 max-w-full items-baseline gap-2 pl-3.5"
-        >
-          <CornerUpLeft
-            className="lux-icon size-3 shrink-0 self-center opacity-50 group-hover/msg:opacity-80"
-            strokeWidth={LUX_ICON_STROKE}
-            aria-hidden
-          />
-          <div className="min-w-0 flex-1 space-y-0.5 text-[0.6875rem]">
-            <span className="block font-medium text-foreground/75">{authorName(replyTarget)}</span>
-            <p className="line-clamp-2 text-muted-foreground/65">
-            {replyTarget.body.slice(0, 100)}
-            {replyTarget.body.length > 100 ? '…' : ''}
-            </p>
-          </div>
-        </div>
-      ) : null}
-
       {isDm ? (
         isOwn ? (
           <div className="flex w-full min-w-0 max-w-full justify-end">
@@ -253,53 +386,63 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
                   </button>
                 </div>
               ) : (
-                <div
+                <div className="w-full min-w-0">
+                  {replyTarget ? <DiscordReplyCitation target={replyTarget} align="right" /> : null}
+                  <div
                   className={cn(
                     'w-full min-w-0 text-left',
                     'rounded-[1.05rem] rounded-tr-[0.55rem] border border-primary/25 bg-primary/12 text-foreground',
                     'shadow-[inset_0_1px_0_0_oklch(1_0_0/0.12),0_0_0_1px_oklch(0.62_0.12_280/0.08)]',
-                    !bodyIsOnlyImageUrl ? 'px-4 py-3' : 'overflow-hidden p-0',
+                    !compactImageBubble ? 'px-4 py-3' : 'overflow-hidden p-0',
                   )}
                 >
-                  {replyToSnippet && bodyIsOnlyImageUrl ? (
-                    <div className="px-3.5 pt-2.5">{replyToSnippet}</div>
+                  {showRichText ? (
+                    <RichTextRenderer content={msg.body} className="mt-0 first:[&_p]:mt-0" />
                   ) : null}
-                  {replyToSnippet && !bodyIsOnlyImageUrl ? replyToSnippet : null}
-                  {bodyIsOnlyImageUrl ? null : (
-                    <p className="text-foreground/95 mt-0 whitespace-pre-wrap break-words text-[0.9375rem] leading-[1.64] first:mt-0">
-                      {msg.body}
-                    </p>
-                  )}
-                  <div className={cn('min-w-0', bodyIsOnlyImageUrl && 'p-0', '[&>a]:mt-0')}>
-                    <MessageAttachment msg={msg} />
+                  <div className="min-w-0 [&>a]:mt-0">
+                    <MessageMediaBlock msg={msg} />
                   </div>
+                  {linkPreviewUrl ? <LinkPreview key={`${msg.id}-pv`} url={linkPreviewUrl} /> : null}
                   <div
                     className={cn(
                       'flex flex-wrap items-center justify-end gap-x-1.5 gap-y-0 text-sm text-muted-foreground',
-                      bodyIsOnlyImageUrl ? 'px-3 pb-2.5 pt-1.5' : 'mt-1.5',
+                      compactImageBubble ? 'px-3 pb-2.5 pt-1.5' : 'mt-1.5',
                     )}
                   >
                     <time dateTime={msg.created_at} title={new Date(msg.created_at).toLocaleString('es')}>
                       {formatMessageTime(msg.created_at)}
                     </time>
                     {msg.edited_at ? <span className="opacity-80">(editado)</span> : null}
+                    {isPending || isFailed ? (
+                      <span
+                        className={cn('text-[0.65rem] font-medium', isFailed ? 'text-destructive' : 'text-muted-foreground')}
+                      >
+                        {isFailed ? 'No enviado' : 'Enviando…'}
+                      </span>
+                    ) : null}
                   </div>
+                </div>
                 </div>
               )}
             </div>
           </div>
         ) : (
-          <div className="flex w-full min-w-0 max-w-full items-end gap-3.5">
+          <div className="flex w-full min-w-0 max-w-full items-start gap-3.5">
             <div
-              className={cn(
-                'lux-avatar flex size-10 shrink-0 items-center justify-center text-sm font-semibold',
-                'bg-primary/12 text-primary',
-              )}
-              aria-hidden
+              className={cn('flex w-10 shrink-0 justify-center', replyTarget && 'pt-6')}
             >
-              {authorInitials(msg)}
+              <div
+                className={cn(
+                  'lux-avatar flex size-10 items-center justify-center text-sm font-semibold',
+                  'bg-primary/12 text-primary',
+                )}
+                aria-hidden
+              >
+                {authorInitials(msg)}
+              </div>
             </div>
             <div className="min-w-0 flex-1">
+              {replyTarget ? <DiscordReplyCitation target={replyTarget} align="left" /> : null}
               <header className="mb-2.5 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 pl-0.5">
                 <button
                   type="button"
@@ -316,6 +459,13 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
                   {formatMessageTime(msg.created_at)}
                 </time>
                 {msg.edited_at ? <span className="text-[0.65rem] text-muted-foreground/80">(editado)</span> : null}
+                {isPending || isFailed ? (
+                  <span
+                    className={cn('text-[0.65rem] font-medium', isFailed ? 'text-destructive' : 'text-muted-foreground')}
+                  >
+                    {isFailed ? 'No enviado' : 'Enviando…'}
+                  </span>
+                ) : null}
               </header>
               {editing ? (
                 <div className="bg-muted/90 border-border flex w-full min-w-0 max-w-full items-center gap-2 rounded-2xl rounded-tl-md border px-3 py-2.5">
@@ -343,24 +493,18 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
                   className={cn(
                     'max-w-full border border-border/70 bg-muted/50 text-foreground',
                     'rounded-[1.05rem] rounded-tl-[0.55rem] shadow-[inset_0_1px_0_0_oklch(1_0_0/0.06)]',
-                    bodyIsOnlyImageUrl && !replyToSnippet
+                    compactImageBubble && !replyTarget
                       ? 'overflow-hidden p-0'
                       : 'px-4 py-3',
                   )}
                 >
-                  {replyToSnippet && bodyIsOnlyImageUrl ? (
-                    <div className="px-3.5 pt-2.5">{replyToSnippet}</div>
-                  ) : (
-                    replyToSnippet
-                  )}
-                  {bodyIsOnlyImageUrl ? null : (
-                    <p className="text-foreground/95 mt-0 whitespace-pre-wrap break-words text-[0.9375rem] leading-[1.64]">
-                      {msg.body}
-                    </p>
-                  )}
+                  {showRichText ? (
+                    <RichTextRenderer content={msg.body} className="mt-0 first:[&_p]:mt-0" />
+                  ) : null}
                   <div className="min-w-0 [&>a]:mt-0">
-                    <MessageAttachment msg={msg} />
+                    <MessageMediaBlock msg={msg} />
                   </div>
+                  {linkPreviewUrl ? <LinkPreview key={`${msg.id}-pv`} url={linkPreviewUrl} /> : null}
                 </div>
               )}
             </div>
@@ -369,16 +513,21 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
       ) : (
         <div className="flex w-full min-w-0 gap-3.5">
           <div
-            className={cn(
-              'lux-avatar flex size-10 shrink-0 items-center justify-center text-xs font-semibold',
-              'bg-primary/12 text-primary',
-            )}
-            aria-hidden
+            className={cn('flex w-10 shrink-0 justify-center', replyTarget && 'pt-6')}
           >
-            {authorInitials(msg)}
+            <div
+              className={cn(
+                'lux-avatar flex size-10 items-center justify-center text-xs font-semibold',
+                'bg-primary/12 text-primary',
+              )}
+              aria-hidden
+            >
+              {authorInitials(msg)}
+            </div>
           </div>
 
           <div className="min-w-0 flex-1">
+            {replyTarget ? <DiscordReplyCitation target={replyTarget} align="left" /> : null}
             <header className="mb-2 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
               <button
                 type="button"
@@ -396,6 +545,13 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
               </time>
               {msg.edited_at ? (
                 <span className="text-[0.6rem] text-muted-foreground/75">(editado)</span>
+              ) : null}
+              {isPending || isFailed ? (
+                <span
+                  className={cn('text-[0.6rem] font-medium', isFailed ? 'text-destructive' : 'text-muted-foreground')}
+                >
+                  {isFailed ? 'No enviado' : 'Enviando…'}
+                </span>
               ) : null}
             </header>
 
@@ -422,16 +578,20 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
               </div>
             ) : (
               <>
-                {bodyIsOnlyImageUrl ? null : (
-                  <p className="text-foreground/95 max-w-[min(100%,65ch)] text-pretty whitespace-pre-wrap break-words text-[0.875rem] leading-[1.64]">
-                    {msg.body}
-                  </p>
-                )}
-                <MessageAttachment msg={msg} />
+                {showRichText ? (
+                  <RichTextRenderer
+                    content={msg.body}
+                    className="max-w-[min(100%,65ch)] text-pretty text-[0.875rem] [&_p]:text-pretty"
+                  />
+                ) : null}
+                <div className="min-w-0 max-w-full">
+                  <MessageMediaBlock msg={msg} />
+                </div>
+                {linkPreviewUrl ? <LinkPreview key={`${msg.id}-pv`} url={linkPreviewUrl} /> : null}
               </>
             )}
 
-            {grouped.length > 0 && !editing && supportsReactions ? (
+            {grouped.length > 0 && !editing && supportsReactions && !isPending ? (
               <div className="mt-1.5 flex flex-wrap gap-1">
                 {grouped.map((g) => (
                   <button
@@ -463,32 +623,32 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
         </div>
       )}
 
-      {!editing ? (
+      {!editing && !isPending ? (
         <div
           className={cn(
-            'absolute -top-2.5 z-10 flex items-center gap-0.5 rounded-md border border-white/[0.08] bg-card/80 px-1 py-0.5',
-            'shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06),0_2px_12px_rgba(0,0,0,0.2)]',
+            'border-border/80 bg-card/85 absolute -top-2.5 z-10 flex items-center gap-0.5 rounded-md border px-1 py-0.5',
+            'shadow-[inset_0_1px_0_0_color-mix(in_oklch,var(--foreground)_6%,transparent),0_2px_12px_rgba(0,0,0,0.2)]',
             'translate-y-0.5 opacity-0 pointer-events-none backdrop-blur-sm transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]',
             'group-hover/msg:translate-y-0 group-hover/msg:opacity-100 group-hover/msg:pointer-events-auto',
             keepActionBarVisible && 'translate-y-0 opacity-100 pointer-events-auto',
             isDm && isOwn ? 'left-2 right-auto' : 'right-2',
           )}
         >
-          {supportsReactions ? (
+          {supportsReactions && !isFailed ? (
             <button
               type="button"
               onClick={() => setEmojiPickerOpen((p) => !p)}
-              className="inline-flex size-7 items-center justify-center rounded-[0.3rem] text-muted-foreground transition-[background-color,color,transform,opacity] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-foreground/[0.07] hover:text-foreground active:scale-[0.95]"
+              className="inline-flex size-7 items-center justify-center rounded-[0.3rem] text-muted-foreground transition-[background-color,color,transform,opacity] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-muted/45 hover:text-foreground active:scale-[0.95]"
               title="Reaccionar"
             >
               <Smile className={cn(luxIconMessage, 'text-muted-foreground/90')} strokeWidth={LUX_ICON_STROKE} />
             </button>
           ) : null}
-          {onReply ? (
+          {onReply && !isFailed ? (
             <button
               type="button"
               onClick={() => onReply(msg)}
-              className="inline-flex size-7 items-center justify-center rounded-[0.3rem] text-muted-foreground transition-[background-color,color,transform,opacity] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-foreground/[0.07] hover:text-foreground active:scale-[0.95]"
+              className="inline-flex size-7 items-center justify-center rounded-[0.3rem] text-muted-foreground transition-[background-color,color,transform,opacity] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-muted/45 hover:text-foreground active:scale-[0.95]"
               title="Responder"
             >
               <Reply className={cn(luxIconMessage, 'text-muted-foreground/90')} strokeWidth={LUX_ICON_STROKE} />
@@ -496,14 +656,16 @@ export const MessageItem = memo(function MessageItem({ msg, isDm, onAuthorClick,
           ) : null}
           {isOwn ? (
             <>
-              <button
-                type="button"
-                onClick={startEdit}
-                className="inline-flex size-7 items-center justify-center rounded-[0.3rem] text-muted-foreground transition-[background-color,color,transform,opacity] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-foreground/[0.07] hover:text-foreground active:scale-[0.95]"
-                title="Editar"
-              >
-                <Pencil className={cn(luxIconMessage, 'text-muted-foreground/90')} strokeWidth={LUX_ICON_STROKE} />
-              </button>
+              {!isFailed ? (
+                <button
+                  type="button"
+                  onClick={startEdit}
+                  className="inline-flex size-7 items-center justify-center rounded-[0.3rem] text-muted-foreground transition-[background-color,color,transform,opacity] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-muted/45 hover:text-foreground active:scale-[0.95]"
+                  title="Editar"
+                >
+                  <Pencil className={cn(luxIconMessage, 'text-muted-foreground/90')} strokeWidth={LUX_ICON_STROKE} />
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => setConfirmDelete(true)}

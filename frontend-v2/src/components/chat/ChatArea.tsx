@@ -1,10 +1,19 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Hash, Loader2, Send, X } from 'lucide-react'
+import { toast } from 'sonner'
 import { appendChannelMessageFromPostResponse } from '@/hooks/useChannelMessages'
 import { useTypingIndicator } from '@/hooks/useTypingIndicator'
-import { apiPostJson } from '@/lib/api'
-import { MessageItem } from '@/components/chat/MessageItem'
+import { apiGetJson, apiPostJson } from '@/lib/api'
+import {
+  isAllowedComposerMime,
+  MAX_COMPOSER_ATTACHMENT_BYTES,
+} from '@/lib/attachmentConstants'
+import { oldestPersistedMessage } from '@/lib/messagePagination'
+import { uploadFileToMessagesMedia } from '@/lib/uploadMessagesMedia'
 import { MessageSkeleton } from '@/components/chat/MessageSkeleton'
+import { VirtualizedMessageList } from '@/components/chat/VirtualizedMessageList'
+import { ComposerAttachmentButton } from '@/components/chat/ComposerAttachmentButton'
+import { TypingIndicator } from '@/components/chat/TypingIndicator'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -14,14 +23,15 @@ import {
   CHAT_COMPOSER_SHELL,
 } from '@/lib/chatComposer'
 import { LUX_ICON_STROKE, luxIconMessage } from '@/lib/luxIcon'
+import { makeOptimisticChannelMessage } from '@/lib/optimisticMessage'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/useAppStore'
-import type { ChannelMessage } from '@/types/models'
+import type { ChannelMessage, ChannelMessagesResponse } from '@/types/models'
 
 // Array compartido para evitar nueva referencia cuando no hay mensajes cacheados;
 // así el selector devuelve la misma instancia y no dispara re-renders.
 const EMPTY_MESSAGES: ChannelMessage[] = []
-const EMPTY_DRAFT = { body: '', replyToId: null as string | null }
+const EMPTY_DRAFT = { body: '' }
 
 export interface ChatAreaProps {
   channelId: string | null
@@ -69,14 +79,27 @@ export function ChatArea({ channelId, onAuthorClick }: ChatAreaProps) {
     channelId ? s.drafts[channelId] ?? EMPTY_DRAFT : EMPTY_DRAFT,
   )
   const setDraftBody = useAppStore((s) => s.setDraftBody)
-  const setDraftReply = useAppStore((s) => s.setDraftReply)
   const clearDraft = useAppStore((s) => s.clearDraft)
-  const { typingUsers, reportTyping } = useTypingIndicator(channelId)
-  const [sending, setSending] = useState(false)
+  const replyingToMessage = useAppStore((s) => s.replyingToMessage)
+  const setReplyingToMessage = useAppStore((s) => s.setReplyingToMessage)
+  const userId = useAppStore((s) => s.userId)
+  const profile = useAppStore((s) => s.profile)
+  const appendChannelMessage = useAppStore((s) => s.appendChannelMessage)
+  const updateMessage = useAppStore((s) => s.updateMessage)
+  const hasMoreOlder = useAppStore((s) =>
+    channelId ? s.messagesHasMoreByChannel[channelId] === true : false,
+  )
+  const loadingOlder = useAppStore((s) =>
+    channelId ? s.messagesLoadingOlderByChannel[channelId] ?? false : false,
+  )
+  const readBaselineAt = useAppStore((s) =>
+    channelId ? s.viewEnterReadBaseline[channelId] ?? null : null,
+  )
+  const { reportTyping, stopTyping } = useTypingIndicator(channelId)
+  const [isPosting, setIsPosting] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
   const [sendError, setSendError] = useState<string | null>(null)
-  const endRef = useRef<HTMLDivElement>(null)
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const isNearBottomRef = useRef(true)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const messagesById = useMemo(() => {
@@ -86,54 +109,140 @@ export function ChatArea({ channelId, onAuthorClick }: ChatAreaProps) {
   }, [messages])
 
   const draft = draftEntry.body
-  const replyTo: ChannelMessage | null = draftEntry.replyToId
-    ? messagesById.get(draftEntry.replyToId) ?? null
-    : null
+  const replyTo: ChannelMessage | null =
+    replyingToMessage?.channel_id === channelId ? replyingToMessage : null
 
   const activeChannel = channelId ? channels.find((c) => c.id === channelId) : undefined
   const channelName = activeChannel?.name?.trim() || 'canal'
 
-  const handleScroll = useCallback(() => {
-    const el = scrollContainerRef.current
-    if (!el) return
-    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
-  }, [])
-
-  useLayoutEffect(() => {
-    if (isNearBottomRef.current) {
-      endRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
-  }, [messages])
-
-  useLayoutEffect(() => {
-    isNearBottomRef.current = true
-    endRef.current?.scrollIntoView({ behavior: 'instant' })
-  }, [channelId])
-
-  // Reset de error al cambiar de canal (el draft y replyTo viven en el store
-  // y son específicos de cada canal, así que no hay que limpiarlos).
+  // Reset de error al cambiar de canal (el draft vive en el store por canal).
   useEffect(() => {
     setSendError(null)
   }, [channelId])
 
-  // Si la respuesta citada ya no está en la cache (p. ej. el mensaje se borró
-  // o se paginó fuera), cancelamos la respuesta para no enviar un
-  // `parentMessageId` inválido.
   useEffect(() => {
     if (!channelId) return
-    if (draftEntry.replyToId && !messagesById.has(draftEntry.replyToId)) {
-      setDraftReply(channelId, null)
-    }
-  }, [channelId, draftEntry.replyToId, messagesById, setDraftReply])
+    const r = useAppStore.getState().replyingToMessage
+    if (r && r.channel_id !== channelId) setReplyingToMessage(null)
+  }, [channelId, setReplyingToMessage])
+
+  useEffect(() => {
+    if (!channelId || !replyTo) return
+    if (!messagesById.has(replyTo.id)) setReplyingToMessage(null)
+  }, [channelId, replyTo, messagesById, setReplyingToMessage])
 
   const handleReply = useCallback(
     (msg: ChannelMessage) => {
-      if (!channelId) return
-      setDraftReply(channelId, msg.id)
+      setReplyingToMessage(msg)
       inputRef.current?.focus()
     },
-    [channelId, setDraftReply],
+    [setReplyingToMessage],
   )
+
+  const handleAttachment = useCallback(
+    async (file: File) => {
+      if (!channelId || !accessToken || isUploading || isPosting) return
+      if (file.size > MAX_COMPOSER_ATTACHMENT_BYTES) {
+        toast.error('El archivo supera 5 MB.')
+        return
+      }
+      if (!isAllowedComposerMime(file.type, file.name)) {
+        toast.error('Solo imágenes o PDF.')
+        return
+      }
+      stopTyping()
+      setSendError(null)
+      const caption = draft.trim()
+      const parentId = replyTo?.id ?? null
+      const messageType: 'image' | 'file' = file.type.startsWith('image/') ? 'image' : 'file'
+      const placeholderBody =
+        caption || (messageType === 'image' ? '[imagen]' : '[archivo]')
+      const previewUrl = URL.createObjectURL(file)
+      const opt = makeOptimisticChannelMessage(
+        channelId,
+        userId,
+        placeholderBody,
+        profile,
+        parentId,
+        {
+          messageType,
+          mediaData: previewUrl,
+          mediaMime: file.type || 'application/octet-stream',
+          mediaName: file.name,
+        },
+      )
+      appendChannelMessage(channelId, opt)
+      setIsUploading(true)
+      setUploadProgress(0)
+      try {
+        const { url } = await uploadFileToMessagesMedia(file, accessToken, setUploadProgress)
+        const created = await apiPostJson<Record<string, unknown>>(
+          '/api/messages',
+          accessToken,
+          {
+            channelId,
+            text: caption,
+            messageType,
+            mediaUrl: url,
+            mediaMime: file.type || undefined,
+            mediaName: file.name,
+            ...(parentId ? { parentMessageId: parentId } : {}),
+          },
+        )
+        URL.revokeObjectURL(previewUrl)
+        appendChannelMessageFromPostResponse(channelId, created)
+        clearDraft(channelId)
+        setReplyingToMessage(null)
+      } catch (err) {
+        URL.revokeObjectURL(previewUrl)
+        updateMessage(opt.id, { localStatus: 'failed' })
+        const msg = (err as Error).message || 'No se pudo subir o enviar'
+        setSendError(msg)
+        toast.error(msg)
+      } finally {
+        setIsUploading(false)
+        setUploadProgress(0)
+      }
+    },
+    [
+      accessToken,
+      appendChannelMessage,
+      channelId,
+      clearDraft,
+      draft,
+      isPosting,
+      isUploading,
+      profile,
+      replyTo?.id,
+      setReplyingToMessage,
+      stopTyping,
+      updateMessage,
+      userId,
+    ],
+  )
+
+  const loadOlderMessages = useCallback(async () => {
+    if (!channelId || !accessToken) return
+    const st = useAppStore.getState()
+    const list = st.messagesByChannel[channelId] ?? []
+    if (!list.length) return
+    if (st.messagesHasMoreByChannel[channelId] !== true) return
+    if (st.messagesLoadingOlderByChannel[channelId]) return
+    const oldest = oldestPersistedMessage(list)
+    if (!oldest) return
+    st.setChannelMessagesLoadingOlder(channelId, true)
+    try {
+      const data = await apiGetJson<ChannelMessagesResponse>(
+        `/api/messages/${channelId}?limit=50&before=${encodeURIComponent(oldest.created_at)}`,
+        accessToken,
+      )
+      st.prependChannelMessages(channelId, data.messages ?? [], data.hasMore)
+    } catch {
+      /* reintento al volver al inicio del scroll */
+    } finally {
+      st.setChannelMessagesLoadingOlder(channelId, false)
+    }
+  }, [channelId, accessToken])
 
   if (!channelId) {
     return (
@@ -146,9 +255,14 @@ export function ChatArea({ channelId, onAuthorClick }: ChatAreaProps) {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     const text = draft.trim()
-    if (!text || !accessToken || sending || !channelId) return
+    if (!text || !accessToken || isPosting || isUploading || !channelId) return
+    stopTyping()
     setSendError(null)
-    setSending(true)
+    setIsPosting(true)
+    const parentId = replyTo?.id ?? null
+    const opt = makeOptimisticChannelMessage(channelId, userId, text, profile, parentId)
+    appendChannelMessage(channelId, opt)
+    clearDraft(channelId)
     try {
       const created = await apiPostJson<Record<string, unknown>>(
         '/api/messages',
@@ -157,24 +271,23 @@ export function ChatArea({ channelId, onAuthorClick }: ChatAreaProps) {
           channelId,
           text,
           messageType: 'text',
-          ...(replyTo ? { parentMessageId: replyTo.id } : {}),
+          ...(parentId ? { parentMessageId: parentId } : {}),
         },
       )
       appendChannelMessageFromPostResponse(channelId, created)
-      clearDraft(channelId)
+      setReplyingToMessage(null)
     } catch (err) {
+      updateMessage(opt.id, { localStatus: 'failed' })
       setSendError((err as Error).message || 'No se pudo enviar')
     } finally {
-      setSending(false)
+      setIsPosting(false)
     }
   }
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <div
-        ref={scrollContainerRef}
-        onScroll={handleScroll}
-        className="from-background flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-gradient-to-b via-background to-muted/8 px-3 pt-3 pb-0"
+        className="from-background flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-gradient-to-b via-background to-muted/8 px-3 pt-3 pb-0"
         role="log"
         aria-label="Mensajes del canal"
       >
@@ -191,90 +304,99 @@ export function ChatArea({ channelId, onAuthorClick }: ChatAreaProps) {
         ) : messages.length === 0 ? (
           <ChannelEmptyWelcome channelName={channelName} />
         ) : (
-          <ul className="space-y-px">
-            {messages.map((msg) => (
-              <li key={msg.id}>
-                <MessageItem
-                  msg={msg}
-                  onAuthorClick={onAuthorClick}
-                  onReply={handleReply}
-                  replyTarget={msg.parent_message_id ? messagesById.get(msg.parent_message_id) ?? null : null}
-                />
-              </li>
-            ))}
-          </ul>
+          <VirtualizedMessageList
+            listKey={channelId}
+            messages={messages}
+            messagesById={messagesById}
+            onReply={handleReply}
+            onAuthorClick={onAuthorClick}
+            isDm={false}
+            readBaselineAt={readBaselineAt}
+            hasMoreOlder={hasMoreOlder}
+            loadingOlder={loadingOlder}
+            onLoadOlder={loadOlderMessages}
+            className="min-h-0 w-full min-w-0 flex-1"
+          />
         )}
-        <div ref={endRef} aria-hidden />
       </div>
 
-      {(replyTo || typingUsers.length > 0 || sendError) && (
-        <div className="shrink-0 space-y-2 border-t border-white/[0.05] bg-foreground/[0.03] px-3 pt-2 pb-0 [box-shadow:inset_0_1px_0_0_rgba(255,255,255,0.03)]">
-          {replyTo ? (
-            <div
-              className="flex items-start gap-3 rounded-r-[10px] border border-white/[0.08] border-l-[0.5px] border-l-[color-mix(in_oklch,var(--muted-foreground)_50%,transparent)] bg-foreground/[0.045] py-2.5 pl-3.5 pr-2.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.03)]"
-            >
-              <div className="min-w-0 flex-1 space-y-1.5">
-                <p className="text-[0.65rem] font-medium uppercase tracking-[0.1em] text-muted-foreground/80">
-                  Respondiendo
-                </p>
-                <p className="text-xs font-medium text-foreground/85">
-                  {replyTo.profiles?.display_name || replyTo.profiles?.username || 'Usuario'}
-                </p>
-                <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground/70">{replyTo.body.slice(0, 140)}</p>
-              </div>
-              <button
-                type="button"
-                className="lux-icon-button text-muted-foreground mt-0.5 shrink-0 rounded-md p-1 transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
-                onClick={() => setDraftReply(channelId, null)}
-                title="Cancelar respuesta"
-              >
-                <X className={cn(luxIconMessage, 'size-4')} strokeWidth={LUX_ICON_STROKE} />
-              </button>
-            </div>
-          ) : null}
-          {typingUsers.length > 0 ? (
-            <p className="text-muted-foreground truncate text-xs animate-pulse">
-              {typingUsers.length === 1
-                ? `${typingUsers[0].username || 'Alguien'} está escribiendo…`
-                : `${typingUsers.map((u) => u.username || 'Alguien').join(', ')} están escribiendo…`}
-            </p>
-          ) : null}
-          {sendError ? (
-            <p className="text-destructive text-xs" role="alert">
-              {sendError}
-            </p>
-          ) : null}
+      {sendError ? (
+        <div className="border-border/60 bg-muted/20 shrink-0 border-t px-3 pt-2 [box-shadow:inset_0_1px_0_0_color-mix(in_oklch,var(--foreground)_4%,transparent)]">
+          <p className="text-destructive text-xs" role="alert">
+            {sendError}
+          </p>
         </div>
-      )}
+      ) : null}
+
+      <TypingIndicator channelId={channelId} />
+
+      {replyTo ? (
+        <div className="border-border/50 bg-card/30 shrink-0 border-t border-border/30 px-3 pt-2 pb-1.5 [box-shadow:inset_0_1px_0_0_color-mix(in_oklch,var(--foreground)_3%,transparent)]">
+          <div className="border-border/60 bg-muted/25 flex items-start gap-2.5 rounded-lg border px-3 py-2">
+            <div className="min-w-0 flex-1">
+              <p className="text-[0.65rem] font-medium text-muted-foreground/90">
+                Respondiendo a{' '}
+                <span className="text-foreground/90">
+                  @{(replyTo.profiles?.username || replyTo.profiles?.display_name || 'usuario').replace(/^@/, '')}
+                </span>
+              </p>
+              <p className="text-muted-foreground line-clamp-1 text-xs">{replyTo.body.slice(0, 120)}</p>
+            </div>
+            <button
+              type="button"
+              className="lux-icon-button text-muted-foreground hover:bg-muted/50 shrink-0 rounded-md p-1 transition-colors hover:text-foreground"
+              onClick={() => setReplyingToMessage(null)}
+              title="Cancelar respuesta"
+            >
+              <X className={cn(luxIconMessage, 'size-4')} strokeWidth={LUX_ICON_STROKE} />
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className={CHAT_COMPOSER_DOCK}>
         <form onSubmit={handleSubmit} className="flex w-full min-w-0 items-center gap-2">
-          <div className={CHAT_COMPOSER_SHELL}>
+          <div className={cn(CHAT_COMPOSER_SHELL, 'gap-2')}>
+            <ComposerAttachmentButton
+              onFileSelected={handleAttachment}
+              disabled={!accessToken || isPosting || isUploading}
+            />
             <Input
               ref={inputRef}
               className={CHAT_COMPOSER_INPUT}
-              placeholder={replyTo ? 'Escribe tu respuesta…' : 'Escribir en el canal…'}
+              placeholder={
+                isUploading
+                  ? 'Subiendo archivo…'
+                  : replyTo
+                    ? 'Escribe tu respuesta…'
+                    : 'Escribir en el canal…'
+              }
               value={draft}
               onChange={(e) => {
                 setDraftBody(channelId, e.target.value)
                 reportTyping()
               }}
               onKeyDown={(e) => {
-                if (e.key === 'Escape' && replyTo) setDraftReply(channelId, null)
+                if (e.key === 'Escape' && replyTo) setReplyingToMessage(null)
               }}
               maxLength={1000}
-              disabled={sending || !accessToken}
+              disabled={!accessToken || isUploading}
               autoComplete="off"
               aria-label="Mensaje"
             />
+            {isUploading && uploadProgress > 0 && uploadProgress < 100 ? (
+              <span className="text-muted-foreground w-8 shrink-0 text-[0.65rem] tabular-nums" aria-hidden>
+                {uploadProgress}%
+              </span>
+            ) : null}
           </div>
           <Button
             type="submit"
             size="icon"
             className={cn(CHAT_COMPOSER_SEND_BUTTON, 'lux-icon-button')}
-            disabled={sending || !draft.trim() || !accessToken}
+            disabled={isPosting || isUploading || !draft.trim() || !accessToken}
           >
-            {sending ? (
+            {isPosting || isUploading ? (
               <Loader2 className={cn(luxIconMessage, 'size-4 animate-spin')} strokeWidth={LUX_ICON_STROKE} aria-hidden />
             ) : (
               <Send className={cn(luxIconMessage, 'size-4')} strokeWidth={LUX_ICON_STROKE} aria-hidden />

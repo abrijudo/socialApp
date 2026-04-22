@@ -5,6 +5,7 @@ import { UserAccountFooter } from '@/components/layout/UserAccountFooter'
 import { VoiceSidebarDock } from '@/components/voice/VoiceSidebarDock'
 import { getSupabaseBrowserClient } from '@/lib/supabase'
 import { LUX_ICON_STROKE, luxIconSm } from '@/lib/luxIcon'
+import { isMessageNewerThanRead } from '@/lib/unreadUtils'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
@@ -75,6 +76,7 @@ export function DmSidebar() {
   const dmMessagesByChannel = useAppStore((s) => s.dmMessagesByChannel)
   const activeDmChannelId = useAppStore((s) => s.activeDmChannelId)
   const unreadCounts = useAppStore((s) => s.unreadCounts)
+  const lastReadTimestamps = useAppStore((s) => s.lastReadTimestamps)
   const setDmChannels = useAppStore((s) => s.setDmChannels)
   const setActiveDmChannelId = useAppStore((s) => s.setActiveDmChannelId)
   const friends = useAppStore((s) => s.friends)
@@ -158,10 +160,11 @@ export function DmSidebar() {
 
   return (
     <nav
+      data-testid="dm-sidebar-nav"
       className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden"
       aria-label="Mensajes directos"
     >
-      <header className="border-b border-white/[0.05] bg-foreground/[0.02] shadow-[inset_0_-1px_0_0_oklch(0_0_0/0.08)] flex h-12 shrink-0 items-center justify-between px-3 sm:px-4">
+      <header className="border-b border-border/80 bg-muted/25 shadow-[inset_0_-1px_0_0_oklch(0_0_0/0.08)] flex h-12 shrink-0 items-center justify-between px-3 sm:px-4">
         <div className="flex min-w-0 flex-1 items-center gap-3 pl-2">
           <span className="w-8 shrink-0" aria-hidden />
           <h1
@@ -228,7 +231,12 @@ export function DmSidebar() {
           <ul className="space-y-1 px-3 pt-2 pb-0">
             {dmChannelsNewestFirst.map((dm) => {
               const active = dm.id === activeDmChannelId
-              const unread = unreadCounts[dm.id] ?? 0
+              const count = unreadCounts[dm.id] ?? 0
+              const list = dmMessagesByChannel[dm.id]
+              const last = list?.[list.length - 1]
+              const derivedUnread =
+                !active && last != null && isMessageNewerThanRead(last.created_at, lastReadTimestamps[dm.id])
+              const showUnread = (count > 0 || derivedUnread) && !active
               const otherId = dm.otherUser?.user_id
               const presence = otherId ? onlineUsers[otherId] : undefined
               const isOnline = Boolean(presence)
@@ -237,6 +245,7 @@ export function DmSidebar() {
                 <li key={dm.id}>
                   <button
                     type="button"
+                    data-testid="dm-conversation-row"
                     onClick={() => {
                       setActiveDmChannelId(dm.id)
                       mobile?.setNavSheetOpen(false)
@@ -280,10 +289,17 @@ export function DmSidebar() {
                         </p>
                       ) : null}
                     </div>
-                    {unread > 0 && !active ? (
+                    {showUnread && count > 0 ? (
                       <span className="bg-destructive/90 text-destructive-foreground flex h-5 min-w-5 shrink-0 items-center justify-center self-center rounded-md px-1 text-[10px] font-bold tabular-nums shadow-[0_0_0_1px_oklch(1_0_0/0.1)]">
-                        {unread > 99 ? '99+' : unread}
+                        {count > 99 ? '99+' : count}
                       </span>
+                    ) : null}
+                    {showUnread && count === 0 && derivedUnread ? (
+                      <span
+                        className="size-2 shrink-0 self-center rounded-full bg-red-500"
+                        title="Mensajes nuevos"
+                        aria-hidden
+                      />
                     ) : null}
                   </button>
                 </li>

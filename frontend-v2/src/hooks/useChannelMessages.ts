@@ -2,6 +2,8 @@ import { useEffect } from 'react'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { getAuthenticatedSupabase, getSupabaseBrowserClient } from '@/lib/supabase'
 import { apiGetJson } from '@/lib/api'
+import { showDesktopNotification } from '@/lib/desktopNotifications'
+import { isDocumentHiddenOrUnfocused } from '@/lib/unreadUtils'
 import { useAppStore } from '@/store/useAppStore'
 import type {
   ChannelMessage,
@@ -47,6 +49,7 @@ const lastFetchedAt = new Map<string, number>()
 const FETCH_TTL_MS = 30_000
 
 function rowToMessage(row: Record<string, unknown>, profile: Profile | null): ChannelMessage {
+  const parentRaw = row.parent_message
   return {
     id: String(row.id),
     channel_id: String(row.channel_id),
@@ -61,6 +64,13 @@ function rowToMessage(row: Record<string, unknown>, profile: Profile | null): Ch
     media_duration_ms:
       typeof row.media_duration_ms === 'number' ? row.media_duration_ms : null,
     parent_message_id: row.parent_message_id != null ? String(row.parent_message_id) : null,
+    parent_message:
+      parentRaw && typeof parentRaw === 'object' && (parentRaw as { id?: unknown }).id
+        ? rowToMessage(
+            parentRaw as Record<string, unknown>,
+            ((parentRaw as { profiles?: Profile | null }).profiles as Profile | null) ?? null,
+          )
+        : undefined,
     profiles: profile,
     reactions: [],
     replyCount: 0,
@@ -106,13 +116,29 @@ export function useGlobalMessagesRealtime() {
               const row = payload.new as Record<string, unknown>
               if (!row?.id || row.channel_id == null) return
               const chId = String(row.channel_id)
+              const authorId = String(row.author_id)
 
-              const profile = profileForAuthor(membersRefGlobal.current, String(row.author_id))
+              const profile = profileForAuthor(membersRefGlobal.current, authorId)
               const msg = rowToMessage(row, profile)
               const state = useAppStore.getState()
               state.appendChannelMessage(chId, msg)
-              if (chId !== state.activeTextChannelId) {
+              if (authorId === state.userId) return
+
+              const inThisChannel = chId === state.activeTextChannelId
+              const backgrounded = isDocumentHiddenOrUnfocused()
+              const shouldFlagUnread = !inThisChannel || backgrounded
+              if (shouldFlagUnread) {
                 state.incrementUnread(chId)
+                const ch = state.channels.find((c) => c.id === chId)
+                const srv = ch?.server_id
+                  ? state.servers.find((s) => s.id === ch.server_id)
+                  : undefined
+                showDesktopNotification({
+                  kind: 'guild',
+                  serverName: srv?.name?.trim() || 'Servidor',
+                  channelName: ch?.name?.trim() || 'canal',
+                  message: msg,
+                })
               }
             },
           )
@@ -166,7 +192,9 @@ export function useGlobalMessagesRealtime() {
                   accessToken,
                 )
                 if (!cancelled) {
-                  useAppStore.getState().setChannelMessages(activeCh, fresh.messages ?? [])
+                  useAppStore
+                    .getState()
+                    .setChannelMessages(activeCh, fresh.messages ?? [], { hasMore: fresh.hasMore })
                 }
               } catch {
                 /* reintento en el siguiente evento */
@@ -224,13 +252,15 @@ export function useChannelMessages(channelId: string | null) {
             accessToken,
           )
           if (!cancelled) {
-            useAppStore.getState().setChannelMessages(channelId, data.messages ?? [])
+            useAppStore.getState().setChannelMessages(channelId, data.messages ?? [], {
+              hasMore: data.hasMore,
+            })
             lastFetchedAt.set(channelId, Date.now())
           }
         }
       } catch {
         if (!cancelled && !alreadyLoaded) {
-          useAppStore.getState().setChannelMessages(channelId, [])
+          useAppStore.getState().setChannelMessages(channelId, [], { hasMore: false })
         }
       } finally {
         if (!cancelled) {

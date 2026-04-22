@@ -7,14 +7,14 @@ export const CHAT_COMPOSER_DOCK =
   'lux-glass-composer box-border relative z-10 flex min-h-[4.5rem] shrink-0 items-center gap-2.5 px-3 py-2.5 sm:px-4'
 
 export const USER_ACCOUNT_FOOTER_DOCK =
-  'box-border h-[60px] shrink-0 border-t border-white/[0.05] bg-foreground/[0.03] [box-shadow:inset_0_1px_0_0_rgba(255,255,255,0.03)]'
+  'box-border h-[60px] shrink-0 border-t border-border/60 bg-muted/30 [box-shadow:inset_0_1px_0_0_color-mix(in_oklch,var(--foreground)_4%,transparent)]'
 
 export const CHAT_COMPOSER_SHELL =
-  'border-border/50 flex min-h-[2.875rem] min-w-0 flex-1 items-center gap-2 rounded-[12px] border border-white/[0.1] ' +
-  'bg-foreground/[0.11] px-4 py-3 ' +
-  'shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] backdrop-blur-md transition-[border-color,background-color,box-shadow] duration-300 ' +
-  'ease-[cubic-bezier(0.32,0.72,0,1)] focus-within:border-white/[0.14] focus-within:bg-foreground/[0.14] ' +
-  'focus-within:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08),0_0_0_1px_oklch(0.55_0.1_280/0.18)]'
+  'border-border/50 flex min-h-[2.875rem] min-w-0 flex-1 items-center gap-2 rounded-[12px] border border-border/80 ' +
+  'bg-muted/40 px-4 py-3 ' +
+  'shadow-[inset_0_1px_0_0_color-mix(in_oklch,var(--foreground)_5%,transparent)] backdrop-blur-md transition-[border-color,background-color,box-shadow,ring] duration-300 ' +
+  'ease-[cubic-bezier(0.32,0.72,0,1)] focus-within:border-primary/40 focus-within:bg-muted/50 ' +
+  'focus-within:ring-2 focus-within:ring-ring/45'
 
 export const CHAT_COMPOSER_INPUT =
   'h-auto min-h-0 w-full min-w-0 border-0 bg-transparent py-0 pl-0.5 pr-1 text-sm leading-[1.55] text-foreground/95 shadow-none ' +

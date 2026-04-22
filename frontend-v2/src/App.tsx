@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useState, type ReactNode } from 'react'
 import { Loader2 } from 'lucide-react'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { Button } from '@/components/ui/button'
@@ -12,6 +12,8 @@ import { ElectronTitleBar } from './components/electron/ElectronTitleBar'
 import { UpdaterNag } from '@/components/electron/UpdaterNag'
 import { useAppStore } from '@/store/useAppStore'
 import { scheduleVoiceModulePrefetch } from '@/lib/scheduleVoicePrefetch'
+import { startSupabaseAuthListener } from '@/lib/supabaseAuthListener'
+import { applyUiThemeToDocument } from '@/lib/uiTheme'
 
 function readStoredUsernameHint(): string {
   try {
@@ -30,17 +32,22 @@ function App() {
   const sessionError = useAppStore((s) => s.sessionError)
   const needsUsername = useAppStore((s) => s.needsUsername)
   const initialBootDone = useAppStore((s) => s.initialBootDone)
+  const uiTheme = useAppStore((s) => s.uiTheme)
 
   const [usernameInput, setUsernameInput] = useState('')
 
-  useEffect(() => {
-    document.documentElement.classList.add('dark')
-    return () => document.documentElement.classList.remove('dark')
-  }, [])
+  useLayoutEffect(() => {
+    applyUiThemeToDocument(uiTheme)
+  }, [uiTheme])
 
   useEffect(() => {
     void initializeSession()
   }, [initializeSession])
+
+  useEffect(() => {
+    const stop = startSupabaseAuthListener()
+    return stop
+  }, [])
 
   useEffect(() => {
     if (!initialBootDone) return

@@ -1,9 +1,28 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient, type SupabaseClientOptions } from '@supabase/supabase-js'
 import { resolveApiOrigin } from '@/lib/apiOrigin'
 
 let browserClient: SupabaseClient | null = null
+/** Evita múltiples `createClient` en paralelo (p. ej. `initializeSession` + auth listener, StrictMode). */
+let createClientInFlight: Promise<SupabaseClient> | null = null
 let realtimeAuthToken: string | null = null
 let realtimeAuthInFlight: Promise<void> | null = null
+
+/** Opciones de auth del navegador: persistencia, refresh proactivo y flujo web seguro. */
+function getBrowserAuthOptions(): SupabaseClientOptions<'public'> {
+  const storage =
+    typeof globalThis !== 'undefined' && 'localStorage' in globalThis
+      ? (globalThis as unknown as { localStorage: Storage }).localStorage
+      : undefined
+  return {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      flowType: 'pkce',
+      ...(storage ? { storage } : {}),
+    },
+  }
+}
 
 /**
  * Crea el cliente Supabase del navegador (singleton) para auth y Realtime en la app React.
@@ -11,41 +30,51 @@ let realtimeAuthInFlight: Promise<void> | null = null
  */
 export async function createSupabaseBrowserClient(): Promise<SupabaseClient> {
   if (browserClient) return browserClient
+  if (createClientInFlight) return createClientInFlight
 
-  const envUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined
-  const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
-  if (envUrl?.trim() && envKey?.trim()) {
-    browserClient = createClient(envUrl.trim(), envKey.trim())
-    return browserClient
-  }
+  createClientInFlight = (async (): Promise<SupabaseClient> => {
+    const options = getBrowserAuthOptions()
+    const envUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined
+    const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
+    if (envUrl?.trim() && envKey?.trim()) {
+      browserClient = createClient(envUrl.trim(), envKey.trim(), options)
+      return browserClient
+    }
 
-  const base = resolveApiOrigin()
-  const res = await fetch(`${base}/api/config`)
-  if (!res.ok) {
-    throw new Error(
-      `No se pudo cargar /api/config (HTTP ${res.status}). Verifica que el backend esté activo.`,
-    )
-  }
+    const base = resolveApiOrigin()
+    const res = await fetch(`${base}/api/config`)
+    if (!res.ok) {
+      throw new Error(
+        `No se pudo cargar /api/config (HTTP ${res.status}). Verifica que el backend esté activo.`,
+      )
+    }
 
-  const raw = await res.text()
-  let cfg: {
-    supabaseUrl?: string
-    supabaseAnonKey?: string
-  }
-  try {
-    cfg = (raw ? JSON.parse(raw) : {}) as {
+    const raw = await res.text()
+    let cfg: {
       supabaseUrl?: string
       supabaseAnonKey?: string
     }
-  } catch {
-    throw new Error('Respuesta inválida en /api/config (JSON malformado o vacío).')
-  }
+    try {
+      cfg = (raw ? JSON.parse(raw) : {}) as {
+        supabaseUrl?: string
+        supabaseAnonKey?: string
+      }
+    } catch {
+      throw new Error('Respuesta inválida en /api/config (JSON malformado o vacío).')
+    }
 
-  if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) {
-    throw new Error('Config Supabase no disponible (VITE_* o /api/config).')
+    if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) {
+      throw new Error('Config Supabase no disponible (VITE_* o /api/config).')
+    }
+    browserClient = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, options)
+    return browserClient
+  })()
+
+  try {
+    return await createClientInFlight
+  } finally {
+    createClientInFlight = null
   }
-  browserClient = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey)
-  return browserClient
 }
 
 /** Solo tras `createSupabaseBrowserClient()` resuelta. */
@@ -85,9 +114,24 @@ export async function getAuthenticatedSupabase(accessToken: string): Promise<Sup
   return client
 }
 
+/**
+ * Tras cierre de sesión o `signOut`, limpia el JWT en Realtime para que canales posteriores
+ * no sigan con la identidad anterior. Idempotente.
+ */
+export async function clearAuthenticatedRealtimeAuth(): Promise<void> {
+  realtimeAuthToken = null
+  if (!browserClient) return
+  try {
+    await browserClient.realtime.setAuth(null)
+  } catch {
+    /* noop */
+  }
+}
+
 /** Para tests o cambio de sesión explícito. */
 export function resetSupabaseBrowserClient(): void {
   browserClient = null
+  createClientInFlight = null
   realtimeAuthToken = null
   realtimeAuthInFlight = null
 }

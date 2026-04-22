@@ -2,9 +2,11 @@ import { useEffect } from 'react'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { getAuthenticatedSupabase, getSupabaseBrowserClient } from '@/lib/supabase'
 import { apiGetJson } from '@/lib/api'
+import { showDesktopNotification } from '@/lib/desktopNotifications'
+import { isDocumentHiddenOrUnfocused } from '@/lib/unreadUtils'
 import { toast } from 'sonner'
 import { useAppStore } from '@/store/useAppStore'
-import type { ChannelMessage, DmChannelSummary, Profile } from '@/types/models'
+import type { ChannelMessage, DmChannelSummary, DmMessagesResponse, Profile } from '@/types/models'
 
 /**
  * TTL para evitar refetches redundantes cuando el componente se desmonta y
@@ -58,6 +60,7 @@ function rowToMessage(
   profile: Profile | null,
   dmChannelId: string,
 ): ChannelMessage {
+  const parentRaw = row.parent_message
   return {
     id: String(row.id),
     channel_id: String(row.dm_channel_id ?? dmChannelId),
@@ -72,6 +75,14 @@ function rowToMessage(
     media_duration_ms:
       typeof row.media_duration_ms === 'number' ? row.media_duration_ms : null,
     parent_message_id: row.parent_message_id != null ? String(row.parent_message_id) : null,
+    parent_message:
+      parentRaw && typeof parentRaw === 'object' && (parentRaw as { id?: unknown }).id
+        ? rowToMessage(
+            parentRaw as Record<string, unknown>,
+            ((parentRaw as { profiles?: Profile | null }).profiles as Profile | null) ?? null,
+            dmChannelId,
+          )
+        : undefined,
     profiles: profile ?? (row.profiles as Profile | null | undefined) ?? null,
     reactions: [],
     replyCount: 0,
@@ -134,11 +145,27 @@ export function useGlobalDmMessagesRealtime() {
               }
               if (userId && authorId !== userId) {
                 const inThisChat = dmChId === state.activeDmChannelId
-                if (!inThisChat) {
-                  const preview =
-                    msg.body.length > 160 ? `${msg.body.slice(0, 157)}…` : msg.body
-                  toast('Nuevo mensaje privado', { description: preview })
+                const backgrounded = isDocumentHiddenOrUnfocused()
+                const shouldFlagUnread = !inThisChat || backgrounded
+                if (shouldFlagUnread) {
                   state.incrementUnread(dmChId)
+                  const dm = state.dmChannels.find((d) => d.id === dmChId)
+                  const peerDisplayName =
+                    msg.profiles?.display_name?.trim() ||
+                    msg.profiles?.username?.trim() ||
+                    dm?.otherUser?.display_name?.trim() ||
+                    dm?.otherUser?.username?.trim() ||
+                    'Mensaje directo'
+                  const native = showDesktopNotification({
+                    kind: 'dm',
+                    peerDisplayName,
+                    message: msg,
+                  })
+                  if (!native) {
+                    const preview =
+                      msg.body.length > 160 ? `${msg.body.slice(0, 157)}…` : msg.body
+                    toast('Nuevo mensaje privado', { description: preview })
+                  }
                 }
               }
             },
@@ -190,18 +217,17 @@ export function useGlobalDmMessagesRealtime() {
               try {
                 const { activeDmChannelId: activeDm } = useAppStore.getState()
                 if (!activeDm) return
-                const data = await apiGetJson<Record<string, unknown>[]>(
-                  `/api/dm/${activeDm}/messages`,
+                const data = await apiGetJson<DmMessagesResponse>(
+                  `/api/dm/${activeDm}/messages?limit=50`,
                   accessToken,
                 )
                 if (!cancelled) {
-                  const list = Array.isArray(data) ? data : []
-                  useAppStore
-                    .getState()
-                    .setDmChannelMessages(
-                      activeDm,
-                      list.map((row) => normalizeApiRow(row, activeDm)),
-                    )
+                  const list = data.messages ?? []
+                  useAppStore.getState().setDmChannelMessages(
+                    activeDm,
+                    list.map((row) => normalizeApiRow(row as unknown as Record<string, unknown>, activeDm)),
+                    { hasMore: data.hasMore },
+                  )
                   lastFetchedAt.set(activeDm, Date.now())
                 }
               } catch {
@@ -253,24 +279,23 @@ export function useDmMessages(dmChannelId: string | null) {
     void (async () => {
       try {
         if (!isFresh) {
-          const data = await apiGetJson<Record<string, unknown>[]>(
-            `/api/dm/${dmChannelId}/messages`,
+          const data = await apiGetJson<DmMessagesResponse>(
+            `/api/dm/${dmChannelId}/messages?limit=50`,
             accessToken,
           )
           if (!cancelled) {
-            const list = Array.isArray(data) ? data : []
-            useAppStore
-              .getState()
-              .setDmChannelMessages(
-                dmChannelId,
-                list.map((row) => normalizeApiRow(row, dmChannelId)),
-              )
+            const list = data.messages ?? []
+            useAppStore.getState().setDmChannelMessages(
+              dmChannelId,
+              list.map((row) => normalizeApiRow(row as unknown as Record<string, unknown>, dmChannelId)),
+              { hasMore: data.hasMore },
+            )
             lastFetchedAt.set(dmChannelId, Date.now())
           }
         }
       } catch {
         if (!cancelled && !alreadyLoaded) {
-          useAppStore.getState().setDmChannelMessages(dmChannelId, [])
+          useAppStore.getState().setDmChannelMessages(dmChannelId, [], { hasMore: false })
         }
       } finally {
         if (!cancelled) {

@@ -52,9 +52,13 @@ export interface ChannelMessage {
   media_name?: string | null
   media_duration_ms?: number | null
   parent_message_id?: string | null
+  /** Inyectado por la API si el padre no está en el mismo lote. */
+  parent_message?: ChannelMessage | null
   profiles?: Profile | null
   reactions?: { userId: string; emoji: string }[]
   replyCount?: number
+  /** Mensaje recién enviado (no persistido) o fallido al enviar. */
+  localStatus?: 'sending' | 'failed'
 }
 
 export interface DmChannelSummary {
@@ -115,6 +119,8 @@ export type VoiceParticipantsSnapshot = {
 }
 
 export type ChannelMessagesResponse = { messages: ChannelMessage[]; hasMore: boolean }
+
+export type DmMessagesResponse = { messages: ChannelMessage[]; hasMore: boolean }
 
 /** Fila de amistad / solicitud (GET /api/friends) */
 export type FriendshipListItem = {

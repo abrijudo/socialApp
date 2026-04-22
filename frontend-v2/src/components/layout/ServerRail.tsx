@@ -1,6 +1,7 @@
 import { MessageCircle } from 'lucide-react'
 import { LUX_ICON_STROKE } from '@/lib/luxIcon'
 import { useMobileNav } from '@/components/layout/MobileNavContext'
+import { isMessageNewerThanRead } from '@/lib/unreadUtils'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/useAppStore'
 import type { Server } from '@/types/models'
@@ -35,15 +36,26 @@ export function ServerRail({
   const unreadCounts = useAppStore((s) => s.unreadCounts)
   const unreadDmCount = useAppStore((s) => s.unreadDmCount)
   const channels = useAppStore((s) => s.channels)
+  const messagesByChannel = useAppStore((s) => s.messagesByChannel)
+  const lastReadTimestamps = useAppStore((s) => s.lastReadTimestamps)
+  const activeTextChannelId = useAppStore((s) => s.activeTextChannelId)
 
-  const serverHasUnread = (serverId: string) => {
-    return channels.some(
-      (ch) => ch.server_id === serverId && (unreadCounts[ch.id] ?? 0) > 0,
-    )
+  const textChannelHasUnread = (ch: (typeof channels)[0]) => {
+    if (ch.type !== 'text' || ch.is_archived) return false
+    if ((unreadCounts[ch.id] ?? 0) > 0) return true
+    if (ch.id === activeTextChannelId) return false
+    const msgs = messagesByChannel[ch.id]
+    const last = msgs?.[msgs.length - 1]
+    if (!last) return false
+    return isMessageNewerThanRead(last.created_at, lastReadTimestamps[ch.id])
   }
+
+  const serverHasUnread = (serverId: string) =>
+    channels.some((c) => c.server_id === serverId && textChannelHasUnread(c))
 
   return (
     <aside
+      data-testid="server-rail"
       className={cn(
         'lux-panel-rail lux-panel-rail--sep text-card-foreground flex h-full min-h-0 w-[72px] min-w-[72px] max-w-[72px] shrink-0 flex-col overflow-x-hidden overflow-y-hidden',
         className,
@@ -60,6 +72,7 @@ export function ServerRail({
         <div className="relative shrink-0">
           <button
             type="button"
+            data-testid="nav-home-dm"
             title="Inicio — mensajes directos"
             aria-label="Inicio — mensajes directos"
             aria-current={activeServerId == null ? 'true' : undefined}
@@ -97,9 +110,15 @@ export function ServerRail({
 
         {servers.map((srv) => {
           const active = srv.id === activeServerId
-          const hasUnread = !active && serverHasUnread(srv.id)
+          const hasUnread = serverHasUnread(srv.id)
           return (
-            <div key={srv.id} className="relative">
+            <div key={srv.id} className="relative flex w-full justify-center pl-0.5">
+              {hasUnread ? (
+                <span
+                  className="pointer-events-none absolute top-1/2 left-0 z-[1] h-7 w-1.5 -translate-y-1/2 rounded-l-full border border-border/40 bg-card shadow-[1px_0_2px_rgba(0,0,0,0.15)]"
+                  aria-hidden
+                />
+              ) : null}
               <button
                 type="button"
                 title={srv.name}
@@ -116,9 +135,6 @@ export function ServerRail({
               >
                 {serverInitials(srv.name)}
               </button>
-              {hasUnread ? (
-                <span className="bg-primary absolute -top-0.5 -right-0.5 size-3 rounded-full ring-2 ring-card" />
-              ) : null}
             </div>
           )
         })}

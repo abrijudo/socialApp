@@ -1,6 +1,14 @@
 import { create } from 'zustand'
-import { createSupabaseBrowserClient, getSupabaseBrowserClient } from '@/lib/supabase'
-import { ensureSupabaseSession } from '@/lib/bootstrapSession'
+import { createJSONStorage, persist } from 'zustand/middleware'
+import { UI_THEME_STORAGE_KEY, type UiTheme, applyUiThemeToDocument, isUiTheme } from '@/lib/uiTheme'
+import type { Session } from '@supabase/supabase-js'
+import { ensureSupabaseSession, usernameFromSupabaseUser } from '@/lib/bootstrapSession'
+import {
+  clearAuthenticatedRealtimeAuth,
+  createSupabaseBrowserClient,
+  getAuthenticatedSupabase,
+  getSupabaseBrowserClient,
+} from '@/lib/supabase'
 import { apiGetJson, fetchBootstrap } from '@/lib/api'
 import { SOCIALAPP_USER_KEY } from '@/lib/constants'
 import type {
@@ -17,6 +25,15 @@ import type {
   ServerRole,
   VoiceOccupantsByChannel,
 } from '@/types/models'
+
+function sortMessagesChronological(list: ChannelMessage[]): ChannelMessage[] {
+  return [...list].sort((a, b) => {
+    const ta = new Date(a.created_at).getTime()
+    const tb = new Date(b.created_at).getTime()
+    if (ta !== tb) return ta - tb
+    return a.id.localeCompare(b.id)
+  })
+}
 
 export type {
   Profile,
@@ -65,6 +82,12 @@ export interface AppState {
   dmMessagesByChannel: Record<string, ChannelMessage[]>
   /** Indicador de carga del historial por DM (primer fetch). */
   dmMessagesLoadingByChannel: Record<string, boolean>
+  /** Quedan mensajes anteriores por cargar (scroll hacia arriba / cursor `before`). */
+  messagesHasMoreByChannel: Record<string, boolean>
+  dmMessagesHasMoreByChannel: Record<string, boolean>
+  /** Cargando lote de mensajes viejos (infinite scroll inverso). */
+  messagesLoadingOlderByChannel: Record<string, boolean>
+  dmMessagesLoadingOlderByChannel: Record<string, boolean>
   channelsLoading: boolean
   membersLoading: boolean
   initialBootDone: boolean
@@ -102,24 +125,46 @@ export interface AppState {
   unreadDmCount: number
   lastReadTimestamps: Record<string, string>
   /**
+   * Línea de "nuevos mensajes": valor de `lastReadTimestamps[id]` en el instante
+   * **antes** de `markChannelAsRead` al activar el canal/DM. Permite mostrar
+   * el separador aunque el márcado como leído ya use `new Date()`.
+   */
+  viewEnterReadBaseline: Record<string, string | null>
+  /**
+   * Nombres de usuario que el Presence de Realtime reporta como “escribiendo”
+   * (excluido el propio). Claves: `channel_id` de texto o `dm_channel_id`.
+   */
+  typingUsernamesByChannel: Record<string, string[]>
+  /**
+   * Mensaje al que se responde (mismo hilo o DM). `channel_id` del mensaje
+   * debe coincidir con el canal o DM de texto activo.
+   */
+  replyingToMessage: ChannelMessage | null
+  /**
    * Draft de mensaje en curso por canal/DM. Lo mantenemos en el store (en
    * vez de en el estado local de `ChatArea`/`DmChatArea`) para que al cambiar
-   * de canal y volver no se pierda lo que se estaba escribiendo, y para que
-   * el `parentMessageId` de la respuesta sea siempre del canal correcto.
+   * de canal y volver no se pierda lo que se estaba escribiendo.
    * Las claves son UUIDs únicos entre `channels` y `dm_channels`.
    */
-  drafts: Record<string, { body: string; replyToId: string | null }>
+  drafts: Record<string, { body: string }>
   /** Amigos aceptados (GET /api/friends). */
   friends: FriendEntry[]
   /** Solicitudes pendientes entrantes y salientes. */
   pendingRequests: { incoming: FriendshipListItem[]; outgoing: FriendshipListItem[] }
   /** Carga de la lista de amigos/solicitudes. */
   friendsListLoading: boolean
+  /** Paleta (variables CSS bajo `data-theme` en `html`). */
+  uiTheme: UiTheme
 }
 
 export interface AppActions {
   initializeSession: (opts?: { interactiveUsername?: string }) => Promise<void>
   setSession: (patch: Partial<Pick<AppState, 'userId' | 'username' | 'accessToken'>>) => void
+  /**
+   * Mantiene `accessToken` y Realtime alineados con Supabase tras refresh de JWT o cierre de sesión.
+   * Se usa desde `onAuthStateChange`; no llames a `signOut` desde aquí.
+   */
+  syncWithSupabaseSession: (session: Session | null) => void
   applyBootstrap: (payload: BootstrapPayload) => void
   setActiveTextChannelId: (id: string | null) => void
   setActiveVoiceChannelId: (id: string | null) => void
@@ -128,18 +173,30 @@ export interface AppActions {
   setDmChannels: (list: DmChannelSummary[]) => void
   /** GET /api/friends; actualiza `friends` y `pendingRequests`. */
   refreshFriends: () => Promise<void>
-  /** Reemplaza completamente la lista de mensajes cacheada de un canal. */
-  setChannelMessages: (channelId: string, messages: ChannelMessage[]) => void
+  /** Reemplaza la lista de mensajes de un canal; opcional `hasMore` (paginación inversa). */
+  setChannelMessages: (
+    channelId: string,
+    messages: ChannelMessage[],
+    options?: { hasMore?: boolean },
+  ) => void
+  /** Antepone un lote de mensajes más viejos (mismo `channel_id`), fusiona y ordena. */
+  prependChannelMessages: (channelId: string, older: ChannelMessage[], hasMore: boolean) => void
   /** Añade un mensaje al canal (idempotente por `id`). */
   appendChannelMessage: (channelId: string, msg: ChannelMessage) => void
   /** Marca/desmarca el estado de carga del historial de un canal. */
   setChannelMessagesLoading: (channelId: string, loading: boolean) => void
-  /** Reemplaza completamente la lista de mensajes cacheada de un DM. */
-  setDmChannelMessages: (dmChannelId: string, messages: ChannelMessage[]) => void
+  setDmChannelMessages: (
+    dmChannelId: string,
+    messages: ChannelMessage[],
+    options?: { hasMore?: boolean },
+  ) => void
+  prependDmChannelMessages: (dmChannelId: string, older: ChannelMessage[], hasMore: boolean) => void
   /** Añade un mensaje al DM (idempotente por `id`). */
   appendDmChannelMessage: (dmChannelId: string, msg: ChannelMessage) => void
   /** Marca/desmarca el estado de carga del historial de un DM. */
   setDmChannelMessagesLoading: (dmChannelId: string, loading: boolean) => void
+  setChannelMessagesLoadingOlder: (channelId: string, loading: boolean) => void
+  setDmMessagesLoadingOlder: (dmChannelId: string, loading: boolean) => void
   /** Actualiza un mensaje en el canal donde se encuentre (búsqueda global). */
   updateMessage: (id: string, patch: Partial<ChannelMessage>) => void
   /** Elimina un mensaje del canal donde esté. */
@@ -166,10 +223,13 @@ export interface AppActions {
   /** Quita un canal de la lista y limpia selección si era el activo (p. ej. DELETE en tiempo real). */
   pruneDeletedChannel: (channelId: string) => void
   setDraftBody: (channelId: string, body: string) => void
-  setDraftReply: (channelId: string, replyToId: string | null) => void
   clearDraft: (channelId: string) => void
+  setReplyingToMessage: (msg: ChannelMessage | null) => void
   /** Tras guardar perfil en API: actualiza `profile` y miembros con el mismo `user_id`. */
   applyProfileUpdate: (profile: Profile) => void
+  setUiTheme: (theme: UiTheme) => void
+  /** Lista de nombres mostrable para el indicador “escribiendo…” (Realtime). */
+  setTypingUsernamesForChannel: (channelId: string, usernames: string[]) => void
 }
 
 const initialState: AppState = {
@@ -210,10 +270,18 @@ const initialState: AppState = {
   unreadCounts: {},
   unreadDmCount: 0,
   lastReadTimestamps: loadLastReadTimestamps(),
+  viewEnterReadBaseline: {},
+  typingUsernamesByChannel: {},
+  replyingToMessage: null,
   drafts: {},
   friends: [],
   pendingRequests: { incoming: [], outgoing: [] },
   friendsListLoading: false,
+  uiTheme: 'dark' satisfies UiTheme,
+  messagesHasMoreByChannel: {},
+  dmMessagesHasMoreByChannel: {},
+  messagesLoadingOlderByChannel: {},
+  dmMessagesLoadingOlderByChannel: {},
 }
 
 function loadLastReadTimestamps(): Record<string, string> {
@@ -245,10 +313,27 @@ function computeUnreadDmCount(
   return dmChannels.reduce((acc, d) => acc + (unreadCounts[d.id] ?? 0), 0)
 }
 
-export const useAppStore = create<AppState & AppActions>((set, get) => ({
-  ...initialState,
+export const useAppStore = create<AppState & AppActions>()(
+  persist(
+    (set, get) => ({
+      ...initialState,
 
-  initializeSession: async (opts) => {
+      setUiTheme: (theme) => {
+        set({ uiTheme: theme })
+        applyUiThemeToDocument(theme)
+      },
+
+      setTypingUsernamesForChannel: (channelId, usernames) => {
+        if (!channelId) return
+        set((s) => {
+          const next = { ...s.typingUsernamesByChannel }
+          if (usernames.length === 0) delete next[channelId]
+          else next[channelId] = usernames
+          return { typingUsernamesByChannel: next }
+        })
+      },
+
+      initializeSession: async (opts) => {
     set({
       sessionInitializing: true,
       sessionError: null,
@@ -361,6 +446,41 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
 
   setSession: (patch) => set((s) => ({ ...s, ...patch })),
 
+  syncWithSupabaseSession: (session) => {
+    if (session?.access_token && session.user) {
+      const username = usernameFromSupabaseUser(session.user)
+      set((s) => {
+        if (
+          s.accessToken === session.access_token &&
+          s.userId === session.user!.id &&
+          s.username === username
+        ) {
+          return {}
+        }
+        return {
+          userId: session.user!.id,
+          accessToken: session.access_token,
+          username,
+        }
+      })
+      void getAuthenticatedSupabase(session.access_token)
+      return
+    }
+
+    const before = get()
+    if (!before.accessToken && !before.userId) return
+
+    void clearAuthenticatedRealtimeAuth()
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(SOCIALAPP_USER_KEY)
+      }
+    } catch {
+      /* noop */
+    }
+    set({ ...initialState, needsUsername: true })
+  },
+
   applyBootstrap: (payload) => {
     const server = payload.server && payload.server.id ? payload.server : null
     const channels = (payload.channels || []).filter(Boolean)
@@ -380,8 +500,14 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
       activeDmChannelId: null,
       messagesByChannel: {},
       messagesLoadingByChannel: {},
+      messagesHasMoreByChannel: {},
+      messagesLoadingOlderByChannel: {},
       dmMessagesByChannel: {},
       dmMessagesLoadingByChannel: {},
+      dmMessagesHasMoreByChannel: {},
+      dmMessagesLoadingOlderByChannel: {},
+      typingUsernamesByChannel: {},
+      replyingToMessage: null,
       dmChannels,
       voiceChannelOccupants: {},
       livekitSpeakers: {},
@@ -420,11 +546,19 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
   },
 
   setActiveTextChannelId: (activeTextChannelId) => {
-    set({
-      activeTextChannelId,
-      ...(activeTextChannelId != null ? { activeDmChannelId: null } : {}),
+    if (!activeTextChannelId) {
+      set({ activeTextChannelId: null })
+      return
+    }
+    set((s) => {
+      const prev = s.lastReadTimestamps[activeTextChannelId] ?? null
+      return {
+        activeTextChannelId,
+        activeDmChannelId: null,
+        viewEnterReadBaseline: { ...s.viewEnterReadBaseline, [activeTextChannelId]: prev },
+      }
     })
-    if (activeTextChannelId) get().markChannelAsRead(activeTextChannelId)
+    get().markChannelAsRead(activeTextChannelId)
   },
   setActiveVoiceChannelId: (activeVoiceChannelId) =>
     set(() => ({
@@ -442,13 +576,17 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
       ...(activeServerId != null ? { activeDmChannelId: null } : {}),
     }),
   setActiveDmChannelId: (activeDmChannelId) => {
-    set({
-      activeDmChannelId,
-      // Al activar un DM salimos del servidor/canal de texto, pero no del
-      // canal de voz: LiveKit sigue vivo hasta colgar o cerrar pestaña.
-      ...(activeDmChannelId != null
-        ? { activeTextChannelId: null, activeServerId: null }
-        : {}),
+    set((s) => {
+      if (!activeDmChannelId) {
+        return { activeDmChannelId: null }
+      }
+      const prev = s.lastReadTimestamps[activeDmChannelId] ?? null
+      return {
+        activeDmChannelId,
+        activeTextChannelId: null,
+        activeServerId: null,
+        viewEnterReadBaseline: { ...s.viewEnterReadBaseline, [activeDmChannelId]: prev },
+      }
     })
     if (activeDmChannelId) get().markChannelAsRead(activeDmChannelId)
   },
@@ -457,14 +595,46 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
       dmChannels,
       unreadDmCount: computeUnreadDmCount(dmChannels, s.unreadCounts),
     })),
-  setChannelMessages: (channelId, messages) =>
-    set((s) => ({
-      messagesByChannel: { ...s.messagesByChannel, [channelId]: messages },
-    })),
+  setChannelMessages: (channelId, messages, options) =>
+    set((s) => {
+      const messagesByChannel = { ...s.messagesByChannel, [channelId]: messages }
+      if (options?.hasMore === undefined) return { messagesByChannel }
+      return {
+        messagesByChannel,
+        messagesHasMoreByChannel: {
+          ...s.messagesHasMoreByChannel,
+          [channelId]: options.hasMore,
+        },
+      }
+    }),
+  prependChannelMessages: (channelId, older, hasMore) =>
+    set((s) => {
+      const cur = s.messagesByChannel[channelId] ?? []
+      const byId = new Map<string, ChannelMessage>()
+      for (const m of older) byId.set(m.id, m)
+      for (const m of cur) if (!byId.has(m.id)) byId.set(m.id, m)
+      const merged = sortMessagesChronological(Array.from(byId.values()))
+      return {
+        messagesByChannel: { ...s.messagesByChannel, [channelId]: merged },
+        messagesHasMoreByChannel: { ...s.messagesHasMoreByChannel, [channelId]: hasMore },
+      }
+    }),
   appendChannelMessage: (channelId, msg) =>
     set((s) => {
-      const list = s.messagesByChannel[channelId] ?? []
+      let list = s.messagesByChannel[channelId] ?? []
       if (list.some((m) => m.id === msg.id)) return {}
+      // Quitar eco optimista (mismo autor/cuerpo/hilo) al llegar el id real o el INSERT realtime
+      if (!msg.id.startsWith('__local__') && msg.author_id === s.userId) {
+        list = list.filter(
+          (m) =>
+            !(
+              m.id.startsWith('__local__') &&
+              m.author_id === msg.author_id &&
+              m.body === msg.body &&
+              (m.parent_message_id ?? null) === (msg.parent_message_id ?? null)
+            ),
+        )
+      }
       return {
         messagesByChannel: { ...s.messagesByChannel, [channelId]: [...list, msg] },
       }
@@ -480,14 +650,45 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
         },
       }
     }),
-  setDmChannelMessages: (dmChannelId, messages) =>
-    set((s) => ({
-      dmMessagesByChannel: { ...s.dmMessagesByChannel, [dmChannelId]: messages },
-    })),
+  setDmChannelMessages: (dmChannelId, messages, options) =>
+    set((s) => {
+      const dmMessagesByChannel = { ...s.dmMessagesByChannel, [dmChannelId]: messages }
+      if (options?.hasMore === undefined) return { dmMessagesByChannel }
+      return {
+        dmMessagesByChannel,
+        dmMessagesHasMoreByChannel: {
+          ...s.dmMessagesHasMoreByChannel,
+          [dmChannelId]: options.hasMore,
+        },
+      }
+    }),
+  prependDmChannelMessages: (dmChannelId, older, hasMore) =>
+    set((s) => {
+      const cur = s.dmMessagesByChannel[dmChannelId] ?? []
+      const byId = new Map<string, ChannelMessage>()
+      for (const m of older) byId.set(m.id, m)
+      for (const m of cur) if (!byId.has(m.id)) byId.set(m.id, m)
+      const merged = sortMessagesChronological(Array.from(byId.values()))
+      return {
+        dmMessagesByChannel: { ...s.dmMessagesByChannel, [dmChannelId]: merged },
+        dmMessagesHasMoreByChannel: { ...s.dmMessagesHasMoreByChannel, [dmChannelId]: hasMore },
+      }
+    }),
   appendDmChannelMessage: (dmChannelId, msg) =>
     set((s) => {
-      const list = s.dmMessagesByChannel[dmChannelId] ?? []
+      let list = s.dmMessagesByChannel[dmChannelId] ?? []
       if (list.some((m) => m.id === msg.id)) return {}
+      if (!msg.id.startsWith('__local__') && msg.author_id === s.userId) {
+        list = list.filter(
+          (m) =>
+            !(
+              m.id.startsWith('__local__') &&
+              m.author_id === msg.author_id &&
+              m.body === msg.body &&
+              (m.parent_message_id ?? null) === (msg.parent_message_id ?? null)
+            ),
+        )
+      }
       return {
         dmMessagesByChannel: {
           ...s.dmMessagesByChannel,
@@ -501,6 +702,26 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
       return {
         dmMessagesLoadingByChannel: {
           ...s.dmMessagesLoadingByChannel,
+          [dmChannelId]: loading,
+        },
+      }
+    }),
+  setChannelMessagesLoadingOlder: (channelId, loading) =>
+    set((s) => {
+      if ((s.messagesLoadingOlderByChannel[channelId] ?? false) === loading) return {}
+      return {
+        messagesLoadingOlderByChannel: {
+          ...s.messagesLoadingOlderByChannel,
+          [channelId]: loading,
+        },
+      }
+    }),
+  setDmMessagesLoadingOlder: (dmChannelId, loading) =>
+    set((s) => {
+      if ((s.dmMessagesLoadingOlderByChannel[dmChannelId] ?? false) === loading) return {}
+      return {
+        dmMessagesLoadingOlderByChannel: {
+          ...s.dmMessagesLoadingOlderByChannel,
           [dmChannelId]: loading,
         },
       }
@@ -650,11 +871,16 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
       }
     }),
 
-  resetApp: () => set(initialState),
+  resetApp: () =>
+    set((s) => ({
+      ...initialState,
+      uiTheme: s.uiTheme,
+    })),
 
   logout: async () => {
     const sb = getSupabaseBrowserClient()
     await sb.auth.signOut().catch(() => {})
+    await clearAuthenticatedRealtimeAuth()
     try {
       if (typeof localStorage !== 'undefined') {
         localStorage.removeItem(SOCIALAPP_USER_KEY)
@@ -662,10 +888,11 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
     } catch {
       /* noop */
     }
-    set({
+    set((s) => ({
       ...initialState,
       needsUsername: true,
-    })
+      uiTheme: s.uiTheme,
+    }))
   },
 
   pruneDeletedChannel: (channelId) =>
@@ -676,11 +903,17 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
       delete nextMessagesLoading[channelId]
       const nextDrafts = { ...s.drafts }
       delete nextDrafts[channelId]
+      const nextTyping = { ...s.typingUsernamesByChannel }
+      delete nextTyping[channelId]
+      const clearReply =
+        s.replyingToMessage?.channel_id === channelId ? { replyingToMessage: null } : {}
       return {
+        ...clearReply,
         channels: s.channels.filter((c) => c.id !== channelId),
         messagesByChannel: nextMessagesByChannel,
         messagesLoadingByChannel: nextMessagesLoading,
         drafts: nextDrafts,
+        typingUsernamesByChannel: nextTyping,
         activeTextChannelId: s.activeTextChannelId === channelId ? null : s.activeTextChannelId,
         activeVoiceChannelId: s.activeVoiceChannelId === channelId ? null : s.activeVoiceChannelId,
       }
@@ -690,37 +923,17 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
     set((s) => {
       if (!channelId) return {}
       const prev = s.drafts[channelId]
-      // Si el draft queda vacío y no hay respuesta pendiente, lo eliminamos
-      // para no dejar basura en el diccionario.
-      if (!body && !prev?.replyToId) {
+      if (!body) {
         if (!prev) return {}
         const next = { ...s.drafts }
         delete next[channelId]
         return { drafts: next }
       }
-      const nextEntry = { body, replyToId: prev?.replyToId ?? null }
-      if (prev && prev.body === nextEntry.body && prev.replyToId === nextEntry.replyToId) {
-        return {}
-      }
-      return { drafts: { ...s.drafts, [channelId]: nextEntry } }
+      if (prev && prev.body === body) return {}
+      return { drafts: { ...s.drafts, [channelId]: { body } } }
     }),
 
-  setDraftReply: (channelId, replyToId) =>
-    set((s) => {
-      if (!channelId) return {}
-      const prev = s.drafts[channelId]
-      if (!prev?.body && !replyToId) {
-        if (!prev) return {}
-        const next = { ...s.drafts }
-        delete next[channelId]
-        return { drafts: next }
-      }
-      const nextEntry = { body: prev?.body ?? '', replyToId }
-      if (prev && prev.body === nextEntry.body && prev.replyToId === nextEntry.replyToId) {
-        return {}
-      }
-      return { drafts: { ...s.drafts, [channelId]: nextEntry } }
-    }),
+  setReplyingToMessage: (msg) => set({ replyingToMessage: msg }),
 
   clearDraft: (channelId) =>
     set((s) => {
@@ -742,4 +955,24 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
         members,
       }
     }),
-}))
+    }),
+    {
+      name: UI_THEME_STORAGE_KEY,
+      partialize: (s) => ({ uiTheme: s.uiTheme }),
+      storage: createJSONStorage(() => localStorage),
+      version: 0,
+      merge: (persisted, current) => {
+        const c = current as AppState
+        if (!persisted || typeof persisted !== 'object') {
+          return c as never
+        }
+        const p = persisted as Partial<AppState>
+        return {
+          ...c,
+          ...p,
+          uiTheme: isUiTheme(p.uiTheme) ? p.uiTheme : c.uiTheme,
+        } as never
+      },
+    },
+  ),
+)

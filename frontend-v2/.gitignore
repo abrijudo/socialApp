@@ -27,3 +27,9 @@ build/icon.png
 *.njsproj
 *.sln
 *.sw?
+
+# Playwright
+/e2e/.auth
+/playwright-report
+/test-results
+/blob-report

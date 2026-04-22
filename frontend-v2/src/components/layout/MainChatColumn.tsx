@@ -96,7 +96,7 @@ export function MainChatColumn() {
       {!isFloatingMode ? <ChannelHeader activeChannel={activeChannel} /> : null}
 
       {!isFloatingMode && inVoice && !isVideoStageOpen && voiceRoomHasRenderableVideo ? (
-        <div className="flex h-12 shrink-0 items-center justify-end gap-2 border-b border-white/[0.05] bg-foreground/[0.02] px-3 sm:px-4 [box-shadow:inset_0_-1px_0_0_rgba(0,0,0,0.12)]">
+        <div className="border-border/80 bg-muted/25 flex h-12 shrink-0 items-center justify-end gap-2 border-b px-3 sm:px-4 [box-shadow:inset_0_-1px_0_0_rgba(0,0,0,0.12)]">
           <Button
             type="button"
             variant="outline"

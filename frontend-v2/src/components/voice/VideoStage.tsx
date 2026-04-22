@@ -120,7 +120,7 @@ function stageColumnCount(trackCount: number): number {
 
 /** Contenedor del tile: flex para centrar el vídeo manteniendo object-contain (nada recortado). */
 const TILE_BASE =
-  'group relative box-border flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-xl border border-white/12 bg-zinc-950 ring-1 ring-inset ring-white/5'
+  'group relative box-border flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-xl border border-border/40 bg-background/90 ring-1 ring-inset ring-border/25'
 
 /**
  * Panel de vídeo: recuadros **mismo tamaño**, máx. **3 por fila**, grupo centrado (1 o 2 fuentes al
@@ -418,10 +418,10 @@ export function VideoStage() {
           >
             <button
               type="button"
-              className={`inline-flex h-8 w-8 items-center justify-center rounded-md border text-white ${
+              className={`inline-flex h-8 w-8 items-center justify-center rounded-md border text-foreground ${
                 isPinned
                   ? 'border-primary bg-primary/80'
-                  : 'border-white/20 bg-black/60 hover:bg-black/80'
+                  : 'border-border/50 bg-background/70 hover:bg-background/90'
               }`}
               aria-label={isPinned ? 'Desfijar' : 'Fijar'}
               title={isPinned ? 'Desfijar' : 'Fijar como principal'}
@@ -434,7 +434,7 @@ export function VideoStage() {
             </button>
             <button
               type="button"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/20 bg-black/60 text-white hover:bg-black/80"
+              className="text-foreground border-border/50 bg-background/70 hover:bg-background/90 inline-flex h-8 w-8 items-center justify-center rounded-md border"
               aria-label="Pantalla completa"
               title="Pantalla completa"
               onClick={(e) => {
@@ -451,7 +451,7 @@ export function VideoStage() {
         {/* Barra inferior: nombre + volumen (no en transmisión oculta) */}
         {screenConcealed ? null : (
           <div
-            className={`absolute right-2 bottom-2 left-2 z-20 flex items-center gap-1.5 rounded-md border border-white/20 bg-black/65 px-2 py-1 text-white transition-opacity duration-200 ${
+            className={`text-foreground/90 border-border/50 bg-background/75 absolute right-2 bottom-2 left-2 z-20 flex items-center gap-1.5 rounded-md border px-2 py-1 transition-opacity duration-200 ${
               showControls ? 'opacity-100' : 'pointer-events-none opacity-0'
             }`}
           >

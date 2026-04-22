@@ -1,5 +1,6 @@
 import { useCallback, useMemo, type ReactNode } from 'react'
 import { DmSidebar } from '@/components/layout/DmSidebar'
+import { NotificationPermissionBootstrap } from '@/components/layout/NotificationPermissionBootstrap'
 import { MainChatColumn } from '@/components/layout/MainChatColumn'
 import { MembersList } from '@/components/layout/MembersList'
 import { MobileNavProvider, useMobileNav } from '@/components/layout/MobileNavContext'
@@ -183,7 +184,11 @@ export function AppLayout() {
 
   return (
     <MobileNavProvider showMembersButton={showMembersButton}>
-      <div className="relative isolate box-border flex h-[100dvh] max-h-[100dvh] min-h-0 w-full flex-col overflow-hidden bg-background text-foreground pt-safe pb-safe">
+      <NotificationPermissionBootstrap />
+      <div
+        data-testid="app-authenticated"
+        className="relative isolate box-border flex h-[100dvh] max-h-[100dvh] min-h-0 w-full flex-col overflow-hidden bg-background text-foreground pt-safe pb-safe"
+      >
         <div className="lux-app-bg" aria-hidden />
         <div className="lux-grain" aria-hidden />
         <div className="lux-app-stack box-border flex min-h-0 flex-1 flex-col overflow-hidden">

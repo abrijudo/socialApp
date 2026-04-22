@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useMobileNav } from '@/components/layout/MobileNavContext'
 import { LUX_ICON_STROKE, luxIconRow, luxIconSm } from '@/lib/luxIcon'
+import { isMessageNewerThanRead } from '@/lib/unreadUtils'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/useAppStore'
 import type { Profile } from '@/types/models'
@@ -35,6 +36,8 @@ export function ServerSidebar() {
   const channelsLoading = useAppStore((s) => s.channelsLoading)
   const voiceChannelOccupants = useAppStore((s) => s.voiceChannelOccupants)
   const unreadCounts = useAppStore((s) => s.unreadCounts)
+  const messagesByChannel = useAppStore((s) => s.messagesByChannel)
+  const lastReadTimestamps = useAppStore((s) => s.lastReadTimestamps)
 
   const [isCreateChannelOpen, setIsCreateChannelOpen] = useState(false)
   const [channelTypeToCreate, setChannelTypeToCreate] = useState<'text' | 'voice'>('text')
@@ -76,7 +79,7 @@ export function ServerSidebar() {
       className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden"
       aria-label="Canales"
     >
-      <header className="border-b border-white/[0.05] bg-foreground/[0.02] shadow-[inset_0_-1px_0_0_oklch(0_0_0/0.08)] flex h-12 shrink-0 items-center gap-2 px-3 sm:px-4">
+      <header className="border-b border-border/80 bg-muted/25 shadow-[inset_0_-1px_0_0_oklch(0_0_0/0.08)] flex h-12 shrink-0 items-center gap-2 px-3 sm:px-4">
         <h1 className="text-foreground/90 min-w-0 flex-1 truncate text-[0.72rem] font-medium tracking-tight sm:text-[0.75rem]">
           {server?.name ?? 'Servidor'}
         </h1>
@@ -128,7 +131,12 @@ export function ServerSidebar() {
               <ul className="space-y-px">
                 {textChannels.map((ch) => {
                   const active = ch.id === activeTextChannelId
-                  const unread = unreadCounts[ch.id] ?? 0
+                  const count = unreadCounts[ch.id] ?? 0
+                  const list = messagesByChannel[ch.id]
+                  const last = list?.[list.length - 1]
+                  const derivedUnread =
+                    !active && last != null && isMessageNewerThanRead(last.created_at, lastReadTimestamps[ch.id])
+                  const showUnread = (count > 0 || derivedUnread) && !active
                   return (
                     <li key={ch.id}>
                       <button
@@ -142,7 +150,7 @@ export function ServerSidebar() {
                           'lux-transition [transition-property:color,background-color,border-color,box-shadow,transform] hover:border-border/50 hover:bg-background/30 hover:shadow-[inset_0_1px_0_0_oklch(1_0_0/0.04)] active:scale-[0.99]',
                           active
                             ? 'border-primary/30 bg-primary/12 text-foreground font-semibold shadow-[inset_0_0_0_1px_oklch(0.62_0.12_280/0.2),inset_0_1px_0_0_oklch(1_0_0/0.08)]'
-                            : unread > 0
+                            : showUnread
                               ? 'text-foreground font-semibold'
                               : 'text-muted-foreground hover:text-foreground/95',
                         )}
@@ -156,10 +164,17 @@ export function ServerSidebar() {
                           aria-hidden
                         />
                         <span className="min-w-0 flex-1 truncate">{ch.name}</span>
-                        {unread > 0 && !active ? (
-                          <span className="bg-primary/90 text-primary-foreground flex size-5 shrink-0 items-center justify-center rounded-md text-[10px] font-bold tabular-nums shadow-[0_0_0_1px_oklch(1_0_0/0.1)]">
-                            {unread > 99 ? '99+' : unread}
+                        {showUnread && count > 0 ? (
+                          <span className="bg-destructive/90 text-destructive-foreground flex h-5 min-w-5 shrink-0 items-center justify-center rounded-md px-1 text-[10px] font-bold tabular-nums shadow-[0_0_0_1px_oklch(1_0_0/0.1)]">
+                            {count > 99 ? '99+' : count}
                           </span>
+                        ) : null}
+                        {showUnread && count === 0 && derivedUnread ? (
+                          <span
+                            className="size-2 shrink-0 rounded-full bg-red-500"
+                            title="Mensajes nuevos"
+                            aria-hidden
+                          />
                         ) : null}
                       </button>
                     </li>
