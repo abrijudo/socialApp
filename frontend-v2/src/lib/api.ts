@@ -1,12 +1,5 @@
 import type { BootstrapPayload } from '@/types/models'
-
-function resolveApiOrigin(): string {
-  if (typeof window === 'undefined') return ''
-  const w = window as Window & { __API_ORIGIN__?: string }
-  const raw = w.__API_ORIGIN__
-  if (raw != null && String(raw).trim()) return String(raw).replace(/\/$/, '')
-  return ''
-}
+import { resolveApiOrigin } from '@/lib/apiOrigin'
 
 /** Ruta API relativa al origen de la página o `__API_ORIGIN__`. */
 export function resolveApiUrl(path: string): string {

@@ -73,8 +73,11 @@ export function DmSidebar({
   }, [accessToken, setDmChannels])
 
   useEffect(() => {
+    if (!accessToken) return
+    // El bootstrap ya incluye `dmChannels`; evitar un segundo GET /api/dm si hay datos.
+    if (dmChannels.length > 0) return
     void refreshDmList()
-  }, [refreshDmList])
+  }, [accessToken, dmChannels.length, refreshDmList])
 
   async function handleNewDm() {
     const raw = window.prompt('Nombre de usuario del destinatario (sin @):', '')

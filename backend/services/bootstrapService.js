@@ -1,4 +1,5 @@
 const { getSupabaseAdmin } = require('./supabaseAdmin');
+const { listDmChannelSummaries } = require('../lib/apiHelpers');
 
 const DEFAULT_SERVER_NAME = 'Mi Servidor';
 const DEFAULT_TEXT_CHANNEL = 'general';
@@ -120,7 +121,8 @@ async function getBootstrapPayload({ userId, username }) {
   }));
 
   const safeChannels = (channels || []).filter(c => c && c.id);
-  return { profile, server, channels: safeChannels, membership, members: enrichedMembers };
+  const dmChannels = await listDmChannelSummaries(sb, userId);
+  return { profile, server, channels: safeChannels, membership, members: enrichedMembers, dmChannels };
 }
 
 module.exports = { ensureProfile, getBootstrapPayload };

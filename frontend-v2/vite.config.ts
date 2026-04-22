@@ -12,6 +12,8 @@ const electronDevPort = Number(process.env.ELECTRON_VITE_PORT ?? 5174)
 
 // https://vite.dev/config/
 export default defineConfig({
+  /** Obligatorio para Electron (`file://`): rutas `/assets/...` no existen en disco. */
+  base: './',
   plugins: [
     react(),
     tailwindcss(),
@@ -39,7 +41,19 @@ export default defineConfig({
     },
   },
   build: {
-    // Aumentamos el límite a 1000kB (1MB) porque el chunk diferido de LiveKit (WebRTC) supera los 500kB por defecto, lo cual es esperado y ya está aislado con Code-Splitting.
+    /** ES moderno: menos polyfills y mejor codegen en Chromium/Electron embebido. */
+    target: 'es2022',
+    // Aumentamos el límite a 1000kB (1MB) porque el chunk de LiveKit (WebRTC) puede superar 500kB.
     chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return
+          if (id.includes('livekit-client') || id.includes('@livekit')) return 'livekit-vendor'
+          if (id.includes('react-dom')) return 'react-vendor'
+          if (id.includes('node_modules/react/') || id.includes('node_modules\\react\\')) return 'react-vendor'
+        },
+      },
+    },
   },
 })

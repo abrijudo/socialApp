@@ -80,6 +80,11 @@ export interface AppState {
   localVoiceSpeaking: boolean
   /** IDs de participantes que hablan ahora mismo (LiveKit WebRTC, sin latencia). */
   livekitSpeakers: Record<string, boolean>
+  /**
+   * Volumen de salida por participante (LiveKit `identity` = `user_id`), 0–2 → 0–200 %.
+   * Se aplica a mic y audio de pantalla; compartido entre lista de miembros y escenario de vídeo.
+   */
+  voiceParticipantVolume: Record<string, number>
   /** Panel de vídeo (escenario) visible cuando hay pistas de cámara/pantalla. */
   isVideoStageOpen: boolean
   unreadCounts: Record<string, number>
@@ -130,6 +135,7 @@ export interface AppActions {
   setLocalScreenShareEnabled: (enabled: boolean) => void
   setLocalVoiceSpeaking: (speaking: boolean) => void
   setLivekitSpeakers: (speakers: Record<string, boolean>) => void
+  setVoiceParticipantVolume: (userId: string, volume: number) => void
   setIsVideoStageOpen: (open: boolean) => void
   markChannelAsRead: (channelId: string) => void
   incrementUnread: (channelId: string) => void
@@ -177,6 +183,7 @@ const initialState: AppState = {
   localScreenShareEnabled: false,
   localVoiceSpeaking: false,
   livekitSpeakers: {},
+  voiceParticipantVolume: {},
   isVideoStageOpen: true,
   unreadCounts: {},
   lastReadTimestamps: loadLastReadTimestamps(),
@@ -295,8 +302,17 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
         membersLoading: false,
       })
     } catch (e) {
+      let msg = (e as Error).message || 'Error al iniciar sesión'
+      if (
+        msg === 'Failed to fetch' &&
+        typeof window !== 'undefined' &&
+        window.location.protocol === 'file:'
+      ) {
+        msg =
+          'No se pudo contactar al servidor. En la app de escritorio debes definir VITE_API_ORIGIN (URL pública de tu backend) al ejecutar el build, por ejemplo en frontend-v2/.env.production.'
+      }
       set({
-        sessionError: (e as Error).message || 'Error al iniciar sesión',
+        sessionError: msg,
         sessionInitializing: false,
         initialBootDone: false,
         channelsLoading: false,
@@ -310,6 +326,9 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
   applyBootstrap: (payload) => {
     const server = payload.server && payload.server.id ? payload.server : null
     const channels = (payload.channels || []).filter(Boolean)
+    const dmChannels = Array.isArray(payload.dmChannels)
+      ? payload.dmChannels.filter(Boolean)
+      : []
     set({
       profile: payload.profile ?? null,
       server,
@@ -325,9 +344,10 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
       messagesLoadingByChannel: {},
       dmMessagesByChannel: {},
       dmMessagesLoadingByChannel: {},
-      dmChannels: [],
+      dmChannels,
       voiceChannelOccupants: {},
       livekitSpeakers: {},
+      voiceParticipantVolume: {},
       onlineUsers: {},
       localVoiceMuted: true,
       localCameraEnabled: false,
@@ -344,7 +364,11 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
     })
     if (activeTextChannelId) get().markChannelAsRead(activeTextChannelId)
   },
-  setActiveVoiceChannelId: (activeVoiceChannelId) => set({ activeVoiceChannelId }),
+  setActiveVoiceChannelId: (activeVoiceChannelId) =>
+    set(() => ({
+      activeVoiceChannelId,
+      ...(activeVoiceChannelId == null ? { voiceParticipantVolume: {} } : {}),
+    })),
   setActiveServerId: (activeServerId) =>
     set({
       activeServerId,
@@ -518,6 +542,15 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
         if (equal) return {}
       }
       return { livekitSpeakers }
+    }),
+  setVoiceParticipantVolume: (userId, volume) =>
+    set((s) => {
+      const v = Math.max(0, Math.min(2, volume))
+      const prev = s.voiceParticipantVolume[userId]
+      if (prev === v) return {}
+      return {
+        voiceParticipantVolume: { ...s.voiceParticipantVolume, [userId]: v },
+      }
     }),
   setIsVideoStageOpen: (isVideoStageOpen) => set({ isVideoStageOpen }),
 

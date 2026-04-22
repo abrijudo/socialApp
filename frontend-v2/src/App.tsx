@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Toaster } from '@/components/ui/sonner'
 import { SOCIALAPP_USER_KEY } from '@/lib/constants'
+import { ElectronTitleBar } from './components/electron/ElectronTitleBar'
+import { UpdaterNag } from '@/components/electron/UpdaterNag'
 import { useAppStore } from '@/store/useAppStore'
 
 function readStoredUsernameHint(): string {
@@ -52,14 +54,14 @@ function App() {
 
   if (showSpinner) {
     body = (
-      <div className="bg-background text-muted-foreground flex min-h-[100dvh] flex-col items-center justify-center gap-3 pt-safe pb-safe">
+      <div className="bg-background text-muted-foreground flex min-h-0 flex-1 flex-col items-center justify-center gap-3 pt-safe pb-safe">
         <Loader2 className="text-primary size-10 animate-spin" aria-hidden />
         <p className="text-sm">Cargando sesión…</p>
       </div>
     )
   } else if (needsUsername) {
     body = (
-      <div className="bg-background flex min-h-[100dvh] items-center justify-center p-6 pt-safe pb-safe">
+      <div className="bg-background flex min-h-0 flex-1 items-center justify-center p-6 pt-safe pb-safe">
         <Card className="border-border w-full max-w-md shadow-md">
           <CardHeader>
             <CardTitle className="font-heading">Entrar</CardTitle>
@@ -112,7 +114,7 @@ function App() {
     )
   } else if (sessionError && !initialBootDone) {
     body = (
-      <div className="bg-background flex min-h-[100dvh] flex-col items-center justify-center gap-4 p-6 pt-safe pb-safe">
+      <div className="bg-background flex min-h-0 flex-1 flex-col items-center justify-center gap-4 p-6 pt-safe pb-safe">
         <p className="text-destructive max-w-md text-center text-sm" role="alert">
           {sessionError}
         </p>
@@ -125,7 +127,7 @@ function App() {
     body = <AppLayout />
   } else {
     body = (
-      <div className="bg-background text-muted-foreground flex min-h-[100dvh] items-center justify-center pt-safe pb-safe text-sm">
+      <div className="bg-background text-muted-foreground flex min-h-0 flex-1 items-center justify-center pt-safe pb-safe text-sm">
         Preparando aplicación…
       </div>
     )
@@ -133,7 +135,11 @@ function App() {
 
   return (
     <>
-      {body}
+      <div className="text-foreground flex h-[100dvh] max-h-[100dvh] min-h-0 w-full flex-col overflow-hidden">
+        <ElectronTitleBar />
+        <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">{body}</div>
+      </div>
+      <UpdaterNag />
       <Toaster theme="dark" />
     </>
   )

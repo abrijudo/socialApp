@@ -7,9 +7,9 @@ import {
 } from '@/components/voice/voiceQuality'
 
 describe('voiceQuality presets', () => {
-  it('usa bitrate alto para cámara y objetivo fijo para pantalla (VP9)', () => {
+  it('usa bitrate alto para cámara y bitrate elevado para pantalla compartida', () => {
     expect(cameraPublishOptions.videoEncoding?.maxBitrate).toBeGreaterThanOrEqual(6_000_000)
-    expect(screenSharePublishOptions.screenShareEncoding?.maxBitrate).toBe(5_000_000)
+    expect(screenSharePublishOptions.screenShareEncoding?.maxBitrate).toBe(12_000_000)
   })
 
   it('configura sala para priorizar calidad y estabilidad', () => {
@@ -26,20 +26,23 @@ describe('voiceQuality presets', () => {
     expect(layers.length).toBe(0)
   })
 
-  it('captura pantalla 1080p60 fluida con contentHint detail', () => {
+  it('captura pantalla 1080p con alto FPS y contentHint motion (juegos / vídeo)', () => {
     const resolution = screenShareCaptureOptions.resolution!
     expect(resolution.width).toBe(1920)
     expect(resolution.height).toBe(1080)
-    expect(screenShareCaptureOptions.contentHint).toBe('detail')
+    expect(resolution.frameRate).toBe(120)
+    expect(screenShareCaptureOptions.contentHint).toBe('motion')
   })
 
   it('excluye la superficie del propio navegador para evitar bucle al compartir pestaña', () => {
     expect(screenShareCaptureOptions.selfBrowserSurface).toBe('exclude')
   })
 
-  it('usa VP9 para screen share y prioriza resolución ante congestión', () => {
-    expect(screenSharePublishOptions.videoCodec).toBe('vp9')
+  it('usa VP8 para screen share con reserva H.264 y prioriza resolución ante congestión', () => {
+    expect(screenSharePublishOptions.videoCodec).toBe('vp8')
     expect(screenSharePublishOptions.degradationPreference).toBe('maintain-resolution')
-    expect(screenSharePublishOptions.backupCodec).toBeUndefined()
+    expect(screenSharePublishOptions.backupCodec).toEqual(
+      expect.objectContaining({ codec: 'h264' }),
+    )
   })
 })

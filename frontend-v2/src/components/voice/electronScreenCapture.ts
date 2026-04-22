@@ -5,7 +5,13 @@ import {
   useChromeDesktopMediaForKind,
 } from '@/components/voice/electronCaptureIsolation'
 import { createWasapiAppLoopbackMediaStreamTrack } from '@/components/voice/electronWasapiPcmToMediaTrack'
-import { nativeScreenShareAudioTrackConstraints } from '@/components/voice/voiceQuality'
+import { buildDisplayMediaStreamOptions } from '@/components/voice/screenShareDisplayMedia'
+import {
+  applyScreenShareContentHintToTrack,
+  electronChromeDesktopVideoMandatory,
+  nativeScreenShareAudioTrackConstraints,
+  screenShareCaptureOptions,
+} from '@/components/voice/voiceQuality'
 
 export type { ElectronDesktopCaptureKind } from '@/components/voice/electronCaptureIsolation'
 
@@ -21,6 +27,7 @@ function localTracksFromScreenStream(stream: MediaStream, captureAudio: boolean)
     stream.getTracks().forEach((t) => t.stop())
     throw new TrackInvalidError('no video track found')
   }
+  applyScreenShareContentHintToTrack(videoTracks[0])
   const screenVideo = new LocalVideoTrack(videoTracks[0], undefined, false)
   screenVideo.source = Track.Source.ScreenShare
   const out: LocalTrack[] = [screenVideo]
@@ -71,6 +78,7 @@ export async function createLocalScreenShareTracksFromElectronSource(
         videoStream.getTracks().forEach((t) => t.stop())
         throw new TrackInvalidError('no video track found')
       }
+      applyScreenShareContentHintToTrack(videoTracks[0])
       const screenVideo = new LocalVideoTrack(videoTracks[0], undefined, false)
       screenVideo.source = Track.Source.ScreenShare
 
@@ -117,15 +125,14 @@ export async function createLocalScreenShareTracksFromElectronSource(
         sourceId,
         wantLoopbackAudio: opts.captureAudio,
       })
+      const base = buildDisplayMediaStreamOptions(screenShareCaptureOptions) as DisplayMediaStreamOptions
       const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
+        ...base,
+        video: base.video,
         audio: opts.captureAudio
           ? ({
+              ...(typeof base.audio === 'object' && base.audio !== null ? base.audio : {}),
               suppressLocalAudioPlayback: true,
-              echoCancellation: false,
-              noiseSuppression: false,
-              autoGainControl: false,
-              channelCount: 2,
             } as DisplayMediaStreamOptions['audio'])
           : false,
       })
@@ -151,6 +158,7 @@ async function getElectronDesktopUserMedia(sourceId: string, withAudio: boolean)
   const mandatory = {
     chromeMediaSource: 'desktop',
     chromeMediaSourceId: sourceId,
+    ...electronChromeDesktopVideoMandatory,
   }
   const buildConstraints = (audio: boolean): MediaStreamConstraints => ({
     audio: audio

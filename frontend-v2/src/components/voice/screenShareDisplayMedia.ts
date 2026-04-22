@@ -6,92 +6,157 @@ import {
   Track,
   TrackInvalidError,
 } from 'livekit-client'
-import { nativeScreenShareAudioTrackConstraints } from '@/components/voice/voiceQuality'
+import {
+  applyScreenShareContentHintToTrack,
+  nativeScreenShareAudioTrackConstraints,
+} from '@/components/voice/voiceQuality'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
 function isLikelySafari(): boolean {
   if (typeof navigator === 'undefined') return false
   return /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Capture constraints
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Techo razonable para no pedir 8K cuando el origen es menor.
+// Chromium necesita ideal+max para no caer a 720p/30 por defecto.
+const DISPLAY_CAPTURE_MAX_WIDTH     = 3840
+const DISPLAY_CAPTURE_MAX_HEIGHT    = 2160
+const DISPLAY_CAPTURE_MAX_FRAMERATE = 120
+
+// Safari necesita constraints reducidos: a 60 fps con ideal+max colapsa el
+// encoder en M-series y produce frames duplicados. 30 fps es su límite estable.
+const SAFARI_MAX_FRAMERATE = 30
+
+// ─────────────────────────────────────────────────────────────────────────────
+// buildDisplayMediaStreamOptions
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
- * Opciones de `getDisplayMedia` alineadas con livekit-client, más campos que
- * LiveKit no reenvía (p. ej. `suppressLocalAudioPlayback` dentro de `audio`).
+ * Traduce `ScreenShareCaptureOptions` (livekit-client) a `DisplayMediaStreamOptions`
+ * que entiende el navegador directamente.
  *
- * No usamos `restrictOwnAudio` ni `windowAudio` aquí: en builds reales
- * combinados con pestaña/ventana han dejado **streams sin audio** o capturas
- * vacías (comportamiento documentado como «best effort» en MDN). El usuario
- * elige ventana/pestaña en el diálogo del SO; `systemAudio: 'exclude'` en
- * `voiceQuality` sigue limitando el peor caso en pantalla completa.
+ * Incluye campos que LiveKit no reenvía por sí solo, como
+ * `suppressLocalAudioPlayback` dentro de `audio`.
+ *
+ * @remarks
+ * No se usan `restrictOwnAudio` ni `windowAudio`: en builds reales combinados
+ * con pestaña/ventana han dejado streams sin audio o capturas vacías
+ * (comportamiento «best effort» según MDN). El usuario elige la fuente en el
+ * diálogo del SO; `systemAudio: 'exclude'` en `voiceQuality` limita el peor
+ * caso en pantalla completa.
  */
-export function buildDisplayMediaStreamOptions(options: ScreenShareCaptureOptions): DisplayMediaStreamOptions {
+export function buildDisplayMediaStreamOptions(
+  options: ScreenShareCaptureOptions,
+): DisplayMediaStreamOptions {
+  // ── Vídeo ──────────────────────────────────────────────────────────────────
   let videoConstraints: MediaTrackConstraints | boolean = options.video ?? true
+
   if (options.resolution && options.resolution.width > 0 && options.resolution.height > 0) {
     videoConstraints = typeof videoConstraints === 'boolean' ? {} : { ...(videoConstraints as object) }
-    const v = videoConstraints as MediaTrackConstraints
-    if (isLikelySafari()) {
-      Object.assign(v, {
-        width: { max: options.resolution.width },
-        height: { max: options.resolution.height },
-        frameRate: options.resolution.frameRate,
-      })
-    } else {
-      Object.assign(v, {
-        width: { ideal: options.resolution.width },
-        height: { ideal: options.resolution.height },
-        frameRate: options.resolution.frameRate,
-      })
-    }
+    const v      = videoConstraints as MediaTrackConstraints
+    const idealW  = options.resolution.width
+    const idealH  = options.resolution.height
+    const idealFr = options.resolution.frameRate ?? 60
+
+    // Safari colapsa el encoder a ≥60 fps en hardware Apple Silicon; se fuerza
+    // un techo de 30 fps para mantener estabilidad en esa plataforma.
+    const maxFr = isLikelySafari() ? SAFARI_MAX_FRAMERATE : DISPLAY_CAPTURE_MAX_FRAMERATE
+
+    Object.assign(v, {
+      width:     { ideal: idealW,  max: DISPLAY_CAPTURE_MAX_WIDTH  },
+      height:    { ideal: idealH,  max: DISPLAY_CAPTURE_MAX_HEIGHT },
+      frameRate: { ideal: Math.min(idealFr, maxFr), max: maxFr, min: 15 },
+    })
   }
 
+  // ── Audio ──────────────────────────────────────────────────────────────────
   let audio: boolean | MediaTrackConstraints = options.audio ?? false
+
   if (typeof audio === 'object' && audio !== null) {
     const merged: Record<string, unknown> = { ...(audio as object) }
-    if (typeof options.suppressLocalAudioPlayback === 'boolean') {
-      merged.suppressLocalAudioPlayback = options.suppressLocalAudioPlayback
-    } else if (merged.suppressLocalAudioPlayback === undefined) {
-      merged.suppressLocalAudioPlayback = false
-    }
+    // suppressLocalAudioPlayback no lo pasa LiveKit; lo inyectamos aquí para
+    // evitar eco cuando el SO devuelve el audio de sistema al altavoz local.
+    merged.suppressLocalAudioPlayback =
+      typeof options.suppressLocalAudioPlayback === 'boolean'
+        ? options.suppressLocalAudioPlayback
+        : (merged.suppressLocalAudioPlayback ?? false)
     audio = merged as MediaTrackConstraints
   }
 
+  // ── Resultado ──────────────────────────────────────────────────────────────
   const out: Record<string, unknown> = {
     audio,
-    video: videoConstraints,
+    video:              videoConstraints,
     selfBrowserSurface: options.selfBrowserSurface,
-    surfaceSwitching: options.surfaceSwitching,
-    systemAudio: options.systemAudio,
-    preferCurrentTab: options.preferCurrentTab,
+    surfaceSwitching:   options.surfaceSwitching,
+    systemAudio:        options.systemAudio,
+    preferCurrentTab:   options.preferCurrentTab,
   }
 
-  if (options.controller !== undefined && options.controller !== null) {
+  // controller es opcional y no debe enviarse como undefined al navegador
+  if (options.controller != null) {
     out.controller = options.controller
   }
 
   return out as DisplayMediaStreamOptions
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// createLocalScreenShareTracks
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Solicita captura de pantalla al navegador vía `getDisplayMedia` y devuelve
+ * las pistas resultantes como `LocalTrack[]` listas para `publishTrack`.
+ *
+ * - Siempre incluye la pista de vídeo con `contentHint` aplicado.
+ * - Si el stream contiene audio (p. ej. audio de pestaña), lo incluye como
+ *   `ScreenShareAudio` con las constraints de fidelidad del proyecto.
+ *
+ * @throws {DeviceUnsupportedError} Si `getDisplayMedia` no está disponible.
+ * @throws {TrackInvalidError}      Si el stream no contiene pista de vídeo.
+ */
 export async function createLocalScreenShareTracks(
   options?: ScreenShareCaptureOptions,
 ): Promise<LocalTrack[]> {
   if (navigator.mediaDevices?.getDisplayMedia === undefined) {
     throw new DeviceUnsupportedError('getDisplayMedia not supported')
   }
-  const opts = options ?? {}
+
+  const opts   = options ?? {}
   const stream = await navigator.mediaDevices.getDisplayMedia(buildDisplayMediaStreamOptions(opts))
 
-  const tracks = stream.getVideoTracks()
-  if (tracks.length === 0) {
+  // ── Vídeo ──────────────────────────────────────────────────────────────────
+  const videoTracks = stream.getVideoTracks()
+  if (videoTracks.length === 0) {
     throw new TrackInvalidError('no video track found')
   }
-  const screenVideo = new LocalVideoTrack(tracks[0], undefined, false)
-  screenVideo.source = Track.Source.ScreenShare
+
+  applyScreenShareContentHintToTrack(videoTracks[0])
+  const screenVideo        = new LocalVideoTrack(videoTracks[0], undefined, false)
+  screenVideo.source       = Track.Source.ScreenShare
   const localTracks: LocalTrack[] = [screenVideo]
-  if (stream.getAudioTracks().length > 0) {
-    const raw = stream.getAudioTracks()[0]
-    void raw.applyConstraints(nativeScreenShareAudioTrackConstraints).catch(() => {})
-    const screenAudio = new LocalAudioTrack(raw, nativeScreenShareAudioTrackConstraints, false)
+
+  // ── Audio (opcional, solo si el SO lo proporciona) ─────────────────────────
+  const audioTracks = stream.getAudioTracks()
+  if (audioTracks.length > 0) {
+    const raw = audioTracks[0]
+    // Aplicamos constraints de alta fidelidad (sin filtros de voz).
+    // El fallo es no-crítico: la pista sigue siendo válida con sus constraints originales.
+    raw.applyConstraints(nativeScreenShareAudioTrackConstraints).catch((err) => {
+      console.warn('[screenShare] applyConstraints on audio track failed:', err)
+    })
+    const screenAudio  = new LocalAudioTrack(raw, nativeScreenShareAudioTrackConstraints, false)
     screenAudio.source = Track.Source.ScreenShareAudio
     localTracks.push(screenAudio)
   }
+
   return localTracks
 }

@@ -69,6 +69,8 @@ export interface BootstrapPayload {
   membership: { role: ServerRole }
   members: ServerMember[]
   channels: Channel[]
+  /** Misma forma que GET /api/dm; incluido en el bootstrap para un solo round-trip. */
+  dmChannels?: DmChannelSummary[]
 }
 
 export type PresenceStatus = 'online' | 'idle' | 'dnd'

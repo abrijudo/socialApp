@@ -1,10 +1,13 @@
 const fs = require('fs');
+const cors = require('cors');
 const express = require('express');
 const path = require('path');
 const apiRouter = require('./routes/api');
 
 const app = express();
 app.set('trust proxy', 1);
+/** Necesario para la app Electron (`file://` / origen opaco) que llama a la API en Vercel vía `VITE_API_ORIGIN`. */
+app.use(cors({ origin: true }))
 
 const rootDir =
   process.env.VERCEL === '1' ? process.cwd() : path.join(__dirname, '..');

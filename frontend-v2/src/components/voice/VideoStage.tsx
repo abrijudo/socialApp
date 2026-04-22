@@ -4,6 +4,7 @@ import { Track } from 'livekit-client'
 import {
   EyeOff,
   Maximize2,
+  Minimize2,
   MonitorPlay,
   Pin,
   PinOff,
@@ -100,6 +101,16 @@ async function requestTileFullscreen(el: HTMLDivElement | null) {
   }
 }
 
+/** En Electron, el fullscreen HTML oculta la barra propia; hay que salir para recuperar minimizar/cerrar. */
+async function exitDocumentFullscreenIfAny(): Promise<void> {
+  if (typeof document === 'undefined' || !document.fullscreenElement) return
+  try {
+    await document.exitFullscreen()
+  } catch {
+    /* noop */
+  }
+}
+
 /** Columnas del escenario: 1 → una columna a todo el ancho; 2 → dos; 3+ → máx. 3 por fila. */
 function stageColumnCount(trackCount: number): number {
   if (trackCount <= 1) return 1
@@ -133,8 +144,17 @@ export function VideoStage() {
   const [isTouchDevice, setIsTouchDevice] = useState(false)
   const [pinnedTrackKey, setPinnedTrackKey] = useState<string | null>(null)
   const [controlsVisibleByTile, setControlsVisibleByTile] = useState<Record<string, boolean>>({})
+  const [docFullscreenActive, setDocFullscreenActive] = useState(false)
   const lastNonZeroByTrackRef = useRef<Record<string, number>>({})
   const hideControlsTimerRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const sync = () => setDocFullscreenActive(!!document.fullscreenElement)
+    sync()
+    document.addEventListener('fullscreenchange', sync)
+    return () => document.removeEventListener('fullscreenchange', sync)
+  }, [])
 
   const isControlsActiveOnAny = Object.values(controlsVisibleByTile).some((v) => v === true)
   const isImmersive = !isControlsActiveOnAny
@@ -275,6 +295,7 @@ export function VideoStage() {
       : '[&_.lk-participant-metadata]:opacity-0 [&_.lk-participant-metadata]:pointer-events-none [&_.lk-participant-metadata]:transition-opacity [&_.lk-participant-metadata]:duration-200'
 
     const stopViewingScreen = () => {
+      void exitDocumentFullscreenIfAny()
       setScreenViewingByKey((prev) => ({ ...prev, [volumeKey]: false }))
       if (pinnedTrackKey === volumeKey) setPinnedTrackKey(null)
     }
@@ -312,6 +333,25 @@ export function VideoStage() {
               <ParticipantTile trackRef={track} />
             </div>
             <div className="absolute inset-0 z-30 flex flex-col items-center justify-center overflow-y-auto bg-gradient-to-b from-zinc-950 via-zinc-900/95 to-black p-2 text-center sm:p-4">
+              {docFullscreenActive ? (
+                <div className="absolute top-2 right-2 z-[45]">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="border-border/60 bg-background/95 text-foreground shadow-md backdrop-blur-sm"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      void exitDocumentFullscreenIfAny()
+                    }}
+                    aria-label="Salir de pantalla completa"
+                    title="Vuelve a la ventana normal para usar minimizar y cerrar"
+                  >
+                    <Minimize2 className="mr-1.5 size-3.5" aria-hidden />
+                    Salir de pantalla completa
+                  </Button>
+                </div>
+              ) : null}
               <div className="border-border/60 bg-background/40 max-h-full max-w-sm rounded-xl border px-3 py-4 shadow-xl backdrop-blur-sm sm:rounded-2xl sm:px-5 sm:py-6">
                 <div className="bg-primary/15 mx-auto mb-2 flex size-10 items-center justify-center rounded-xl sm:mb-3 sm:size-14 sm:rounded-2xl">
                   <MonitorPlay className="text-primary size-5 sm:size-7" aria-hidden />
@@ -345,9 +385,12 @@ export function VideoStage() {
           </div>
         )}
 
-        {/* Dejar de ver: siempre visible mientras la transmisión está activa */}
         {screenFit && viewingScreen ? (
-          <div className="absolute top-2 left-2 z-30">
+          <div
+            className={`absolute top-2 left-2 z-20 transition-opacity duration-200 ${
+              showControls ? 'opacity-100' : 'pointer-events-none opacity-0'
+            }`}
+          >
             <Button
               type="button"
               variant="secondary"

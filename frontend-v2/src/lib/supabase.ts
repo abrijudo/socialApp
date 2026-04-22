@@ -1,16 +1,9 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { resolveApiOrigin } from '@/lib/apiOrigin'
 
 let browserClient: SupabaseClient | null = null
 let realtimeAuthToken: string | null = null
 let realtimeAuthInFlight: Promise<void> | null = null
-
-function resolveApiOrigin(): string {
-  if (typeof window === 'undefined') return ''
-  const w = window as Window & { __API_ORIGIN__?: string }
-  const raw = w.__API_ORIGIN__
-  if (raw != null && String(raw).trim()) return String(raw).replace(/\/$/, '')
-  return ''
-}
 
 /**
  * Crea el cliente Supabase del navegador (singleton) para auth y Realtime en la app React.

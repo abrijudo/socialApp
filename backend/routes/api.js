@@ -6,7 +6,7 @@ const { getSupabaseAdmin } = require('../services/supabaseAdmin');
 const { uploadMedia, MAX_SIZE, ALLOWED_TYPES } = require('../services/storageService');
 const { ensureProfile, getBootstrapPayload } = require('../services/bootstrapService');
 const { listParticipantsByVoiceChannels } = require('../services/voicePresenceService');
-const { buildProfileMap, enrichItems, MINIMAL_PROFILE_FIELDS } = require('../lib/apiHelpers');
+const { buildProfileMap, enrichItems, listDmChannelSummaries, MINIMAL_PROFILE_FIELDS } = require('../lib/apiHelpers');
 
 const router = express.Router();
 
@@ -844,19 +844,8 @@ router.post('/messages/:messageId/reactions', async (req, res) => {
 router.get('/dm', async (req, res) => {
   try {
     const sb = getSupabaseAdmin();
-    const { data: dms, error: dmsErr } = await sb.from('dm_participants').select('dm_channel_id').eq('user_id', req.userId);
-    if (dmsErr) throw dmsErr;
-    if (!dms?.length) return res.json([]);
-    const dmIds = dms.map(d => d.dm_channel_id);
-    const { data: participants, error: partErr } = await sb.from('dm_participants').select('dm_channel_id, user_id').in('dm_channel_id', dmIds);
-    if (partErr) throw partErr;
-    const otherUserIds = (participants || []).filter(p => p.user_id !== req.userId).map(p => p.user_id);
-    const profilesMap = await buildProfileMap(sb, otherUserIds, 'user_id, display_name, username, avatar_url, status');
-    const dmMap = {};
-    (participants || []).forEach(p => {
-      if (p.user_id !== req.userId) dmMap[p.dm_channel_id] = { ...profilesMap[p.user_id], user_id: p.user_id };
-    });
-    return res.json(dms.map(d => ({ id: d.dm_channel_id, otherUser: dmMap[d.dm_channel_id] || null })));
+    const list = await listDmChannelSummaries(sb, req.userId);
+    return res.json(list);
   } catch (err) {
     return handleError(res, err);
   }

@@ -24,4 +24,36 @@ function enrichItems(items, profileMap, idKey = 'author_id', profileKey = 'profi
   }));
 }
 
-module.exports = { buildProfileMap, enrichItems, DEFAULT_PROFILE_FIELDS, MINIMAL_PROFILE_FIELDS };
+const DM_SUMMARY_PROFILE_FIELDS = 'user_id, display_name, username, avatar_url, status';
+
+/**
+ * Lista de conversaciones DM del usuario: mismos datos que GET /api/dm.
+ */
+async function listDmChannelSummaries(sb, userId) {
+  const { data: dms, error: dmsErr } = await sb.from('dm_participants').select('dm_channel_id').eq('user_id', userId);
+  if (dmsErr) throw dmsErr;
+  if (!dms?.length) return [];
+  const dmIds = dms.map((d) => d.dm_channel_id);
+  const { data: participants, error: partErr } = await sb
+    .from('dm_participants')
+    .select('dm_channel_id, user_id')
+    .in('dm_channel_id', dmIds);
+  if (partErr) throw partErr;
+  const otherUserIds = (participants || []).filter((p) => p.user_id !== userId).map((p) => p.user_id);
+  const profilesMap = await buildProfileMap(sb, otherUserIds, DM_SUMMARY_PROFILE_FIELDS);
+  const dmMap = {};
+  (participants || []).forEach((p) => {
+    if (p.user_id !== userId) {
+      dmMap[p.dm_channel_id] = { ...profilesMap[p.user_id], user_id: p.user_id };
+    }
+  });
+  return dms.map((d) => ({ id: d.dm_channel_id, otherUser: dmMap[d.dm_channel_id] || null }));
+}
+
+module.exports = {
+  buildProfileMap,
+  enrichItems,
+  listDmChannelSummaries,
+  DEFAULT_PROFILE_FIELDS,
+  MINIMAL_PROFILE_FIELDS,
+};

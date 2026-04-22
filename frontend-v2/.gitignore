@@ -12,6 +12,8 @@ release
 dist
 dist-ssr
 *.local
+# URL del backend para builds (Electron); usa .env.production.example como plantilla
+.env.production
 
 # Editor directories and files
 .vscode/*

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { getAuthenticatedSupabase, getSupabaseBrowserClient } from '@/lib/supabase'
 import { apiGetJson } from '@/lib/api'
@@ -67,77 +67,31 @@ function rowToMessage(row: Record<string, unknown>, profile: Profile | null): Ch
   }
 }
 
+const membersRefGlobal = { current: [] as ServerMember[] }
+
 /**
- * Historial vía `GET /api/messages/:channelId` y actualizaciones vía Supabase
- * Realtime. Los mensajes se cachean en `messagesByChannel` del store, así que
- * al desmontar/remontar el componente (por ejemplo al entrar/salir de voz, o
- * al cambiar de canal y volver) NO se vuelve a mostrar el spinner ni se
- * reinicia la lista: se revalidan en background.
+ * Suscripción única a `public.messages` (sin filtro por canal): RLS decide
+ * qué filas recibe el usuario. Así los canales que no están abiertos también
+ * se actualizan en caché y al cambiar de chat no hace falta recargar.
  *
- * Pensado para invocarse UNA vez desde `AppLayout` con el canal activo; así
- * la suscripción realtime sigue viva aunque el componente `ChatArea` entre
- * y salga del árbol (p. ej. al activar un canal de voz).
+ * Invocar una vez desde `AppLayout` junto con `useChannelMessages` (solo fetch).
  */
-export function useChannelMessages(channelId: string | null) {
+export function useGlobalMessagesRealtime() {
   const accessToken = useAppStore((s) => s.accessToken)
   const members = useAppStore((s) => s.members)
-  const membersRef = useRef(members)
-  membersRef.current = members
+  membersRefGlobal.current = members
 
   useEffect(() => {
-    if (!channelId || !accessToken) return
+    if (!accessToken) return
 
     let cancelled = false
     let realtimeChannel: RealtimeChannel | null = null
-    const realtimeName = `messages:${channelId}:${Date.now()}`
-
-    const store = useAppStore.getState()
-    const alreadyLoaded = channelId in store.messagesByChannel
-    const lastAt = lastFetchedAt.get(channelId) ?? 0
-    const isFresh = alreadyLoaded && Date.now() - lastAt < FETCH_TTL_MS
-    // Solo mostramos loading cuando el canal NO ha sido cargado nunca en esta
-    // sesión. En los cambios de canal posteriores se muestra la cache al
-    // instante mientras revalidamos silenciosamente.
-    if (!alreadyLoaded) {
-      useAppStore.getState().setChannelMessagesLoading(channelId, true)
-    }
+    const realtimeName = `messages-global:${Date.now()}`
 
     void (async () => {
       try {
-        await getAuthenticatedSupabase(accessToken)
-
-        // Si los datos siguen frescos, NO repetimos el fetch de historial: la
-        // suscripción realtime se encarga del resto. Esto evita que al entrar
-        // y salir de voz (o por StrictMode) se lance una petición por cada
-        // montaje del componente.
-        if (!isFresh) {
-          const data = await apiGetJson<ChannelMessagesResponse>(
-            `/api/messages/${channelId}?limit=50`,
-            accessToken,
-          )
-          if (!cancelled) {
-            useAppStore.getState().setChannelMessages(channelId, data.messages ?? [])
-            lastFetchedAt.set(channelId, Date.now())
-          }
-        }
-      } catch {
-        // Si ya había cache, mantenemos lo que tuviéramos; si no, marcamos lista vacía.
-        if (!cancelled && !alreadyLoaded) {
-          useAppStore.getState().setChannelMessages(channelId, [])
-        }
-      } finally {
-        if (!cancelled) {
-          useAppStore.getState().setChannelMessagesLoading(channelId, false)
-        }
-      }
-
-      if (cancelled) return
-
-      try {
         const supabase = await getAuthenticatedSupabase(accessToken)
         if (cancelled) return
-
-        const filter = `channel_id=eq.${channelId}`
 
         const channel = supabase
           .channel(realtimeName)
@@ -147,18 +101,18 @@ export function useChannelMessages(channelId: string | null) {
               event: 'INSERT',
               schema: 'public',
               table: 'messages',
-              filter,
             },
             (payload) => {
               const row = payload.new as Record<string, unknown>
-              if (!row?.id) return
+              if (!row?.id || row.channel_id == null) return
+              const chId = String(row.channel_id)
 
-              const profile = profileForAuthor(membersRef.current, String(row.author_id))
+              const profile = profileForAuthor(membersRefGlobal.current, String(row.author_id))
               const msg = rowToMessage(row, profile)
               const state = useAppStore.getState()
-              state.appendChannelMessage(channelId, msg)
-              if (channelId !== state.activeTextChannelId) {
-                state.incrementUnread(channelId)
+              state.appendChannelMessage(chId, msg)
+              if (chId !== state.activeTextChannelId) {
+                state.incrementUnread(chId)
               }
             },
           )
@@ -168,18 +122,13 @@ export function useChannelMessages(channelId: string | null) {
               event: 'UPDATE',
               schema: 'public',
               table: 'messages',
-              filter,
             },
             (payload) => {
               const row = payload.new as Record<string, unknown>
               if (!row?.id) return
 
-              const profile = profileForAuthor(membersRef.current, String(row.author_id))
+              const profile = profileForAuthor(membersRefGlobal.current, String(row.author_id))
               const msg = rowToMessage(row, profile)
-              // El realtime de `messages` NO incluye reacciones ni el contador de
-              // respuestas (viven en otras tablas). Si aplicáramos el mensaje
-              // entero como patch, machacaríamos los valores reales con vacíos.
-              // Limpiamos el patch a los campos realmente editables.
               const { reactions: _r, replyCount: _c, ...patch } = msg
               useAppStore.getState().updateMessage(String(row.id), patch)
             },
@@ -190,7 +139,6 @@ export function useChannelMessages(channelId: string | null) {
               event: 'DELETE',
               schema: 'public',
               table: 'messages',
-              filter,
             },
             (payload) => {
               const oldRow = payload.old as { id?: string }
@@ -211,14 +159,18 @@ export function useChannelMessages(channelId: string | null) {
             console.warn('Realtime messages:', status, err ?? '')
             void (async () => {
               try {
+                const { activeTextChannelId: activeCh } = useAppStore.getState()
+                if (!activeCh) return
                 const fresh = await apiGetJson<ChannelMessagesResponse>(
-                  `/api/messages/${channelId}?limit=50`,
+                  `/api/messages/${activeCh}?limit=50`,
                   accessToken,
                 )
                 if (!cancelled) {
-                  useAppStore.getState().setChannelMessages(channelId, fresh.messages ?? [])
+                  useAppStore.getState().setChannelMessages(activeCh, fresh.messages ?? [])
                 }
-              } catch { /* silently retry on next event */ }
+              } catch {
+                /* reintento en el siguiente evento */
+              }
             })()
           }
         })
@@ -229,9 +181,6 @@ export function useChannelMessages(channelId: string | null) {
 
     return () => {
       cancelled = true
-      // Importante: NO limpiamos `messagesByChannel[channelId]` al desmontar.
-      // Los mensajes se conservan para que, al volver al canal (p. ej. tras
-      // entrar/salir de voz), aparezcan al instante y sin spinner.
       const ch = realtimeChannel
       realtimeChannel = null
       if (!ch) return
@@ -241,6 +190,57 @@ export function useChannelMessages(channelId: string | null) {
       } catch {
         /* cliente aún no listo */
       }
+    }
+  }, [accessToken])
+}
+
+/**
+ * Historial vía `GET /api/messages/:channelId`. Las actualizaciones en vivo
+ * las aplica `useGlobalMessagesRealtime`.
+ */
+export function useChannelMessages(channelId: string | null) {
+  const accessToken = useAppStore((s) => s.accessToken)
+
+  useEffect(() => {
+    if (!channelId || !accessToken) return
+
+    let cancelled = false
+
+    const store = useAppStore.getState()
+    const alreadyLoaded = channelId in store.messagesByChannel
+    const lastAt = lastFetchedAt.get(channelId) ?? 0
+    const isFresh = alreadyLoaded && Date.now() - lastAt < FETCH_TTL_MS
+    if (!alreadyLoaded) {
+      useAppStore.getState().setChannelMessagesLoading(channelId, true)
+    }
+
+    void (async () => {
+      try {
+        await getAuthenticatedSupabase(accessToken)
+
+        if (!isFresh) {
+          const data = await apiGetJson<ChannelMessagesResponse>(
+            `/api/messages/${channelId}?limit=50`,
+            accessToken,
+          )
+          if (!cancelled) {
+            useAppStore.getState().setChannelMessages(channelId, data.messages ?? [])
+            lastFetchedAt.set(channelId, Date.now())
+          }
+        }
+      } catch {
+        if (!cancelled && !alreadyLoaded) {
+          useAppStore.getState().setChannelMessages(channelId, [])
+        }
+      } finally {
+        if (!cancelled) {
+          useAppStore.getState().setChannelMessagesLoading(channelId, false)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
     }
   }, [channelId, accessToken])
 }

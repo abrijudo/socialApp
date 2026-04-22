@@ -71,28 +71,151 @@ function normalizeApiRow(
 }
 
 /**
- * Historial vía `GET /api/dm/:dmChannelId/messages` y actualizaciones vía
- * Supabase Realtime sobre `dm_messages`.
- *
- * Los mensajes se cachean en `dmMessagesByChannel` del store, así que al
- * desmontar/remontar el componente (por ejemplo al entrar/salir de voz, o al
- * cambiar de DM y volver) NO se vuelve a mostrar el spinner ni se reinicia
- * la lista: se revalidan en background.
- *
- * Pensado para invocarse UNA vez desde `AppLayout` con el DM activo; así la
- * suscripción realtime sigue viva aunque el componente `DmChatArea` entre y
- * salga del árbol (p. ej. al activar un canal de voz).
+ * Suscripción global a `dm_messages` (sin filtro): RLS limita a conversaciones
+ * del usuario. Sigue funcionando aunque estés en un servidor y no en el DM.
+ */
+export function useGlobalDmMessagesRealtime() {
+  const accessToken = useAppStore((s) => s.accessToken)
+  const userId = useAppStore((s) => s.userId)
+
+  useEffect(() => {
+    if (!accessToken) return
+
+    let cancelled = false
+    let realtimeChannel: RealtimeChannel | null = null
+    const realtimeName = `dm-messages-global:${Date.now()}`
+
+    void (async () => {
+      try {
+        const supabase = await getAuthenticatedSupabase(accessToken)
+        if (cancelled) return
+
+        const channel = supabase
+          .channel(realtimeName)
+          .on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'dm_messages',
+            },
+            (payload) => {
+              const row = payload.new as Record<string, unknown>
+              if (!row?.id || row.dm_channel_id == null) return
+              const dmChId = String(row.dm_channel_id)
+
+              const authorId = String(row.author_id)
+              const profile = profileForDmAuthor(dmChId, authorId)
+              const msg = rowToMessage(row, profile, dmChId)
+              const state = useAppStore.getState()
+              state.appendDmChannelMessage(dmChId, msg)
+              if (userId && authorId !== userId) {
+                const preview =
+                  msg.body.length > 160 ? `${msg.body.slice(0, 157)}…` : msg.body
+                toast('Nuevo mensaje privado', { description: preview })
+                if (dmChId !== state.activeDmChannelId) {
+                  state.incrementUnread(dmChId)
+                }
+              }
+            },
+          )
+          .on(
+            'postgres_changes',
+            {
+              event: 'UPDATE',
+              schema: 'public',
+              table: 'dm_messages',
+            },
+            (payload) => {
+              const row = payload.new as Record<string, unknown>
+              if (!row?.id || row.dm_channel_id == null) return
+              const dmChId = String(row.dm_channel_id)
+
+              const authorId = String(row.author_id)
+              const profile = profileForDmAuthor(dmChId, authorId)
+              const msg = rowToMessage(row, profile, dmChId)
+              const { reactions: _r, replyCount: _c, ...patch } = msg
+              useAppStore.getState().updateDmMessage(String(row.id), patch)
+            },
+          )
+          .on(
+            'postgres_changes',
+            {
+              event: 'DELETE',
+              schema: 'public',
+              table: 'dm_messages',
+            },
+            (payload) => {
+              const oldRow = payload.old as { id?: string }
+              if (!oldRow?.id) return
+              useAppStore.getState().removeDmMessage(oldRow.id)
+            },
+          )
+
+        if (cancelled) {
+          void supabase.removeChannel(channel)
+          return
+        }
+
+        realtimeChannel = channel
+        channel.subscribe((status, err) => {
+          if (status === 'SUBSCRIBED') return
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.warn('Realtime DM:', status, err ?? '')
+            void (async () => {
+              try {
+                const { activeDmChannelId: activeDm } = useAppStore.getState()
+                if (!activeDm) return
+                const data = await apiGetJson<Record<string, unknown>[]>(
+                  `/api/dm/${activeDm}/messages`,
+                  accessToken,
+                )
+                if (!cancelled) {
+                  const list = Array.isArray(data) ? data : []
+                  useAppStore
+                    .getState()
+                    .setDmChannelMessages(
+                      activeDm,
+                      list.map((row) => normalizeApiRow(row, activeDm)),
+                    )
+                  lastFetchedAt.set(activeDm, Date.now())
+                }
+              } catch {
+                /* reintento en el siguiente evento */
+              }
+            })()
+          }
+        })
+      } catch (e) {
+        console.warn('Suscripción Realtime DM:', e)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+      const ch = realtimeChannel
+      realtimeChannel = null
+      if (!ch) return
+      try {
+        const supabase = getSupabaseBrowserClient()
+        void supabase.removeChannel(ch)
+      } catch {
+        /* cliente aún no listo */
+      }
+    }
+  }, [accessToken, userId])
+}
+
+/**
+ * Historial vía `GET /api/dm/:dmChannelId/messages`. Tiempo real: `useGlobalDmMessagesRealtime`.
  */
 export function useDmMessages(dmChannelId: string | null) {
   const accessToken = useAppStore((s) => s.accessToken)
-  const userId = useAppStore((s) => s.userId)
 
   useEffect(() => {
     if (!dmChannelId || !accessToken) return
 
     let cancelled = false
-    let realtimeChannel: RealtimeChannel | null = null
-    const realtimeName = `dm-messages-${dmChannelId}-${Date.now()}`
 
     const store = useAppStore.getState()
     const alreadyLoaded = dmChannelId in store.dmMessagesByChannel
@@ -130,132 +253,12 @@ export function useDmMessages(dmChannelId: string | null) {
           useAppStore.getState().setDmChannelMessagesLoading(dmChannelId, false)
         }
       }
-
-      if (cancelled) return
-
-      try {
-        const supabase = await getAuthenticatedSupabase(accessToken)
-        if (cancelled) return
-
-        const filter = `dm_channel_id=eq.${dmChannelId}`
-
-        const channel = supabase
-          .channel(realtimeName)
-          .on(
-            'postgres_changes',
-            {
-              event: 'INSERT',
-              schema: 'public',
-              table: 'dm_messages',
-              filter,
-            },
-            (payload) => {
-              const row = payload.new as Record<string, unknown>
-              if (!row?.id) return
-
-              const authorId = String(row.author_id)
-              const profile = profileForDmAuthor(dmChannelId, authorId)
-              const msg = rowToMessage(row, profile, dmChannelId)
-              const state = useAppStore.getState()
-              state.appendDmChannelMessage(dmChannelId, msg)
-              if (userId && authorId !== userId) {
-                const preview =
-                  msg.body.length > 160 ? `${msg.body.slice(0, 157)}…` : msg.body
-                toast('Nuevo mensaje privado', { description: preview })
-                if (dmChannelId !== state.activeDmChannelId) {
-                  state.incrementUnread(dmChannelId)
-                }
-              }
-            },
-          )
-          .on(
-            'postgres_changes',
-            {
-              event: 'UPDATE',
-              schema: 'public',
-              table: 'dm_messages',
-              filter,
-            },
-            (payload) => {
-              const row = payload.new as Record<string, unknown>
-              if (!row?.id) return
-
-              const authorId = String(row.author_id)
-              const profile = profileForDmAuthor(dmChannelId, authorId)
-              const msg = rowToMessage(row, profile, dmChannelId)
-              // Evitar que el patch sobrescriba reactions/replyCount con vacíos
-              // (realtime solo reporta columnas propias de `dm_messages`).
-              const { reactions: _r, replyCount: _c, ...patch } = msg
-              useAppStore.getState().updateDmMessage(String(row.id), patch)
-            },
-          )
-          .on(
-            'postgres_changes',
-            {
-              event: 'DELETE',
-              schema: 'public',
-              table: 'dm_messages',
-              filter,
-            },
-            (payload) => {
-              const oldRow = payload.old as { id?: string }
-              if (!oldRow?.id) return
-              useAppStore.getState().removeDmMessage(oldRow.id)
-            },
-          )
-
-        if (cancelled) {
-          void supabase.removeChannel(channel)
-          return
-        }
-
-        realtimeChannel = channel
-        channel.subscribe((status, err) => {
-          if (status === 'SUBSCRIBED') return
-          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-            console.warn('Realtime DM:', status, err ?? '')
-            void (async () => {
-              try {
-                const data = await apiGetJson<Record<string, unknown>[]>(
-                  `/api/dm/${dmChannelId}/messages`,
-                  accessToken,
-                )
-                if (!cancelled) {
-                  const list = Array.isArray(data) ? data : []
-                  useAppStore
-                    .getState()
-                    .setDmChannelMessages(
-                      dmChannelId,
-                      list.map((row) => normalizeApiRow(row, dmChannelId)),
-                    )
-                  lastFetchedAt.set(dmChannelId, Date.now())
-                }
-              } catch { /* silently retry on next event */ }
-            })()
-          }
-        })
-      } catch (e) {
-        console.warn('Suscripción Realtime DM:', e)
-      }
     })()
 
     return () => {
       cancelled = true
-      // Importante: NO limpiamos `dmMessagesByChannel[dmChannelId]` al
-      // desmontar. Los mensajes se conservan para que, al volver al DM (por
-      // ejemplo tras entrar/salir de voz), aparezcan al instante y sin
-      // spinner.
-      const ch = realtimeChannel
-      realtimeChannel = null
-      if (!ch) return
-      try {
-        const supabase = getSupabaseBrowserClient()
-        void supabase.removeChannel(ch)
-      } catch {
-        /* cliente aún no listo */
-      }
     }
-  }, [dmChannelId, accessToken, userId])
+  }, [dmChannelId, accessToken])
 }
 
 /**

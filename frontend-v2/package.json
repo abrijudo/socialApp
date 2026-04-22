@@ -1,7 +1,7 @@
 {
   "name": "social-club",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.26",
   "description": "Cliente de escritorio (Electron)",
   "author": "abrijudo",
   "type": "module",
@@ -73,8 +73,8 @@
     "url": "https://github.com/abrijudo/socialApp.git"
   },
   "build": {
-    "appId": "com.minidiscord.desktop",
-    "productName": "Mini Discord",
+    "appId": "com.socialclub.desktop",
+    "productName": "Social Club",
     "copyright": "Copyright © 2026",
     "directories": {
       "output": "release"

@@ -10,8 +10,8 @@ import { MobileNavProvider, useMobileNav } from '@/components/layout/MobileNavCo
 import { ServerRail } from '@/components/layout/ServerRail'
 import { ServerSidebar } from '@/components/layout/ServerSidebar'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
-import { useChannelMessages } from '@/hooks/useChannelMessages'
-import { useDmMessages } from '@/hooks/useDmMessages'
+import { useChannelMessages, useGlobalMessagesRealtime } from '@/hooks/useChannelMessages'
+import { useDmMessages, useGlobalDmMessagesRealtime } from '@/hooks/useDmMessages'
 import { useServerPresence } from '@/hooks/useServerPresence'
 import { useVoicePresence } from '@/hooks/useVoicePresence'
 import { useWorkspaceRealtime } from '@/hooks/useWorkspaceRealtime'
@@ -132,10 +132,9 @@ export function AppLayout() {
   useServerPresence(activeServerId, userId)
   useVoicePresence({ subscribe: true })
   useWorkspaceRealtime()
-  // Mantenemos la suscripción al canal de texto/DM activo montada desde el
-  // layout raíz. Así, entrar/salir de un canal de voz (que sí remonta
-  // `ChatArea`/`DmChatArea`) no interrumpe la suscripción realtime de
-  // mensajes ni dispara un nuevo fetch del historial.
+  useGlobalMessagesRealtime()
+  useGlobalDmMessagesRealtime()
+  // Fetch del historial del chat activo; el tiempo real es global (ver hooks anteriores).
   useChannelMessages(activeTextChannelId)
   useDmMessages(activeDmChannelId)
 

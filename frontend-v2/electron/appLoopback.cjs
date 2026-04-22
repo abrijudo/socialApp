@@ -12,6 +12,18 @@ const path = require('node:path')
 
 const requireFrom = createRequire(__filename)
 
+/**
+ * Los .exe no pueden lanzarse desde dentro de `app.asar`; electron-builder los deja en
+ * `app.asar.unpacked` (ver package.json `asarUnpack`). `require.resolve` sigue apuntando a `.asar`.
+ */
+function dirPackageToUnpackedIfNeeded(fsPath) {
+  const parts = fsPath.split(/[/\\]+/)
+  const i = parts.indexOf('app.asar')
+  if (i === -1) return fsPath
+  parts[i] = 'app.asar.unpacked'
+  return parts.join(path.sep)
+}
+
 /** @type {null | false | import('application-loopback')} */
 let loopbackModule = null
 
@@ -22,7 +34,8 @@ function getLoopback() {
   try {
     const al = requireFrom('application-loopback')
     const pkgJson = requireFrom.resolve('application-loopback/package.json')
-    const binRoot = path.join(path.dirname(pkgJson), 'bin')
+    const pkgDir = dirPackageToUnpackedIfNeeded(path.dirname(pkgJson))
+    const binRoot = path.join(pkgDir, 'bin')
     al.setExecutablesRoot(binRoot)
     loopbackModule = al
     return al

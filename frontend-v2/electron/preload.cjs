@@ -1,6 +1,22 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  /** `darwin` | `win32` | `linux` — para ajustar barra de título. */
+  platform: process.platform,
+
+  windowMin: () => ipcRenderer.send('electron:window-min'),
+  windowMax: () => ipcRenderer.send('electron:window-max'),
+  windowClose: () => ipcRenderer.send('electron:window-close'),
+  windowIsMaximized: () => ipcRenderer.invoke('electron:window-is-maximized'),
+  onWindowState: (callback) => {
+    const fn = (_event, state) => {
+      callback?.(state ?? {})
+    }
+    ipcRenderer.on('electron:window-state', fn)
+    return () => {
+      ipcRenderer.removeListener('electron:window-state', fn)
+    }
+  },
   /**
    * @param {{ types?: ('window' | 'screen')[], thumbnailSize?: { width: number, height: number } }} [options]
    */
@@ -25,5 +41,33 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
     ipcRenderer.on('electron:app-loopback-chunk', listener)
     return () => ipcRenderer.removeListener('electron:app-loopback-chunk', listener)
+  },
+
+  onUpdateAvailable: (callback) => {
+    const listener = (_event, version) => {
+      callback(typeof version === 'string' ? version : String(version ?? ''))
+    }
+    ipcRenderer.on('electron:update-available', listener)
+    return () => ipcRenderer.removeListener('electron:update-available', listener)
+  },
+  onUpdateReady: (callback) => {
+    const listener = () => {
+      callback()
+    }
+    ipcRenderer.on('electron:update-ready', listener)
+    return () => ipcRenderer.removeListener('electron:update-ready', listener)
+  },
+  onUpdateDownloadProgress: (callback) => {
+    const listener = (_event, progress) => {
+      callback(progress ?? {})
+    }
+    ipcRenderer.on('electron:update-download-progress', listener)
+    return () => ipcRenderer.removeListener('electron:update-download-progress', listener)
+  },
+  startUpdateDownload: () => {
+    ipcRenderer.send('electron:start-update-download')
+  },
+  installUpdate: () => {
+    ipcRenderer.send('electron:install-update')
   },
 })
