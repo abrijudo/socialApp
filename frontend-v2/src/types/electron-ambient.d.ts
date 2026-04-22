@@ -10,6 +10,8 @@ export interface ElectronDesktopSourceInfo {
 
 export interface ElectronAPI {
   platform: string
+  /** Origen del API Express en producción (`process.env` en el proceso main). */
+  getApiOrigin: () => string
   /** Controles de ventana (preload.cjs). */
   windowMin: () => void
   windowMax: () => void

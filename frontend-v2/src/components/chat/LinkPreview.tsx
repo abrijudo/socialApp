@@ -24,27 +24,29 @@ function displaySiteName(urlStr: string): string {
   }
 }
 
-/** Devuelve URL de embed si el enlace es un vídeo de YouTube, si no `null`. */
-function getYouTubeEmbedUrl(pageUrl: string): string | null {
+/**
+ * ID del vídeo a partir de la URL pública o de embed (dominio `www.youtube.com` o `youtu.be`).
+ * El reproductor embebido en la UI usa `youtube-nocookie.com` (mejor con Electron y referrer).
+ */
+function getYouTubeVideoId(pageUrl: string): string | null {
   try {
     const u = new URL(pageUrl)
     const host = u.hostname.replace(/^www\./, '')
     if (host === 'youtu.be') {
       const id = u.pathname.replace(/^\//, '').split('/')[0]
-      return id ? `https://www.youtube.com/embed/${id}` : null
+      return id || null
     }
     if (host === 'youtube.com' || host === 'm.youtube.com') {
       if (u.pathname.startsWith('/watch')) {
         const v = u.searchParams.get('v')
-        return v ? `https://www.youtube.com/embed/${v}` : null
+        return v?.trim() || null
       }
       if (u.pathname.startsWith('/shorts/')) {
         const parts = u.pathname.split('/').filter(Boolean)
-        const id = parts[1]
-        return id ? `https://www.youtube.com/embed/${id}` : null
+        return parts[1] || null
       }
       if (u.pathname.startsWith('/embed/')) {
-        return pageUrl.split('?')[0] ?? null
+        return u.pathname.split('/').filter(Boolean).pop() || null
       }
     }
   } catch {
@@ -52,6 +54,9 @@ function getYouTubeEmbedUrl(pageUrl: string): string | null {
   }
   return null
 }
+
+const cardClass =
+  'mt-2 w-full max-w-lg min-w-0 overflow-hidden rounded-md border border-l-4 border-l-primary border-border bg-muted/30 text-foreground'
 
 export const LinkPreview = memo(function LinkPreview({ url }: { url: string }) {
   const accessToken = useAppStore((s) => s.accessToken)
@@ -110,35 +115,66 @@ export const LinkPreview = memo(function LinkPreview({ url }: { url: string }) {
   if (loading) {
     return (
       <div
-        className="bg-card/80 border-border/60 mt-2 h-16 max-w-lg w-full animate-pulse rounded-md border border-l-4 border-l-primary"
+        className={cn(cardClass, 'h-16 animate-pulse border-border/60 bg-card/50')}
         aria-hidden
       />
     )
   }
   if (!data) return null
 
-  const embedUrl = getYouTubeEmbedUrl(data.url)
-  const showYoutube = Boolean(embedUrl)
+  const videoId = getYouTubeVideoId(data.url)
+  const showYoutube = Boolean(videoId)
   const hasImage = Boolean(data.image) && !imgError && !showYoutube
   const hasDescription = Boolean(data.description?.trim())
 
+  if (showYoutube && videoId) {
+    return (
+      <div className={cardClass}>
+        <div className="min-w-0 w-full px-3 pb-2 pt-2.5">
+          <div className="relative mt-2 aspect-video w-full overflow-hidden rounded-md bg-muted/20">
+            <iframe
+              title={data.title || 'YouTube'}
+              src={`https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?rel=0&modestbranding=1&playsinline=1`}
+              className="absolute top-0 left-0 h-full w-full border-0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              referrerPolicy="strict-origin-when-cross-origin"
+            />
+          </div>
+        </div>
+        <div className="px-3 pb-2.5">
+          <p className="text-muted-foreground mb-1 break-all text-xs font-medium leading-none">
+            {displaySiteName(data.url)}
+          </p>
+          <a
+            href={data.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-foreground hover:text-primary line-clamp-2 text-sm font-semibold leading-snug underline-offset-2 transition-colors hover:underline"
+          >
+            {data.title}
+          </a>
+          {hasDescription ? (
+            <p className="text-muted-foreground mt-1.5 line-clamp-2 text-[0.8125rem] leading-relaxed">
+              {data.description}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div
-      className={cn(
-        'border-border bg-card/90 text-foreground mt-2 w-full max-w-lg min-w-0 overflow-hidden rounded-md border',
-        'border-l-4 border-l-primary shadow-sm',
-        'ring-1 ring-border/40',
-      )}
-    >
+    <div className={cardClass}>
       <div className="px-3 pt-2.5 pb-2">
-        <p className="text-muted-foreground mb-1 break-all text-[0.7rem] font-medium leading-none">
+        <p className="text-muted-foreground mb-1 break-all text-xs font-medium leading-none">
           {displaySiteName(data.url)}
         </p>
         <a
           href={data.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-foreground hover:text-primary line-clamp-2 text-[0.9375rem] font-semibold leading-snug underline-offset-2 transition-colors hover:underline"
+          className="text-foreground hover:text-primary line-clamp-2 text-sm font-semibold leading-snug underline-offset-2 transition-colors hover:underline"
         >
           {data.title}
         </a>
@@ -149,31 +185,17 @@ export const LinkPreview = memo(function LinkPreview({ url }: { url: string }) {
         ) : null}
       </div>
 
-      {showYoutube && embedUrl ? (
-        <div className="border-border/50 border-t px-3 pb-3 pt-0">
-          <div className="relative w-full overflow-hidden rounded-md bg-black/20">
-            <iframe
-              src={embedUrl}
-              title={data.title || 'YouTube'}
-              className="aspect-video w-full rounded-md border-0"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowFullScreen
-              loading="lazy"
-              referrerPolicy="strict-origin-when-cross-origin"
-            />
-          </div>
-        </div>
-      ) : hasImage ? (
+      {hasImage ? (
         <a
           href={data.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="border-border/50 bg-muted/20 border-t block max-h-48 w-full overflow-hidden"
+          className="border-border/50 block min-w-0 w-full overflow-hidden border-t px-3 pb-3"
         >
           <img
             src={data.image!}
             alt=""
-            className="max-h-48 w-full object-cover object-center"
+            className="mt-2 max-h-64 w-full rounded-md object-cover object-center"
             onError={() => setImgError(true)}
             loading="lazy"
           />

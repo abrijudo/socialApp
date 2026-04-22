@@ -1,10 +1,17 @@
 import type { BootstrapPayload } from '@/types/models'
-import { resolveApiOrigin } from '@/lib/apiOrigin'
+import { getApiBaseUrl, PRODUCTION_API_ORIGIN, resolveApiOrigin } from '@/lib/apiOrigin'
 
-/** Ruta API relativa al origen de la página o `__API_ORIGIN__`. */
+export { getApiBaseUrl, PRODUCTION_API_ORIGIN, resolveApiOrigin }
+
+/** Base resuelta al cargar el módulo; coincide con `getApiBaseUrl()`. */
+export const API_BASE_URL = getApiBaseUrl()
+
+/**
+ * URL absoluta `API + path` o path relativo `/api/...` si en dev el base es `''` (proxy Vite).
+ */
 export function resolveApiUrl(path: string): string {
   const p = path.startsWith('/') ? path : `/${path}`
-  const base = resolveApiOrigin()
+  const base = getApiBaseUrl()
   return base ? `${base}${p}` : p
 }
 

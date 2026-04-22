@@ -52,33 +52,41 @@ export function VirtualizedMessageList({
 }: VirtualizedMessageListProps) {
   const loadOlderInFlight = useRef(false)
   const virtuosoRef = useRef<VirtuosoHandle>(null)
-  /** Incluye `readBaseline` para volver a centrar al reentrar con otro corte de lectura. */
-  const autoScrollDoneKey = useRef<string | null>(null)
+  /**
+   * Un solo “scroll inicial” al entrar en un hilo (misma clave = mismo canal/DM):
+   * con no leídos → al separador; sin no leídos (o sin baseline) → al último mensaje.
+   * No se repite al cargar historial hacia arriba ni al enviar mensajes.
+   */
+  const initialScrollDoneForListKey = useRef<string | null>(null)
 
   const rows: MessageListRow[] = useMemo(
     () => buildMessageListRows(messages, readBaselineAt),
     [messages, readBaselineAt],
   )
 
-  const unreadSepIndex = useMemo(() => findUnreadSeparatorIndex(rows), [rows])
-
-  const autoScrollId = useMemo(() => `${listKey}:${readBaselineAt ?? 'null'}`, [listKey, readBaselineAt])
+  useEffect(() => {
+    initialScrollDoneForListKey.current = null
+  }, [listKey])
 
   useEffect(() => {
-    if (unreadSepIndex < 0) return
-    if (autoScrollDoneKey.current === autoScrollId) return
-    let cancelled = false
+    if (rows.length === 0) return
+    if (initialScrollDoneForListKey.current === listKey) return
+
+    const snapshot = rows
     const t = window.setTimeout(() => {
-      if (cancelled) return
-      if (autoScrollDoneKey.current === autoScrollId) return
-      virtuosoRef.current?.scrollToIndex({ index: unreadSepIndex, align: 'center', behavior: 'auto' })
-      autoScrollDoneKey.current = autoScrollId
+      if (initialScrollDoneForListKey.current === listKey) return
+      initialScrollDoneForListKey.current = listKey
+      const sep = findUnreadSeparatorIndex(snapshot)
+      if (sep >= 0) {
+        virtuosoRef.current?.scrollToIndex({ index: sep, align: 'center', behavior: 'auto' })
+        return
+      }
+      const last = snapshot.length - 1
+      virtuosoRef.current?.scrollToIndex({ index: last, align: 'end', behavior: 'auto' })
     }, 32)
-    return () => {
-      cancelled = true
-      clearTimeout(t)
-    }
-  }, [autoScrollId, unreadSepIndex, rows.length])
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `rows` del cierre: incluirlo re-ejecutaría en cada mensaje.
+  }, [listKey, rows.length, readBaselineAt])
 
   const onAtBottom = useCallback(
     (atBottom: boolean) => {

@@ -1,5 +1,8 @@
 import { createClient, type SupabaseClient, type SupabaseClientOptions } from '@supabase/supabase-js'
-import { resolveApiOrigin } from '@/lib/apiOrigin'
+import { getApiBaseUrl } from '@/lib/apiOrigin'
+import { isElectronAppShell } from '@/lib/electron'
+
+const CONFIG_FETCH_TIMEOUT_MS = 20_000
 
 let browserClient: SupabaseClient | null = null
 /** Evita múltiples `createClient` en paralelo (p. ej. `initializeSession` + auth listener, StrictMode). */
@@ -13,11 +16,14 @@ function getBrowserAuthOptions(): SupabaseClientOptions<'public'> {
     typeof globalThis !== 'undefined' && 'localStorage' in globalThis
       ? (globalThis as unknown as { localStorage: Storage }).localStorage
       : undefined
+  /** En `file://` (Electron empaquetado) no hay URL de retorno; leer la sesión de la URL compite y puede tensionar el mutex de gotrue. */
+  const isFile = typeof window !== 'undefined' && window.location?.protocol === 'file:'
+  const detectSessionInUrl = !isFile && !isElectronAppShell()
   return {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
-      detectSessionInUrl: true,
+      detectSessionInUrl,
       flowType: 'pkce',
       ...(storage ? { storage } : {}),
     },
@@ -41,8 +47,22 @@ export async function createSupabaseBrowserClient(): Promise<SupabaseClient> {
       return browserClient
     }
 
-    const base = resolveApiOrigin()
-    const res = await fetch(`${base}/api/config`)
+    const base = getApiBaseUrl()
+    const ac = new AbortController()
+    const t = setTimeout(() => ac.abort(), CONFIG_FETCH_TIMEOUT_MS)
+    let res: Response
+    try {
+      res = await fetch(`${base}/api/config`, { signal: ac.signal })
+    } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') {
+        throw new Error(
+          `Timeout (${CONFIG_FETCH_TIMEOUT_MS / 1000}s) al cargar /api/config desde ${base || '(origen vacío)'}: comprueba VITE_API_ORIGIN o la red (Electron empaquetado).`,
+        )
+      }
+      throw e
+    } finally {
+      clearTimeout(t)
+    }
     if (!res.ok) {
       throw new Error(
         `No se pudo cargar /api/config (HTTP ${res.status}). Verifica que el backend esté activo.`,

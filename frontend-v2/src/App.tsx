@@ -12,8 +12,9 @@ import { ElectronTitleBar } from './components/electron/ElectronTitleBar'
 import { UpdaterNag } from '@/components/electron/UpdaterNag'
 import { useAppStore } from '@/store/useAppStore'
 import { scheduleVoiceModulePrefetch } from '@/lib/scheduleVoicePrefetch'
-import { startSupabaseAuthListener } from '@/lib/supabaseAuthListener'
 import { applyUiThemeToDocument } from '@/lib/uiTheme'
+
+/** No usamos `react-router`: un solo árbol (`AppLayout`). Si en el futuro añades rutas en Electron con `file://`, usa `HashRouter` en lugar de `BrowserRouter`. */
 
 function readStoredUsernameHint(): string {
   try {
@@ -43,11 +44,6 @@ function App() {
   useEffect(() => {
     void initializeSession()
   }, [initializeSession])
-
-  useEffect(() => {
-    const stop = startSupabaseAuthListener()
-    return stop
-  }, [])
 
   useEffect(() => {
     if (!initialBootDone) return

@@ -1,29 +1,20 @@
-import { createSupabaseBrowserClient, getSupabaseBrowserClient } from '@/lib/supabase'
-import { useAppStore } from '@/store/useAppStore'
+import type { Session } from '@supabase/supabase-js'
+import { getSupabaseBrowserClient } from '@/lib/supabase'
+
+let subscription: { unsubscribe: () => void } | null = null
 
 /**
- * Registra `onAuthStateChange` una vez (tras crear el singleton) para:
- * - sincronizar el store con `TOKEN_REFRESHED` / `SIGNED_IN` (JWT usado por la API REST);
- * - actualizar Realtime vía `getAuthenticatedSupabase` con el token vigente;
- * - al cerrar sesión, alinear estado y limpiar el JWT de Realtime.
- *
- * Devuelve una función para desuscribirse (desmontaje de la app / tests).
+ * Tras `createSupabaseBrowserClient()` y **después** de `ensureSupabaseSession` (p. ej. su
+ * `getSession`), de modo que `onAuthStateChange` no compita con el arranque de sesión
+ * (mutex `lock:sb-…-auth-token` de gotrue). No usar un `useEffect` paralelo.
  */
-export function startSupabaseAuthListener(): () => void {
-  let subscription: { unsubscribe: () => void } | undefined
-
-  const ready = (async () => {
-    await createSupabaseBrowserClient()
-    const sb = getSupabaseBrowserClient()
-    const { data } = sb.auth.onAuthStateChange((_event, session) => {
-      useAppStore.getState().syncWithSupabaseSession(session)
-    })
-    subscription = data.subscription
-  })()
-
-  return () => {
-    void ready.then(() => {
-      subscription?.unsubscribe()
-    })
-  }
+export function registerSupabaseAuthListenerOnce(
+  onSession: (session: Session | null) => void,
+): void {
+  if (subscription) return
+  const sb = getSupabaseBrowserClient()
+  const { data } = sb.auth.onAuthStateChange((_event, session) => {
+    onSession(session)
+  })
+  subscription = data.subscription
 }

@@ -147,6 +147,16 @@ function createWindow() {
   }
 }
 
+/** Debe coincidir con `PRODUCTION_API_ORIGIN` en `src/lib/apiOrigin.ts`. */
+const PRODUCTION_API_ORIGIN = 'https://social-app-blue-three.vercel.app'
+
+function setupIpcApiOrigin() {
+  ipcMain.on('electron:sync-api-origin', (event) => {
+    const isDev = !app.isPackaged
+    event.returnValue = isDev ? 'http://localhost:3000' : PRODUCTION_API_ORIGIN
+  })
+}
+
 function setupIpcWindowControls() {
   ipcMain.on('electron:window-min', () => {
     const w = BrowserWindow.getFocusedWindow() ?? mainWindow
@@ -183,8 +193,11 @@ const iconPath = app.isPackaged
   : path.join(__dirname, '..', 'public', 'icon.png')
 
 /**
- * Fija Content-Security-Policy en el documento del renderer para silenciar el aviso de Electron
- * en build empaquetado (sin `unsafe-eval`). En Vite dev se permite lo necesario para HMR.
+ * Fija Content-Security-Policy en el documento del renderer para silenciar el aviso de Electron.
+ * - Producción: `script-src` incluye `'unsafe-inline'` (y `blob:`) porque el `index.html` de Vite
+ *   empaquetado usa scripts alineados / el mismo mecanismo que chocaba con `script-src 'self'` puro.
+ *   No se añade `unsafe-eval` en prod (más duro con eval).
+ * - Dev: HMR mantiene `unsafe-eval` además.
  */
 function setupContentSecurityPolicy() {
   const isViteDev = Boolean(devServerUrl)
@@ -193,8 +206,8 @@ function setupContentSecurityPolicy() {
       return callback({ responseHeaders: details.responseHeaders })
     }
     const csp = isViteDev
-      ? "default-src 'self'; base-uri 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http: blob:; font-src 'self' data: https:; connect-src 'self' https: wss: http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; media-src 'self' blob: https:; worker-src 'self' blob:; frame-src 'self' https:;"
-      : "default-src 'self'; base-uri 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http: blob:; font-src 'self' data: https:; connect-src 'self' https: wss:; media-src 'self' blob: https:; worker-src 'self' blob:; frame-src 'self' https:;"
+      ? "default-src 'self'; base-uri 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http: blob:; font-src 'self' data: https:; connect-src 'self' http://localhost:3000 http://127.0.0.1:* http://localhost:* https://social-app-blue-three.vercel.app https: wss: ws://127.0.0.1:* ws://localhost:* https://*.supabase.co wss://*.supabase.co; media-src 'self' blob: https:; worker-src 'self' blob:; frame-src 'self' https:;"
+      : "default-src 'self'; base-uri 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http: blob:; font-src 'self' data: https:; connect-src 'self' http://localhost:3000 https://social-app-blue-three.vercel.app https://*.vercel.app https://*.supabase.co wss://*.supabase.co http: https: ws: wss:; media-src 'self' blob: https:; worker-src 'self' blob:; frame-src 'self' https:;"
     const sh = { ...(details.responseHeaders || {}) }
     for (const k of Object.keys(sh)) {
       if (k.toLowerCase() === 'content-security-policy') {
@@ -337,6 +350,7 @@ app.whenReady().then(() => {
 
   /** Sin menú nativo (File, Edit, View…) al estilo de apps modernas. */
   Menu.setApplicationMenu(null)
+  setupIpcApiOrigin()
   setupIpcWindowControls()
 
   createWindow()

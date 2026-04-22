@@ -2,18 +2,32 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import { viteStaticCopy } from 'vite-plugin-static-copy'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const repoRoot = path.resolve(__dirname, '..')
 const isElectronDev = process.env.ELECTRON_DEV === '1'
 /** Puerto dedicado para no chocar con `npm run dev` (5173) cuando ambos corren a la vez. */
 const electronDevPort = Number(process.env.ELECTRON_VITE_PORT ?? 5174)
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const fromRoot = loadEnv(mode, repoRoot, 'VITE_')
+  const fromFrontend = loadEnv(mode, __dirname, 'VITE_')
+  const mergedVite = { ...fromRoot, ...fromFrontend }
+  for (const [k, v] of Object.entries(mergedVite)) {
+    if (v != null) process.env[k] = v
+  }
+  return {
   /** Obligatorio para Electron (`file://`): rutas `/assets/...` no existen en disco. */
   base: './',
+  /**
+   * Carga `VITE_*` desde `../.env` (raíz monorepo) y desde `frontend-v2/.env*`.
+   * Así `VITE_API_ORIGIN` puede vivir junto a Supabase/Livekit en el `.env` de la raíz
+   * (Vercel: URL pública **sin** `/api`, p. ej. `https://tu-proyecto.vercel.app`).
+   */
+  envDir: repoRoot,
   plugins: [
     react(),
     tailwindcss(),
@@ -56,4 +70,5 @@ export default defineConfig({
       },
     },
   },
+  }
 })

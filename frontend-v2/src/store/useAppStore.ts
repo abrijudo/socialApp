@@ -3,6 +3,7 @@ import { createJSONStorage, persist } from 'zustand/middleware'
 import { UI_THEME_STORAGE_KEY, type UiTheme, applyUiThemeToDocument, isUiTheme } from '@/lib/uiTheme'
 import type { Session } from '@supabase/supabase-js'
 import { ensureSupabaseSession, usernameFromSupabaseUser } from '@/lib/bootstrapSession'
+import { registerSupabaseAuthListenerOnce } from '@/lib/supabaseAuthListener'
 import {
   clearAuthenticatedRealtimeAuth,
   createSupabaseBrowserClient,
@@ -10,6 +11,8 @@ import {
   getSupabaseBrowserClient,
 } from '@/lib/supabase'
 import { apiGetJson, fetchBootstrap } from '@/lib/api'
+import { getApiBaseUrl } from '@/lib/apiOrigin'
+import { isElectronAppShell } from '@/lib/electron'
 import { SOCIALAPP_USER_KEY } from '@/lib/constants'
 import type {
   BootstrapPayload,
@@ -313,6 +316,9 @@ function computeUnreadDmCount(
   return dmChannels.reduce((acc, d) => acc + (unreadCounts[d.id] ?? 0), 0)
 }
 
+/** Evita dos `initializeSession` en paralelo (p. ej. React Strict Mode) y el aviso de lock de gotrue. */
+let sessionInitInFlight: Promise<void> | null = null
+
 export const useAppStore = create<AppState & AppActions>()(
   persist(
     (set, get) => ({
@@ -334,115 +340,139 @@ export const useAppStore = create<AppState & AppActions>()(
       },
 
       initializeSession: async (opts) => {
-    set({
-      sessionInitializing: true,
-      sessionError: null,
-    })
-    try {
-      await createSupabaseBrowserClient()
-      const sb = getSupabaseBrowserClient()
-
-      const ensured = await ensureSupabaseSession(sb, {
-        interactiveUsername: opts?.interactiveUsername,
-      })
-
-      if (ensured.kind === 'needs_username') {
-        set({
-          sessionInitializing: false,
-          needsUsername: true,
-          initialBootDone: false,
-        })
-        return
-      }
-
-      const { session, user, username } = ensured
-
-      set({
-        userId: user.id,
-        accessToken: session.access_token,
-        username,
-        needsUsername: false,
-        sessionError: null,
-      })
-
-      set({ channelsLoading: true, membersLoading: true })
-
-      let bootstrap: BootstrapPayload
-      try {
-        bootstrap = await fetchBootstrap(session.access_token, username)
-      } catch (err) {
-        const msg = String((err as Error).message || '')
-        if (/escogido|elige otro/i.test(msg)) {
-          await sb.auth.signOut().catch(() => {})
-          if (typeof localStorage !== 'undefined') {
-            localStorage.removeItem(SOCIALAPP_USER_KEY)
-          }
-          set({
-            userId: '',
-            accessToken: null,
-            username: '',
-            profile: null,
-            server: null,
-            servers: [],
-            activeServerId: null,
-            members: [],
-            channels: [],
-            messagesByChannel: {},
-            messagesLoadingByChannel: {},
-            dmMessagesByChannel: {},
-            dmMessagesLoadingByChannel: {},
-            activeTextChannelId: null,
-            activeVoiceChannelId: null,
-            initialBootDone: false,
-            sessionInitializing: false,
-            needsUsername: true,
-            sessionError: 'Ese nombre ya está en uso. Elige otro.',
-            onlineUsers: {},
-            localVoiceMuted: true,
-            localCameraEnabled: false,
-            localScreenShareEnabled: false,
-            localVoiceSpeaking: false,
-            isVideoStageOpen: true,
-            voiceRoomHasRenderableVideo: false,
-            channelsLoading: false,
-            membersLoading: false,
-            friends: [],
-            pendingRequests: { incoming: [], outgoing: [] },
-            friendsListLoading: false,
-            unreadDmCount: 0,
-          })
-          return
+        if (sessionInitInFlight) {
+          return sessionInitInFlight
         }
-        throw err
-      }
+        sessionInitInFlight = (async () => {
+          set({
+            sessionInitializing: true,
+            sessionError: null,
+          })
+          try {
+            if (isElectronAppShell() && !getApiBaseUrl().trim()) {
+              set({
+                sessionInitializing: false,
+                needsUsername: false,
+                initialBootDone: false,
+                sessionError:
+                  'Configuración incompleta: el origen del API no llegó desde Electron. Revisa `electron/main.mjs` (IPC `electron:sync-api-origin`) y `src/lib/apiOrigin.ts`.',
+              })
+              return
+            }
+            await createSupabaseBrowserClient()
+            const sb = getSupabaseBrowserClient()
 
-      get().applyBootstrap(bootstrap)
-      set({
-        initialBootDone: true,
-        sessionInitializing: false,
-        sessionError: null,
-        channelsLoading: false,
-        membersLoading: false,
-      })
-    } catch (e) {
-      let msg = (e as Error).message || 'Error al iniciar sesión'
-      if (
-        msg === 'Failed to fetch' &&
-        typeof window !== 'undefined' &&
-        window.location.protocol === 'file:'
-      ) {
-        msg =
-          'No se pudo contactar al servidor. En la app de escritorio debes definir VITE_API_ORIGIN (URL pública de tu backend) al ejecutar el build, por ejemplo en frontend-v2/.env.production.'
-      }
-      set({
-        sessionError: msg,
-        sessionInitializing: false,
-        initialBootDone: false,
-        channelsLoading: false,
-        membersLoading: false,
-      })
-    }
-  },
+            const ensured = await ensureSupabaseSession(sb, {
+              interactiveUsername: opts?.interactiveUsername,
+            })
+
+            registerSupabaseAuthListenerOnce((session) => {
+              get().syncWithSupabaseSession(session)
+            })
+
+            if (ensured.kind === 'needs_username') {
+              set({
+                sessionInitializing: false,
+                needsUsername: true,
+                initialBootDone: false,
+              })
+              return
+            }
+
+            const { session, user, username } = ensured
+
+            set({
+              userId: user.id,
+              accessToken: session.access_token,
+              username,
+              needsUsername: false,
+              sessionError: null,
+            })
+
+            set({ channelsLoading: true, membersLoading: true })
+
+            let bootstrap: BootstrapPayload
+            try {
+              bootstrap = await fetchBootstrap(session.access_token, username)
+            } catch (err) {
+              const msg = String((err as Error).message || '')
+              if (/escogido|elige otro/i.test(msg)) {
+                await sb.auth.signOut().catch(() => {})
+                if (typeof localStorage !== 'undefined') {
+                  localStorage.removeItem(SOCIALAPP_USER_KEY)
+                }
+                set({
+                  userId: '',
+                  accessToken: null,
+                  username: '',
+                  profile: null,
+                  server: null,
+                  servers: [],
+                  activeServerId: null,
+                  members: [],
+                  channels: [],
+                  messagesByChannel: {},
+                  messagesLoadingByChannel: {},
+                  dmMessagesByChannel: {},
+                  dmMessagesLoadingByChannel: {},
+                  activeTextChannelId: null,
+                  activeVoiceChannelId: null,
+                  initialBootDone: false,
+                  sessionInitializing: false,
+                  needsUsername: true,
+                  sessionError: 'Ese nombre ya está en uso. Elige otro.',
+                  onlineUsers: {},
+                  localVoiceMuted: true,
+                  localCameraEnabled: false,
+                  localScreenShareEnabled: false,
+                  localVoiceSpeaking: false,
+                  isVideoStageOpen: true,
+                  voiceRoomHasRenderableVideo: false,
+                  channelsLoading: false,
+                  membersLoading: false,
+                  friends: [],
+                  pendingRequests: { incoming: [], outgoing: [] },
+                  friendsListLoading: false,
+                  unreadDmCount: 0,
+                })
+                return
+              }
+              throw err
+            }
+
+            get().applyBootstrap(bootstrap)
+            set({
+              initialBootDone: true,
+              sessionInitializing: false,
+              sessionError: null,
+              channelsLoading: false,
+              membersLoading: false,
+            })
+          } catch (e) {
+            let msg = (e as Error).message || 'Error al iniciar sesión'
+            if (
+              msg === 'Failed to fetch' &&
+              typeof window !== 'undefined' &&
+              window.location.protocol === 'file:'
+            ) {
+              msg =
+                'No se pudo contactar al servidor. Comprueba la red y que el backend responda (dev: API en http://localhost:3000; producción: URL en `apiOrigin.ts` / `main.mjs`).'
+            }
+            set({
+              sessionError: msg,
+              sessionInitializing: false,
+              initialBootDone: false,
+              channelsLoading: false,
+              membersLoading: false,
+            })
+          }
+        })()
+        try {
+          await sessionInitInFlight
+        } finally {
+          sessionInitInFlight = null
+        }
+      },
 
   setSession: (patch) => set((s) => ({ ...s, ...patch })),
 

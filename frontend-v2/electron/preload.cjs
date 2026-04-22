@@ -3,6 +3,17 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('electronAPI', {
   /** `darwin` | `win32` | `linux` — para ajustar barra de título. */
   platform: process.platform,
+  /**
+   * Origen del API (misma lógica que `getApiBaseUrl` en el renderer): `main.mjs` responde
+   * via IPC — dev: `http://localhost:3000`, empaquetado: producción en Vercel.
+   */
+  getApiOrigin: () => {
+    try {
+      return ipcRenderer.sendSync('electron:sync-api-origin') || ''
+    } catch {
+      return ''
+    }
+  },
 
   windowMin: () => ipcRenderer.send('electron:window-min'),
   windowMax: () => ipcRenderer.send('electron:window-max'),
