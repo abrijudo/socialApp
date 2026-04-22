@@ -5,8 +5,9 @@ function trimOrigin(value: string): string {
 }
 
 /**
- * Backend de producción en Vercel (misma URL para navegador en `import.meta.env.PROD`
- * y referencia; en Electron empaquetado el valor efectivo la inyecta `main` vía IPC).
+ * Backend de producción (fallback). En navegador se puede anular con `VITE_API_ORIGIN`
+ * (inyectada en build). En Electron el origen real lo fija el proceso principal vía IPC
+ * (y en main se puede anular con `ELECTRON_API_ORIGIN` en tiempo de ejecución).
  */
 export const PRODUCTION_API_ORIGIN = 'https://social-app-blue-three.vercel.app'
 
@@ -24,6 +25,10 @@ export function getApiBaseUrl(): string {
     }
   }
   if (import.meta.env.PROD) {
+    const fromVite = import.meta.env.VITE_API_ORIGIN
+    if (fromVite && String(fromVite).trim()) {
+      return trimOrigin(String(fromVite))
+    }
     return trimOrigin(PRODUCTION_API_ORIGIN)
   }
   return ''

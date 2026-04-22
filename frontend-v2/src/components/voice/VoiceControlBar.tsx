@@ -24,6 +24,7 @@ import {
   screenShareCaptureOptions,
   screenSharePublishOptions,
 } from '@/components/voice/voiceQuality';
+import { getKrispFilterBasePath } from '@/lib/publicAssetPath';
 import { cn } from '@/lib/utils';
 import { isElectronRuntime } from '@/lib/electron';
 import { useAppStore } from '@/store/useAppStore';
@@ -138,7 +139,7 @@ export function VoiceControlBar({ className }: { className?: string }) {
     isNoiseFilterPending,
   } = useKrispNoiseFilter({
     // @ts-expect-error -- basePath no está en los tipos públicos pero es requerido por el WASM de Krisp
-    filterOptions: { basePath: '/krisp' },
+    filterOptions: { basePath: getKrispFilterBasePath() },
   });
 
   const isNoiseFilterSupported = isKrispNoiseFilterSupported();

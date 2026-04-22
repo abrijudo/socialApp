@@ -15,11 +15,11 @@
     "e2e:codegen": "playwright codegen http://127.0.0.1:5173",
     "lint": "eslint .",
     "preview": "vite preview",
-    "electron:dev": "concurrently -k \"cross-env ELECTRON_DEV=1 vite\" \"wait-on http://localhost:5174 && cross-env ELECTRON_START_URL=http://localhost:5174/ electron .\"",
+    "electron:dev": "concurrently -k -n api,vite,electron -c blue,green,magenta \"npm run dev:api --prefix ..\" \"cross-env ELECTRON_DEV=1 vite\" \"wait-on http://127.0.0.1:3000/api/health http://127.0.0.1:5174 && cross-env ELECTRON_START_URL=http://127.0.0.1:5174/ electron .\"",
     "electron:start": "electron .",
     "electron:pack": "npm run build && node scripts/ensure-electron-pack-assets.mjs && electron-builder --dir",
     "electron:dist": "npm run build && node scripts/ensure-electron-pack-assets.mjs && electron-builder",
-    "electron:publish": "npm run build && node scripts/ensure-electron-pack-assets.mjs && electron-builder --publish always",
+    "electron:publish": "node scripts/electron-publish.mjs",
     "electron:build": "npm run electron:publish"
   },
   "dependencies": {
@@ -64,6 +64,7 @@
     "@vitejs/plugin-react": "^6.0.1",
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
+    "dotenv": "^16.4.5",
     "electron": "^39.2.0",
     "electron-builder": "^26.8.1",
     "eslint": "^9.39.4",
@@ -91,9 +92,11 @@
       "output": "release"
     },
     "files": [
-      "**/*",
+      "package.json",
+      "dist/**",
+      "electron/**",
+      "node_modules/**",
       "build/icon.png",
-      "dist/icon.png",
       "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
       "!src/**",
       "!**/*.{ts,tsx,cts,mts}",
@@ -107,8 +110,7 @@
       "!**/*.test.*"
     ],
     "asarUnpack": [
-      "**/node_modules/application-loopback/**/*",
-      "dist/icon.png"
+      "**/node_modules/application-loopback/**/*"
     ],
     "forceCodeSigning": false,
     "win": {

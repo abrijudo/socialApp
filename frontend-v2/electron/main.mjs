@@ -29,8 +29,21 @@ const appLoopback = require('./appLoopback.cjs')
 /** Solo empaquetado: actualizaciones desde GitHub (electron-builder `publish`). */
 const { autoUpdater } = require('electron-updater')
 
-/** URL del servidor Vite en desarrollo (p. ej. wait-on + cross-env). */
-const devServerUrl = process.env.ELECTRON_START_URL ?? process.env.VITE_DEV_SERVER_URL
+/**
+ * URL del servidor Vite en desarrollo (p. ej. wait-on + cross-env).
+ * Solo se usa si la app no está empaquetada; un .env suelto con ELECTRON_START_URL
+ * no debe forzar `loadURL` en un .exe instalado.
+ */
+const devServerUrlRaw = process.env.ELECTRON_START_URL ?? process.env.VITE_DEV_SERVER_URL
+const devServerUrl = devServerUrlRaw && !app.isPackaged ? devServerUrlRaw : ''
+
+/**
+ * `public/` solo en desarrollo; en el instalador el icono está en `build/` (see `ensure-electron-pack-assets`).
+ * Rutas relativas a `electron/main.mjs` dentro del asar (no `process.resourcesPath` sin `extraResources`).
+ */
+const iconPath = app.isPackaged
+  ? path.join(__dirname, '..', 'build', 'icon.png')
+  : path.join(__dirname, '..', 'public', 'icon.png')
 
 /**
  * Selección pendiente para `setDisplayMediaRequestHandler` (renderer llama a
@@ -147,8 +160,14 @@ function createWindow() {
   }
 }
 
-/** Debe coincidir con `PRODUCTION_API_ORIGIN` en `src/lib/apiOrigin.ts`. */
-const PRODUCTION_API_ORIGIN = 'https://social-app-blue-three.vercel.app'
+/**
+ * Misma lógica que el fallback de `getApiBaseUrl` en el renderer (Vercel).
+ * En instalaciones, se puede anular con la variable de entorno `ELECTRON_API_ORIGIN`
+ * (sin recompilar el renderer) para apuntar a un backend de staging, etc.
+ */
+const PRODUCTION_API_ORIGIN = (process.env.ELECTRON_API_ORIGIN || 'https://social-app-blue-three.vercel.app')
+  .trim()
+  .replace(/\/$/, '')
 
 function setupIpcApiOrigin() {
   ipcMain.on('electron:sync-api-origin', (event) => {
@@ -180,17 +199,12 @@ function setupIpcWindowControls() {
 }
 
 /** Caché de usuario aislada en dev (evita “Acceso denegado” al compartir perfil con la app instalada). */
-if (process.env.NODE_ENV === 'development') {
+if (!app.isPackaged) {
   app.setPath('userData', path.join(process.cwd(), 'electron-data-dev'))
 }
 
 // Descomenta si la ventana sale negra u otros fallos de GPU:
 // app.disableHardwareAcceleration();
-
-/** Ruta absoluta: empaquetado = recursos; desarrollo = public (Vite no copia a dist sin build). */
-const iconPath = app.isPackaged
-  ? path.join(process.resourcesPath, 'build', 'icon.png')
-  : path.join(__dirname, '..', 'public', 'icon.png')
 
 /**
  * Fija Content-Security-Policy en el documento del renderer para silenciar el aviso de Electron.
