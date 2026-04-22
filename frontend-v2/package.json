@@ -19,8 +19,8 @@
     "electron:start": "electron .",
     "electron:pack": "npm run build && node scripts/ensure-electron-pack-assets.mjs && electron-builder --dir",
     "electron:dist": "npm run build && node scripts/ensure-electron-pack-assets.mjs && electron-builder",
-    "electron:build": "npm run electron:dist",
-    "electron:publish": "npm run build && node scripts/ensure-electron-pack-assets.mjs && electron-builder --publish always"
+    "electron:publish": "npm run build && node scripts/ensure-electron-pack-assets.mjs && electron-builder --publish always",
+    "electron:build": "npm run electron:publish"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.8",
