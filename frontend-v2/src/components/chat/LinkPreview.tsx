@@ -1,4 +1,5 @@
 import { memo, useEffect, useState } from 'react'
+import type { HTMLAttributeReferrerPolicy } from 'react'
 import { useAppStore } from '@/store/useAppStore'
 import { resolveApiUrl } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -53,6 +54,31 @@ function getYouTubeVideoId(pageUrl: string): string | null {
     return null
   }
   return null
+}
+
+/**
+ * YouTube error 153 (“configuración del reproductor”) suele aparecer si el iframe no envía un
+ * referer/origen que YouTube acepte. En `http(s)://` conviene enviar el origen de la página;
+ * en `file:` / `app:` el referer no es útil y en Electron empaquetado el main ya inyecta cabeceras.
+ */
+function youtubeEmbedQuerySuffix(): string {
+  if (typeof window === 'undefined') return ''
+  if (window.location.protocol !== 'http:' && window.location.protocol !== 'https:') return ''
+  try {
+    const o = window.location.origin
+    if (!o) return ''
+    return `&origin=${encodeURIComponent(o)}`
+  } catch {
+    return ''
+  }
+}
+
+function youtubeIframeReferrerPolicy(): HTMLAttributeReferrerPolicy | undefined {
+  if (typeof window === 'undefined') return undefined
+  if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+    return 'strict-origin-when-cross-origin'
+  }
+  return 'no-referrer'
 }
 
 const cardClass =
@@ -134,12 +160,11 @@ export const LinkPreview = memo(function LinkPreview({ url }: { url: string }) {
           <div className="relative mt-2 aspect-video w-full overflow-hidden rounded-md bg-muted/20">
             <iframe
               title={data.title || 'YouTube'}
-              src={`https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?rel=0&modestbranding=1&playsinline=1`}
+              src={`https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?rel=0&modestbranding=1&playsinline=1${youtubeEmbedQuerySuffix()}`}
               className="absolute top-0 left-0 h-full w-full border-0"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen
-              /** `file://` (app empaquetada): un referrer estricto puede provocar fallos del reproductor (p. ej. error 153). */
-              referrerPolicy="no-referrer"
+              referrerPolicy={youtubeIframeReferrerPolicy()}
             />
           </div>
         </div>

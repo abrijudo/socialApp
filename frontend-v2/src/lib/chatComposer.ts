@@ -3,11 +3,19 @@
  * Caja principal: rectángulo redondeado (~12px), más oscura que el área de mensajes, borde 1px y aire interno generoso.
  */
 
-export const CHAT_COMPOSER_DOCK =
-  'lux-glass-composer box-border relative z-10 flex min-h-[4.5rem] shrink-0 items-center gap-2.5 px-3 py-2.5 sm:px-4'
+/**
+ * Altura mínima compartida pie lateral + compositor: el shell (`min-h-[2.875rem]` + `py-3`) más el
+ * `py-2.5` del dock supera `4.5rem`, así que el compositor crece ~90px mientras el pie de cuenta
+ * se quedaba en 72px y la frontera entre columnas “escalaba”.
+ */
+export const CHAT_BOTTOM_DOCK_MIN_H_CLASS = 'min-h-[5.625rem]'
 
+export const CHAT_COMPOSER_DOCK =
+  `lux-glass-composer box-border relative z-10 flex ${CHAT_BOTTOM_DOCK_MIN_H_CLASS} shrink-0 items-center gap-2.5 px-3 py-2.5 sm:px-4`
+
+/** Misma geometría vertical que `CHAT_COMPOSER_DOCK` para alinear el borde superior del strip inferior. */
 export const USER_ACCOUNT_FOOTER_DOCK =
-  'box-border h-[60px] shrink-0 border-t border-border/60 bg-muted/30 [box-shadow:inset_0_1px_0_0_color-mix(in_oklch,var(--foreground)_4%,transparent)]'
+  `box-border flex ${CHAT_BOTTOM_DOCK_MIN_H_CLASS} shrink-0 items-center border-t border-border/60 bg-muted/30 py-2.5 [box-shadow:inset_0_1px_0_0_color-mix(in_oklch,var(--foreground)_4%,transparent)]`
 
 export const CHAT_COMPOSER_SHELL =
   'border-border/50 flex min-h-[2.875rem] min-w-0 flex-1 items-center gap-2 rounded-[12px] border border-border/80 ' +

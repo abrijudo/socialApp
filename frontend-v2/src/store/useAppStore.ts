@@ -453,7 +453,7 @@ export const useAppStore = create<AppState & AppActions>()(
             if (
               msg === 'Failed to fetch' &&
               typeof window !== 'undefined' &&
-              window.location.protocol === 'file:'
+              (window.location.protocol === 'file:' || window.location.protocol === 'app:')
             ) {
               msg =
                 'No se pudo contactar al servidor. Comprueba la red y que el backend responda (dev: API en http://localhost:3000; producción: URL en `apiOrigin.ts` / `main.mjs`).'

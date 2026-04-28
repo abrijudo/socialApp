@@ -1,4 +1,4 @@
-import { app, BrowserWindow, desktopCapturer, ipcMain, session, Menu } from 'electron'
+import { app, BrowserWindow, desktopCapturer, ipcMain, session, Menu, protocol, net } from 'electron'
 
 /*
  * Flags de Chromium (deben registrarse antes del primer ciclo de vida / ready del app).
@@ -20,10 +20,27 @@ if (process.platform === 'win32') {
   app.commandLine.appendSwitch('high-dpi-support', '1')
 }
 import { createRequire } from 'node:module'
+import { existsSync, statSync } from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+/**
+ * Carga el UI vía `app://` (empaquetado) para un origen web coherente; con `loadFile` (`file://`)
+ * los iframes de YouTube suelen mostrar error 153 (“configuración del reproductor”).
+ * Debe registrarse antes de `app.ready`.
+ */
+try {
+  protocol.registerSchemesAsPrivileged([
+    {
+      scheme: 'app',
+      privileges: { secure: true, standard: true, supportFetchAPI: true, stream: true },
+    },
+  ])
+} catch {
+  /* p. ej. doble carga en dev */
+}
 const require = createRequire(import.meta.url)
 const appLoopback = require('./appLoopback.cjs')
 /** Solo empaquetado: actualizaciones desde GitHub (electron-builder `publish`). */
@@ -109,6 +126,42 @@ function setupAutoUpdater() {
   }, 4 * 60 * 60 * 1000)
 }
 
+/**
+ * Sirve `../dist` bajo `app://app/…` solo en build empaquetado. El documento deja de ser `file://`
+ * (mejor para embeds de YouTube y otros iframes que rechazan orígenes file).
+ */
+function registerPackagedAppProtocol() {
+  if (!app.isPackaged) return
+  const distDir = path.resolve(path.join(__dirname, '..', 'dist'))
+  protocol.handle('app', (request) => {
+    const u = new URL(request.url)
+    if (u.hostname !== 'app') {
+      return new Response('Not Found', { status: 404 })
+    }
+    let pathname = u.pathname
+    if (!pathname || pathname === '/') pathname = '/index.html'
+    let rel
+    try {
+      rel = decodeURIComponent(pathname).replace(/^\/+/, '')
+    } catch {
+      return new Response('Bad Request', { status: 400 })
+    }
+    if (!rel || rel.includes('..') || path.isAbsolute(rel)) {
+      return new Response('Forbidden', { status: 403 })
+    }
+    const filePath = path.join(distDir, rel)
+    const normalized = path.normalize(filePath)
+    const underDist = distDir + path.sep
+    if (normalized !== distDir && !normalized.startsWith(underDist)) {
+      return new Response('Forbidden', { status: 403 })
+    }
+    if (!existsSync(normalized) || !statSync(normalized).isFile()) {
+      return new Response('Not Found', { status: 404 })
+    }
+    return net.fetch(pathToFileURL(normalized).toString()).catch(() => new Response('Not Found', { status: 404 }))
+  })
+}
+
 function createWindow() {
   const isMac = process.platform === 'darwin'
   const win = new BrowserWindow({
@@ -142,6 +195,8 @@ function createWindow() {
   if (devServerUrl) {
     void win.loadURL(devServerUrl)
     win.webContents.openDevTools({ mode: 'detach' })
+  } else if (app.isPackaged) {
+    void win.loadURL('app://app/index.html')
   } else {
     void win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
   }
@@ -206,35 +261,122 @@ if (!app.isPackaged) {
 // Descomenta si la ventana sale negra u otros fallos de GPU:
 // app.disableHardwareAcceleration();
 
+/** Mismo origen que `loadURL('app://app/index.html')` en el build instalado. */
+const PACKAGED_APP_ORIGIN = 'app://app'
+
+/**
+ * Con el UI en `app://` (y no en `file://`) el `fetch` a APIs HTTPS envía `Origin: app://app` y
+ * Vercel/Supabase suelen no incluirlo en CORS. En Electron se corrige inyectando encabezados
+ * CORS en la respuesta (solo .exe, solo hosts del backend/Supabase).
+ */
+function isPackagedCorsPatchUrl(url) {
+  if (!app.isPackaged) return false
+  try {
+    const u = new URL(url)
+    if (u.protocol === 'wss:') {
+      return u.hostname.endsWith('.supabase.co')
+    }
+    if (u.protocol !== 'https:') return false
+    if (u.hostname === new URL(PRODUCTION_API_ORIGIN).hostname) return true
+    if (u.hostname.endsWith('.vercel.app')) return true
+    if (u.hostname.endsWith('.supabase.co')) return true
+  } catch {
+    /* ignore */
+  }
+  return false
+}
+
+/** Inyecta CORS en la copia de cabeceras que recibe el renderer. */
+function applyPackagedCorsToResponseHeaders(details, sh) {
+  if (!isPackagedCorsPatchUrl(details.url)) return
+  for (const k of Object.keys(sh)) {
+    if (k.toLowerCase() === 'access-control-allow-origin') {
+      delete sh[k]
+    }
+  }
+  sh['Access-Control-Allow-Origin'] = [PACKAGED_APP_ORIGIN]
+}
+
 /**
  * Fija Content-Security-Policy en el documento del renderer para silenciar el aviso de Electron.
  * - Producción: `script-src` incluye `'unsafe-inline'` (y `blob:`) porque el `index.html` de Vite
  *   empaquetado usa scripts alineados / el mismo mecanismo que chocaba con `script-src 'self'` puro.
  *   No se añade `unsafe-eval` en prod (más duro con eval).
  * - Dev: HMR mantiene `unsafe-eval` además.
+ * - Empaquetado: además, parchea CORS a API/Supabase (ver `applyPackagedCorsToResponseHeaders`).
  */
 function setupContentSecurityPolicy() {
   const isViteDev = Boolean(devServerUrl)
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    if (details.resourceType !== 'mainFrame') {
-      return callback({ responseHeaders: details.responseHeaders })
-    }
-    const csp = isViteDev
-      ? "default-src 'self'; base-uri 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http: blob:; font-src 'self' data: https:; connect-src 'self' http://localhost:3000 http://127.0.0.1:* http://localhost:* https://social-app-blue-three.vercel.app https: wss: ws://127.0.0.1:* ws://localhost:* https://*.supabase.co wss://*.supabase.co; media-src 'self' blob: https:; worker-src 'self' blob:; frame-src 'self' https:;"
-      : "default-src 'self'; base-uri 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http: blob:; font-src 'self' data: https:; connect-src 'self' http://localhost:3000 https://social-app-blue-three.vercel.app https://*.vercel.app https://*.supabase.co wss://*.supabase.co http: https: ws: wss:; media-src 'self' blob: https:; worker-src 'self' blob:; frame-src 'self' https:;"
     const sh = { ...(details.responseHeaders || {}) }
-    for (const k of Object.keys(sh)) {
-      if (k.toLowerCase() === 'content-security-policy') {
-        delete sh[k]
+    applyPackagedCorsToResponseHeaders(details, sh)
+    if (details.resourceType === 'mainFrame') {
+      for (const k of Object.keys(sh)) {
+        if (k.toLowerCase() === 'content-security-policy') {
+          delete sh[k]
+        }
       }
+      const csp = isViteDev
+        ? "default-src 'self'; base-uri 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http: blob:; font-src 'self' data: https:; connect-src 'self' http://localhost:3000 http://127.0.0.1:* http://localhost:* https://social-app-blue-three.vercel.app https: wss: ws://127.0.0.1:* ws://localhost:* https://*.supabase.co wss://*.supabase.co; media-src 'self' blob: https:; worker-src 'self' blob:; frame-src 'self' https:;"
+        : "default-src 'self'; base-uri 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http: blob:; font-src 'self' data: https:; connect-src 'self' http://localhost:3000 https://social-app-blue-three.vercel.app https://*.vercel.app https://*.supabase.co wss://*.supabase.co http: https: ws: wss:; media-src 'self' blob: https:; worker-src 'self' blob:; frame-src 'self' https:;"
+      sh['Content-Security-Policy'] = [csp]
     }
-    sh['Content-Security-Policy'] = [csp]
     callback({ responseHeaders: sh })
   })
 }
 
+/**
+ * Peticiones a dominios de YouTube desde el embed con origen de app/WEB sin referer "normal" a veces
+ * devuelven error 153. En build empaquetado fijamos `Origin` y `Referer` al sitio público (mismo
+ * host que CORS a API / confianza de embed). Patrones: sintaxis de filtro de `webRequest` (Electron).
+ */
+function setupYouTubeEmbedRequestHeaders() {
+  /** En dev (Vite) también aplicar: sin Referer/Origin “normales”, el embed puede devolver error 153. */
+  let origin
+  let referer
+  if (app.isPackaged) {
+    origin = new URL(PRODUCTION_API_ORIGIN).origin
+    referer = `${origin}/`
+  } else if (devServerUrl) {
+    try {
+      const u = new URL(devServerUrl)
+      origin = u.origin
+      referer = `${origin}/`
+    } catch {
+      return
+    }
+  } else {
+    return
+  }
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    {
+      urls: [
+        '*://*.youtube.com/*',
+        '*://youtube.com/*',
+        '*://*.youtube-nocookie.com/*',
+        '*://youtube-nocookie.com/*',
+        '*://*.googlevideo.com/*',
+      ],
+    },
+    (details, callback) => {
+      const requestHeaders = { ...details.requestHeaders }
+      for (const k of Object.keys(requestHeaders)) {
+        const l = k.toLowerCase()
+        if (l === 'origin' || l === 'referer') {
+          delete requestHeaders[k]
+        }
+      }
+      requestHeaders.Origin = origin
+      requestHeaders.Referer = referer
+      callback({ requestHeaders })
+    },
+  )
+}
+
 app.whenReady().then(() => {
+  registerPackagedAppProtocol()
   setupContentSecurityPolicy()
+  setupYouTubeEmbedRequestHeaders()
   session.defaultSession.setPermissionCheckHandler((_wc, permission) => {
     if (
       permission === 'media' ||

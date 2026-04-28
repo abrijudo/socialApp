@@ -16,8 +16,11 @@ function getBrowserAuthOptions(): SupabaseClientOptions<'public'> {
     typeof globalThis !== 'undefined' && 'localStorage' in globalThis
       ? (globalThis as unknown as { localStorage: Storage }).localStorage
       : undefined
-  /** En `file://` (Electron empaquetado) no hay URL de retorno; leer la sesión de la URL compite y puede tensionar el mutex de gotrue. */
-  const isFile = typeof window !== 'undefined' && window.location?.protocol === 'file:'
+  /** En `file://` / `app://` (Electron empaquetado) no hay URL de retorno fiable como en el navegador. */
+  const isFile =
+    typeof window !== 'undefined' &&
+    (window.location?.protocol === 'file:' ||
+      (isElectronAppShell() && window.location?.protocol === 'app:'))
   const detectSessionInUrl = !isFile && !isElectronAppShell()
   return {
     auth: {
