@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
 import { useKrispNoiseFilter } from '@livekit/components-react/krisp';
 import { isKrispNoiseFilterSupported } from '@livekit/krisp-noise-filter';
@@ -20,7 +20,7 @@ import {
   cameraCaptureOptions,
   cameraPublishOptions,
   electronNativeScreenAudioPublishOptions,
-  microphoneCaptureOptions,
+  microphoneCaptureOptionsWithPreferredMic,
   screenShareCaptureOptions,
   screenSharePublishOptions,
 } from '@/components/voice/voiceQuality';
@@ -115,6 +115,12 @@ export function VoiceControlBar({ className }: { className?: string }) {
   } = useLocalParticipant();
 
   const room = useRoomContext();
+
+  const preferredVoiceMicDeviceId = useAppStore((s) => s.preferredVoiceMicDeviceId);
+  const micCaptureOpts = useMemo(
+    () => microphoneCaptureOptionsWithPreferredMic(preferredVoiceMicDeviceId),
+    [preferredVoiceMicDeviceId],
+  );
 
   const setActiveVoiceChannelId   = useAppStore((s) => s.setActiveVoiceChannelId);
   const setLocalVoiceMuted        = useAppStore((s) => s.setLocalVoiceMuted);
@@ -330,13 +336,13 @@ export function VoiceControlBar({ className }: { className?: string }) {
   const toggleMicrophone = useCallback(async (): Promise<void> => {
     try {
       const next = !isMicrophoneEnabled;
-      await localParticipant.setMicrophoneEnabled(next, microphoneCaptureOptions);
+      await localParticipant.setMicrophoneEnabled(next, micCaptureOpts);
       setLocalVoiceMuted(!next);
       if (!next) setLocalVoiceSpeaking(false);
     } catch (e) {
       console.warn('[VoiceControlBar] Error al alternar micrófono:', e);
     }
-  }, [isMicrophoneEnabled, localParticipant, setLocalVoiceMuted, setLocalVoiceSpeaking]);
+  }, [isMicrophoneEnabled, localParticipant, micCaptureOpts, setLocalVoiceMuted, setLocalVoiceSpeaking]);
 
   // ── Camera ────────────────────────────────────────────────────────────────
 
@@ -522,7 +528,7 @@ export function VoiceControlBar({ className }: { className?: string }) {
         return;
       }
       if (!isMicrophoneEnabled) {
-        await localParticipant.setMicrophoneEnabled(true, microphoneCaptureOptions);
+        await localParticipant.setMicrophoneEnabled(true, micCaptureOpts);
         setLocalVoiceMuted(false);
       }
       await applyKrispToMic();
@@ -534,6 +540,7 @@ export function VoiceControlBar({ className }: { className?: string }) {
     isMicrophoneEnabled,
     isNoiseFilterEnabled,
     localParticipant,
+    micCaptureOpts,
     setLocalVoiceMuted,
     setNoiseFilterEnabled,
   ]);

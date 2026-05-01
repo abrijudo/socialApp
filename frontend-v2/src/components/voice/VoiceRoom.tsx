@@ -4,10 +4,11 @@ import { LiveKitRoom, RoomAudioRenderer, useRoomContext } from '@livekit/compone
 import '@livekit/components-styles'
 import { VoiceControlBar } from '@/components/voice/VoiceControlBar'
 import { VoiceConnectionProvider, useVoiceConnection } from '@/components/voice/voiceConnectionContext'
+import { VoiceRoomAudioDeviceSync } from '@/components/voice/VoiceRoomAudioDeviceSync'
 import { roomOptionsHighQuality } from '@/components/voice/voiceQuality'
 import { useLiveKitVoiceToken } from '@/hooks/useLiveKitVoiceToken'
-import { useVoiceChannelSoundEffects } from '@/hooks/useVoiceChannelSoundEffects'
 import { useLiveKitSpeakers } from '@/hooks/useLiveKitSpeakers'
+import { useVoiceChannelSoundEffects } from '@/hooks/useVoiceChannelSoundEffects'
 import { useMatchMedia } from '@/hooks/useMatchMedia'
 
 function LiveKitSpeakerSync() {
@@ -62,6 +63,7 @@ function VoiceSessionRoomChrome({ children }: { children: ReactNode }) {
   return (
     <>
       <RoomAudioRenderer />
+      <VoiceRoomAudioDeviceSync />
       <LiveKitSpeakerSync />
       <VoiceChannelSoundEffectsSync />
       <LiveKitPageUnloadCleanup />

@@ -1,4 +1,5 @@
 import type {
+  AudioCaptureOptions,
   RoomOptions,
   ScreenShareCaptureOptions,
   TrackPublishOptions,
@@ -12,7 +13,7 @@ import { AudioPresets, Track, VideoPresets } from 'livekit-client'
 // Voz en tiempo real con máxima limpieza de señal.
 // Si usas el plugin Krisp de LiveKit → pon noiseSuppression: false (Krisp ya lo gestiona).
 // ─────────────────────────────────────────────────────────────────────────────
-export const microphoneCaptureOptions: NonNullable<RoomOptions['audioCaptureDefaults']> = {
+export const microphoneCaptureOptions: AudioCaptureOptions = {
   echoCancellation:  true,
   noiseSuppression:  false,   // false si usas Krisp para evitar doble procesado
   autoGainControl:   true,
@@ -21,6 +22,15 @@ export const microphoneCaptureOptions: NonNullable<RoomOptions['audioCaptureDefa
   sampleRate:        48_000,
   sampleSize:        16,
   latency:           0,
+}
+
+/** Restricción de micrófono para LiveKit; `null` usa el micrófono predeterminado del sistema. */
+export function microphoneCaptureOptionsWithPreferredMic(
+  preferredDeviceId: string | null,
+): AudioCaptureOptions {
+  const id = preferredDeviceId?.trim()
+  if (!id) return microphoneCaptureOptions
+  return { ...microphoneCaptureOptions, deviceId: id }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

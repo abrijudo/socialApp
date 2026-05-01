@@ -1,5 +1,16 @@
-import { useEffect, useState } from 'react'
-import { Check, Copy, LogOut, UserCircle, Settings, UserRoundPlus } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  ChevronRight,
+  Copy,
+  Headphones,
+  LogOut,
+  Mic,
+  Server,
+  Settings,
+  UserCircle,
+  UserRoundPlus,
+} from 'lucide-react'
+import { Room } from 'livekit-client'
 import { toast } from 'sonner'
 import { FriendManager } from '@/components/friends/FriendManager'
 import { UserProfilePopup } from '@/components/modals/UserProfilePopup'
@@ -10,8 +21,18 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { USER_ACCOUNT_FOOTER_DOCK } from '@/lib/chatComposer'
 import { LUX_ICON_STROKE, luxIconRow } from '@/lib/luxIcon'
 import { useAppStore } from '@/store/useAppStore'
@@ -24,6 +45,23 @@ const THEME_CHOICES: { id: UiTheme; label: string; swatch: string }[] = [
   { id: 'blue', label: 'Tema azul', swatch: 'oklch(0.66 0.13 240)' },
   { id: 'purple', label: 'Tema morado', swatch: 'oklch(0.66 0.24 300)' },
 ]
+
+function fingerprintDeviceId(deviceId: string): string {
+  const t = deviceId.trim()
+  if (!t) return '?'
+  if (t.length <= 8) return t
+  return `${t.slice(0, 6)}…`
+}
+
+function formatMicrophoneLabel(device: MediaDeviceInfo, index: number): string {
+  const lbl = device.label?.trim() ?? ''
+  return lbl.length > 0 ? lbl : `Micrófono (${fingerprintDeviceId(device.deviceId) || `#${index + 1}`})`
+}
+
+function formatSpeakerLabel(device: MediaDeviceInfo, index: number): string {
+  const lbl = device.label?.trim() ?? ''
+  return lbl.length > 0 ? lbl : `Salida (${fingerprintDeviceId(device.deviceId) || `#${index + 1}`})`
+}
 
 /** Anillo de presencia integrado en el avatar (menos ruido visual que un dot suelto). */
 function presenceAvatarRingClass(status: ProfileStatus): string {
@@ -52,17 +90,54 @@ export function UserAccountFooter({ className }: { className?: string }) {
   const logout = useAppStore((s) => s.logout)
   const uiTheme = useAppStore((s) => s.uiTheme)
   const setUiTheme = useAppStore((s) => s.setUiTheme)
+  const preferredVoiceMicDeviceId = useAppStore((s) => s.preferredVoiceMicDeviceId)
+  const preferredVoiceSpeakerDeviceId = useAppStore((s) => s.preferredVoiceSpeakerDeviceId)
+  const setPreferredVoiceMicDeviceId = useAppStore((s) => s.setPreferredVoiceMicDeviceId)
+  const setPreferredVoiceSpeakerDeviceId = useAppStore((s) => s.setPreferredVoiceSpeakerDeviceId)
 
   const [profileOpen, setProfileOpen] = useState(false)
   const [friendsOpen, setFriendsOpen] = useState(false)
   const [avatarBroken, setAvatarBroken] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [serverSettingsOpen, setServerSettingsOpen] = useState(false)
+  const [audioInputs, setAudioInputs] = useState<MediaDeviceInfo[]>([])
+  const [audioOutputs, setAudioOutputs] = useState<MediaDeviceInfo[]>([])
+  const warmMicEnumerateRef = useRef(false)
+
+  const refreshAudioHardware = useCallback(async () => {
+    try {
+      const inputs = await Room.getLocalDevices('audioinput', !warmMicEnumerateRef.current)
+      warmMicEnumerateRef.current = true
+      const outputs = await Room.getLocalDevices('audiooutput', false)
+      setAudioInputs(inputs)
+      setAudioOutputs(outputs)
+    } catch (e) {
+      console.warn('[UserAccountFooter] No se pudieron enumerar dispositivos de audio:', e)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!menuOpen) {
+      setServerSettingsOpen(false)
+    }
+  }, [menuOpen])
+
+  useEffect(() => {
+    if (!menuOpen || !serverSettingsOpen) return undefined
+    const nv = navigator.mediaDevices
+    if (!nv?.addEventListener) return undefined
+    const sync = (): void => {
+      void refreshAudioHardware()
+    }
+    nv.addEventListener('devicechange', sync)
+    return () => nv.removeEventListener('devicechange', sync)
+  }, [menuOpen, serverSettingsOpen, refreshAudioHardware])
 
   const displayName = profile?.display_name || profile?.username || username || 'Usuario'
   const handle = profile?.username ?? username ?? '…'
   const status: ProfileStatus = profile?.status ?? 'offline'
   const avatarUrl = profile?.avatar_url?.trim() || ''
   const showAvatarImg = Boolean(avatarUrl) && !avatarBroken
-  const fullIdentityLabel = `${displayName} · @${handle}`
 
   useEffect(() => {
     setAvatarBroken(false)
@@ -77,6 +152,18 @@ export function UserAccountFooter({ className }: { className?: string }) {
       toast.error('No se pudo copiar')
     }
   }
+
+  const micSelectValue = useMemo((): string => {
+    if (preferredVoiceMicDeviceId == null) return '__default__'
+    if (audioInputs.some((d) => d.deviceId === preferredVoiceMicDeviceId)) return preferredVoiceMicDeviceId
+    return '__default__'
+  }, [preferredVoiceMicDeviceId, audioInputs])
+
+  const speakerSelectValue = useMemo((): string => {
+    if (preferredVoiceSpeakerDeviceId == null) return '__default__'
+    if (audioOutputs.some((d) => d.deviceId === preferredVoiceSpeakerDeviceId)) return preferredVoiceSpeakerDeviceId
+    return '__default__'
+  }, [preferredVoiceSpeakerDeviceId, audioOutputs])
 
   return (
     <>
@@ -119,7 +206,7 @@ export function UserAccountFooter({ className }: { className?: string }) {
             </p>
           </div>
 
-          <DropdownMenu>
+          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen} modal={false}>
             <DropdownMenuTrigger asChild>
               <Button
                 type="button"
@@ -130,13 +217,13 @@ export function UserAccountFooter({ className }: { className?: string }) {
                   'hover:bg-muted/55 hover:text-foreground hover:opacity-100',
                   'focus-visible:ring-2 focus-visible:ring-ring/45',
                 )}
-                title={fullIdentityLabel}
-                aria-label="Cuenta y ajustes"
+                title="Ajustes"
+                aria-label="Ajustes"
               >
-                <Settings className={cn(luxIconRow, 'size-4')} strokeWidth={LUX_ICON_STROKE} />
+                <Settings className={cn(luxIconRow, 'size-4')} strokeWidth={LUX_ICON_STROKE} aria-hidden />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" side="top" className="w-56">
+            <DropdownMenuContent align="end" side="top" className="min-w-52">
               <DropdownMenuLabel className="font-normal">
                 <span className="text-foreground text-xs font-medium">Cuenta</span>
               </DropdownMenuLabel>
@@ -161,30 +248,141 @@ export function UserAccountFooter({ className }: { className?: string }) {
                 Copiar nombre de usuario
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuLabel className="font-normal">
-                <span className="text-foreground text-xs font-medium">Apariencia</span>
-              </DropdownMenuLabel>
-              {THEME_CHOICES.map((opt) => (
-                <DropdownMenuItem
-                  key={opt.id}
-                  onSelect={() => {
-                    setUiTheme(opt.id)
-                  }}
-                  className="justify-between"
+              <DropdownMenuSub
+                onOpenChange={(open) => {
+                  setServerSettingsOpen(open)
+                  if (open) void refreshAudioHardware()
+                }}
+              >
+                <DropdownMenuSubTrigger className="gap-2 pr-2">
+                  <Server className={cn(luxIconRow, 'size-4 shrink-0')} strokeWidth={LUX_ICON_STROKE} aria-hidden />
+                  <span className="min-w-0 flex-1 truncate font-medium text-foreground">Ajustes de servidor</span>
+                  <ChevronRight className="text-muted-foreground size-4 shrink-0 opacity-80" aria-hidden />
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent
+                  sideOffset={8}
+                  alignOffset={-4}
+                  className="min-w-[min(94vw,20rem)] max-w-[min(96vw,26rem)] overflow-visible p-0"
                 >
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span
-                      className="size-3.5 shrink-0 rounded-full border border-border shadow-inner"
-                      style={{ background: opt.swatch }}
-                      aria-hidden
-                    />
-                    <span className="truncate">{opt.label}</span>
-                  </span>
-                  {uiTheme === opt.id ? (
-                    <Check className="text-primary size-4 shrink-0" strokeWidth={LUX_ICON_STROKE} aria-hidden />
-                  ) : null}
-                </DropdownMenuItem>
-              ))}
+                  <div
+                    className="flex flex-col gap-3 px-2.5 py-2.5"
+                    onPointerDown={(e) => {
+                      e.stopPropagation()
+                    }}
+                  >
+                    <div className="space-y-1.5">
+                      <p className="text-muted-foreground px-0.5 text-[0.6875rem] font-semibold uppercase tracking-wide">
+                        Apariencia
+                      </p>
+                      <Select value={uiTheme} onValueChange={(v) => setUiTheme(v as UiTheme)}>
+                        <SelectTrigger
+                          size="sm"
+                          className="h-9 w-full min-w-0 border-border/80 bg-background/80"
+                          aria-label="Tema visual"
+                        >
+                          <SelectValue placeholder="Elige tema" />
+                        </SelectTrigger>
+                        <SelectContent position="popper" sideOffset={8} align="start" className="z-[300]">
+                          {THEME_CHOICES.map((opt) => (
+                            <SelectItem key={opt.id} value={opt.id}>
+                              <span className="flex items-center gap-2">
+                                <span
+                                  className="size-3 shrink-0 rounded-full border border-border shadow-inner"
+                                  style={{ background: opt.swatch }}
+                                  aria-hidden
+                                />
+                                {opt.label}
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <p className="text-muted-foreground flex items-center gap-1.5 px-0.5 text-[0.6875rem] font-semibold uppercase tracking-wide">
+                        <Mic
+                          className={cn(luxIconRow, 'size-3.5 opacity-90')}
+                          strokeWidth={LUX_ICON_STROKE}
+                          aria-hidden
+                        />
+                        Micrófono
+                      </p>
+                      <Select
+                        value={micSelectValue}
+                        onValueChange={(v) => setPreferredVoiceMicDeviceId(v === '__default__' ? null : v)}
+                      >
+                        <SelectTrigger
+                          size="sm"
+                          className="h-9 w-full min-w-0 border-border/80 bg-background/80"
+                          aria-label="Micrófono"
+                        >
+                          <SelectValue placeholder="Elegir micrófono" />
+                        </SelectTrigger>
+                        <SelectContent
+                          position="popper"
+                          sideOffset={8}
+                          align="start"
+                          className="z-[300] max-h-[min(50vh,280px)]"
+                        >
+                          <SelectItem value="__default__">Predeterminado del sistema</SelectItem>
+                          {audioInputs
+                            .filter((d) => d.deviceId.trim().length > 0)
+                            .map((dev, idx) => (
+                              <SelectItem key={dev.deviceId} value={dev.deviceId}>
+                                {formatMicrophoneLabel(dev, idx)}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {audioOutputs.length > 0 ? (
+                      <div className="space-y-1.5">
+                        <p className="text-muted-foreground flex items-center gap-1.5 px-0.5 text-[0.6875rem] font-semibold uppercase tracking-wide">
+                          <Headphones
+                            className={cn(luxIconRow, 'size-3.5 opacity-90')}
+                            strokeWidth={LUX_ICON_STROKE}
+                            aria-hidden
+                          />
+                          Altavoz · auriculares
+                        </p>
+                        <Select
+                          value={speakerSelectValue}
+                          onValueChange={(v) => setPreferredVoiceSpeakerDeviceId(v === '__default__' ? null : v)}
+                        >
+                          <SelectTrigger
+                            size="sm"
+                            className="h-9 w-full min-w-0 border-border/80 bg-background/80"
+                            aria-label="Salida de audio"
+                          >
+                            <SelectValue placeholder="Elegir altavoz o auriculares" />
+                          </SelectTrigger>
+                          <SelectContent
+                            position="popper"
+                            sideOffset={8}
+                            align="start"
+                            className="z-[300] max-h-[min(50vh,280px)]"
+                          >
+                            <SelectItem value="__default__">Predeterminado del sistema</SelectItem>
+                            {audioOutputs
+                              .filter((d) => d.deviceId.trim().length > 0)
+                              .map((dev, idx) => (
+                                <SelectItem key={dev.deviceId} value={dev.deviceId}>
+                                  {formatSpeakerLabel(dev, idx)}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ) : (
+                      <p className="text-muted-foreground px-0.5 text-[0.7rem] leading-snug">
+                        Salida de audio: no se listan dispositivos en este entorno.
+                      </p>
+                    )}
+                  </div>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 variant="destructive"

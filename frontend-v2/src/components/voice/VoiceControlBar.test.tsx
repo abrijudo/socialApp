@@ -67,6 +67,7 @@ vi.mock('@/store/useAppStore', () => ({
       setLocalCameraEnabled: (enabled: boolean) => void
       setLocalScreenShareEnabled: (enabled: boolean) => void
       setLocalVoiceSpeaking: (speaking: boolean) => void
+      preferredVoiceMicDeviceId: string | null
     }) => unknown,
   ) =>
     selector({
@@ -75,6 +76,7 @@ vi.mock('@/store/useAppStore', () => ({
       setLocalCameraEnabled,
       setLocalScreenShareEnabled,
       setLocalVoiceSpeaking,
+      preferredVoiceMicDeviceId: null,
     }),
 }))
 

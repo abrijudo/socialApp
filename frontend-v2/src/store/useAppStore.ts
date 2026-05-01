@@ -158,6 +158,10 @@ export interface AppState {
   friendsListLoading: boolean
   /** Paleta (variables CSS bajo `data-theme` en `html`). */
   uiTheme: UiTheme
+  /** Micrófono preferido para voz (LiveKit); `null` = predeterminado del sistema (primer entrada enumerada). */
+  preferredVoiceMicDeviceId: string | null
+  /** Salida de audio de la sala (`setSinkId`); `null` = predeterminado. */
+  preferredVoiceSpeakerDeviceId: string | null
 }
 
 export interface AppActions {
@@ -233,6 +237,8 @@ export interface AppActions {
   setUiTheme: (theme: UiTheme) => void
   /** Lista de nombres mostrable para el indicador “escribiendo…” (Realtime). */
   setTypingUsernamesForChannel: (channelId: string, usernames: string[]) => void
+  setPreferredVoiceMicDeviceId: (deviceId: string | null) => void
+  setPreferredVoiceSpeakerDeviceId: (deviceId: string | null) => void
 }
 
 const initialState: AppState = {
@@ -281,6 +287,8 @@ const initialState: AppState = {
   pendingRequests: { incoming: [], outgoing: [] },
   friendsListLoading: false,
   uiTheme: 'dark' satisfies UiTheme,
+  preferredVoiceMicDeviceId: null,
+  preferredVoiceSpeakerDeviceId: null,
   messagesHasMoreByChannel: {},
   dmMessagesHasMoreByChannel: {},
   messagesLoadingOlderByChannel: {},
@@ -328,6 +336,11 @@ export const useAppStore = create<AppState & AppActions>()(
         set({ uiTheme: theme })
         applyUiThemeToDocument(theme)
       },
+
+      setPreferredVoiceMicDeviceId: (deviceId) => set({ preferredVoiceMicDeviceId: deviceId }),
+
+      setPreferredVoiceSpeakerDeviceId: (deviceId) =>
+        set({ preferredVoiceSpeakerDeviceId: deviceId }),
 
       setTypingUsernamesForChannel: (channelId, usernames) => {
         if (!channelId) return
@@ -905,6 +918,8 @@ export const useAppStore = create<AppState & AppActions>()(
     set((s) => ({
       ...initialState,
       uiTheme: s.uiTheme,
+      preferredVoiceMicDeviceId: s.preferredVoiceMicDeviceId,
+      preferredVoiceSpeakerDeviceId: s.preferredVoiceSpeakerDeviceId,
     })),
 
   logout: async () => {
@@ -922,6 +937,8 @@ export const useAppStore = create<AppState & AppActions>()(
       ...initialState,
       needsUsername: true,
       uiTheme: s.uiTheme,
+      preferredVoiceMicDeviceId: s.preferredVoiceMicDeviceId,
+      preferredVoiceSpeakerDeviceId: s.preferredVoiceSpeakerDeviceId,
     }))
   },
 
@@ -988,7 +1005,11 @@ export const useAppStore = create<AppState & AppActions>()(
     }),
     {
       name: UI_THEME_STORAGE_KEY,
-      partialize: (s) => ({ uiTheme: s.uiTheme }),
+      partialize: (s) => ({
+        uiTheme: s.uiTheme,
+        preferredVoiceMicDeviceId: s.preferredVoiceMicDeviceId,
+        preferredVoiceSpeakerDeviceId: s.preferredVoiceSpeakerDeviceId,
+      }),
       storage: createJSONStorage(() => localStorage),
       version: 0,
       merge: (persisted, current) => {
@@ -997,10 +1018,20 @@ export const useAppStore = create<AppState & AppActions>()(
           return c as never
         }
         const p = persisted as Partial<AppState>
+        const mic =
+          typeof p.preferredVoiceMicDeviceId === 'string' || p.preferredVoiceMicDeviceId === null
+            ? p.preferredVoiceMicDeviceId
+            : c.preferredVoiceMicDeviceId
+        const spk =
+          typeof p.preferredVoiceSpeakerDeviceId === 'string' || p.preferredVoiceSpeakerDeviceId === null
+            ? p.preferredVoiceSpeakerDeviceId
+            : c.preferredVoiceSpeakerDeviceId
         return {
           ...c,
           ...p,
           uiTheme: isUiTheme(p.uiTheme) ? p.uiTheme : c.uiTheme,
+          preferredVoiceMicDeviceId: mic,
+          preferredVoiceSpeakerDeviceId: spk,
         } as never
       },
     },

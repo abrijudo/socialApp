@@ -1,7 +1,7 @@
 {
   "name": "social-club",
   "private": true,
-  "version": "0.1.41",
+  "version": "0.1.43",
   "description": "Cliente de escritorio (Electron)",
   "author": "abrijudo",
   "type": "module",
