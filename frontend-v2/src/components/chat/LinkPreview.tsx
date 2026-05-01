@@ -26,10 +26,10 @@ function displaySiteName(urlStr: string): string {
 }
 
 /**
- * ID del vídeo a partir de la URL pública o de embed (dominio `www.youtube.com` o `youtu.be`).
- * El reproductor embebido en la UI usa `youtube-nocookie.com` (mejor con Electron y referrer).
+ * ID del vídeo desde URL pública o de embed (YouTube / youtu.be).
+ * Expuesto para heurísticas de layout; el iframe usa `youtube-nocookie.com`.
  */
-function getYouTubeVideoId(pageUrl: string): string | null {
+export function getYouTubeVideoIdFromPreviewUrl(pageUrl: string): string | null {
   try {
     const u = new URL(pageUrl)
     const host = u.hostname.replace(/^www\./, '')
@@ -84,15 +84,47 @@ function youtubeIframeReferrerPolicy(): HTMLAttributeReferrerPolicy | undefined 
 const cardClass =
   'mt-2 w-full max-w-lg min-w-0 overflow-hidden rounded-md border border-l-4 border-l-primary border-border bg-muted/30 text-foreground'
 
+/** Misma disposición que la tarjeta con iframe; evita el salto h-16 → aspect-video al virtualizar. */
+function LinkPreviewYoutubeSkeleton() {
+  return (
+    <div className={cn(cardClass, 'border-border/60 bg-card/40')} aria-hidden>
+      <div className="min-w-0 w-full px-3 pt-2.5 pb-2">
+        <div className="relative mt-2 aspect-video w-full overflow-hidden rounded-md bg-muted/45 animate-pulse" />
+      </div>
+      <div className="space-y-2 px-3 pb-2.5">
+        <div className="h-3 w-20 rounded bg-muted/45 animate-pulse" />
+        <div className="h-4 w-[90%] max-w-sm rounded bg-muted/50 animate-pulse" />
+        <div className="h-3 w-[72%] rounded bg-muted/40 animate-pulse" />
+      </div>
+    </div>
+  )
+}
+
+/** Altura cercana a tarjeta OG típica (texto); mejor que un único bloque bajo. */
+function LinkPreviewGenericSkeleton() {
+  return (
+    <div className={cn(cardClass, 'border-border/60 bg-card/40')} aria-hidden>
+      <div className="space-y-2 px-3 py-3">
+        <div className="h-3 w-[7.5rem] rounded bg-muted/45 animate-pulse" />
+        <div className="h-4 w-[92%] max-w-md rounded bg-muted/50 animate-pulse" />
+        <div className="h-[0.8125rem] w-[88%] rounded bg-muted/40 animate-pulse" />
+        <div className="min-h-[2.625rem] w-[74%] rounded bg-muted/35 animate-pulse" />
+      </div>
+    </div>
+  )
+}
+
 export const LinkPreview = memo(function LinkPreview({ url }: { url: string }) {
   const accessToken = useAppStore((s) => s.accessToken)
   const [data, setData] = useState<LinkPreviewData | null>(null)
   const [loading, setLoading] = useState(true)
   const [imgError, setImgError] = useState(false)
+  const [imgLoaded, setImgLoaded] = useState(false)
 
   useEffect(() => {
     setData(null)
     setImgError(false)
+    setImgLoaded(false)
     setLoading(true)
     let cancel = false
     const ac = new AbortController()
@@ -139,16 +171,13 @@ export const LinkPreview = memo(function LinkPreview({ url }: { url: string }) {
   }, [url, accessToken])
 
   if (loading) {
-    return (
-      <div
-        className={cn(cardClass, 'h-16 animate-pulse border-border/60 bg-card/50')}
-        aria-hidden
-      />
-    )
+    const youtubeGuess = getYouTubeVideoIdFromPreviewUrl(url)
+    if (youtubeGuess) return <LinkPreviewYoutubeSkeleton />
+    return <LinkPreviewGenericSkeleton />
   }
   if (!data) return null
 
-  const videoId = getYouTubeVideoId(data.url)
+  const videoId = getYouTubeVideoIdFromPreviewUrl(data.url)
   const showYoutube = Boolean(videoId)
   const hasImage = Boolean(data.image) && !imgError && !showYoutube
   const hasDescription = Boolean(data.description?.trim())
@@ -218,13 +247,25 @@ export const LinkPreview = memo(function LinkPreview({ url }: { url: string }) {
           rel="noopener noreferrer"
           className="border-border/50 block min-w-0 w-full overflow-hidden border-t px-3 pb-3"
         >
-          <img
-            src={data.image!}
-            alt=""
-            className="mt-2 max-h-64 w-full rounded-md object-cover object-center"
-            onError={() => setImgError(true)}
-            loading="lazy"
-          />
+          <div className="relative mt-2 min-h-64 w-full overflow-hidden rounded-md bg-muted/25">
+            {!imgLoaded ? (
+              <div className="absolute inset-0 animate-pulse bg-muted/45" aria-hidden />
+            ) : null}
+            <img
+              src={data.image!}
+              alt=""
+              className={cn(
+                'relative z-[1] max-h-64 w-full rounded-md object-cover object-center transition-opacity duration-200',
+                imgLoaded ? 'opacity-100' : 'opacity-0',
+              )}
+              onLoad={() => setImgLoaded(true)}
+              onError={() => {
+                setImgError(true)
+                setImgLoaded(false)
+              }}
+              loading="lazy"
+            />
+          </div>
         </a>
       ) : null}
     </div>
