@@ -69,10 +69,12 @@ export function buildDisplayMediaStreamOptions(
     // un techo de 30 fps para mantener estabilidad en esa plataforma.
     const maxFr = isLikelySafari() ? SAFARI_MAX_FRAMERATE : DISPLAY_CAPTURE_MAX_FRAMERATE
 
+    // getDisplayMedia no admite `min` (ni muchas restricciones obligatorias): Chromium lanza
+    // «min constraints are not supported». ideal+max bastan para guiar resolución y fps.
     Object.assign(v, {
       width:     { ideal: idealW,  max: DISPLAY_CAPTURE_MAX_WIDTH  },
       height:    { ideal: idealH,  max: DISPLAY_CAPTURE_MAX_HEIGHT },
-      frameRate: { ideal: Math.min(idealFr, maxFr), max: maxFr, min: 15 },
+      frameRate: { ideal: Math.min(idealFr, maxFr), max: maxFr },
     })
   }
 
